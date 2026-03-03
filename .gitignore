@@ -1,0 +1,83 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# ------------------------------------------------------------------------------
+# Dependencies
+# ------------------------------------------------------------------------------
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# ------------------------------------------------------------------------------
+# Next.js & Build Outputs
+# ------------------------------------------------------------------------------
+/.next/
+/out/
+/build
+/dist
+/.swc/
+# Next.js Telemetry cache
+.next/cache/
+
+# ------------------------------------------------------------------------------
+# Environment Variables
+# ------------------------------------------------------------------------------
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+# But allow the example template to be committed
+!.env.example
+
+# ------------------------------------------------------------------------------
+# IDEs & Editor Configuration
+# ------------------------------------------------------------------------------
+# WebStorm / IntelliJ
+.idea/
+*.iws
+*.iml
+*.ipr
+# VS Code
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
+
+# ------------------------------------------------------------------------------
+# Testing & Debugging
+# ------------------------------------------------------------------------------
+/coverage
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+# Playwright/Cypress traces
+test-results/
+playwright-report/
+blob-report/
+
+# ------------------------------------------------------------------------------
+# Operating System Files
+# ------------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ------------------------------------------------------------------------------
+# Miscellaneous
+# ------------------------------------------------------------------------------
+*.pem
+.vercel
+*.tsbuildinfo
+next-env.d.ts
+# Turbo cache
+.turbo/
