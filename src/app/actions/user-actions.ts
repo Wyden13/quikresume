@@ -1,5 +1,3 @@
-// src/app/actions/user-actions.ts
-
 "use server"
 
 import { auth } from "@/auth"
@@ -11,22 +9,31 @@ export async function updateProfile(formData: FormData) {
     const session = await auth()
     if (!session?.user?.id) throw new Error("Unauthorized")
 
+    // Required fields
+    const firstName = formData.get("firstName") as string
+    const lastName = formData.get("lastName") as string
+
+    if (!firstName || !lastName) {
+        throw new Error("First and Last name are required.")
+    }
+
     const data = {
-        firstName: formData.get("firstName") as string,
-        middleName: formData.get("middleName") as string,
-        lastName: formData.get("lastName") as string,
-        linkedIn: formData.get("linkedIn") as string,
-        phoneNumber: formData.get("phoneNumber") as string,
-        location: formData.get("location") as string,
-        bio: formData.get("bio") as string,
-        overview: formData.get("overview") as string,
-        availability: formData.get("availability") as string,
-        // Ensure we don't overwrite the email since it's permanent
+        firstName: firstName,
+        lastName: lastName,
+        // Optional fields: if empty string, save as null
+        middleName: (formData.get("middleName") as string) || null,
+        professionalEmail: (formData.get("professionalEmail") as string) || null,
+        linkedIn: (formData.get("linkedIn") as string) || null,
+        phoneNumber: (formData.get("phoneNumber") as string) || null,
+        location: (formData.get("location") as string) || null,
+        bio: (formData.get("bio") as string) || null,
+        overview: (formData.get("overview") as string) || null,
+        availability: (formData.get("availability") as string) || null,
         updatedAt: new Date(),
     }
 
     await db.collection("users").doc(session.user.id).set(data, { merge: true })
 
     revalidatePath("/dashboard")
-    redirect("/dashboard") // Send them home after saving
+    redirect("/dashboard")
 }
