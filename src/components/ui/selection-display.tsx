@@ -11,7 +11,20 @@ interface SelectionDisplayProps {
 export default function SelectionDisplay({ experiences, educations }: SelectionDisplayProps) {
     const hasItems = (experiences && experiences.length > 0) || (educations && educations.length > 0);
 
+    // Helper to format string dates
+    const formatDate = (dateStr: string) => {
+        if (!dateStr) return "";
+        try {
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+        } catch {
+            return dateStr;
+        }
+    };
+
     if (!hasItems) {
+// ... (rest of component)
+
         return (
             <div className="p-20 border-2 border-dashed border-black/5 rounded-[2.5rem] text-center bg-gray-50/50">
                 <div className="w-16 h-16 bg-black/5 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -52,10 +65,11 @@ export default function SelectionDisplay({ experiences, educations }: SelectionD
                                 onUpdate={updateExperience}
                                 onDelete={deleteExperience}
                                 type="experience"
+                                formatDate={formatDate}
                             >
                                 {exp.description && exp.description.length > 0 && (
                                     <ul className="list-disc list-outside ml-4 text-sm text-black/55 space-y-2">
-                                        {exp.description.map((line, i) => (
+                                        {exp.description.map((line: string, i: number) => (
                                             <li key={i} className="pl-1 leading-relaxed">{line}</li>
                                         ))}
                                     </ul>
@@ -93,6 +107,7 @@ export default function SelectionDisplay({ experiences, educations }: SelectionD
                                 onUpdate={updateEducation}
                                 onDelete={deleteEducation}
                                 type="education"
+                                formatDate={formatDate}
                             >
                                 <div className="space-y-3">
                                     <div className="flex items-center gap-2 text-black/55">
@@ -119,14 +134,15 @@ interface SelectionCardProps {
     id: string;
     title: string;
     subtitle: string;
-    startDate: { toDate: () => Date };
-    endDate?: { toDate: () => Date } | null;
+    startDate: string;
+    endDate?: string | null;
     isActive: boolean;
     isSelected: boolean;
     onUpdate: (id: string, formData: FormData) => Promise<void>;
     onDelete: (id: string) => Promise<void>;
     type: 'experience' | 'education';
     children?: React.ReactNode;
+    formatDate: (str: string) => string;
 }
 
 function SelectionCard({
@@ -140,7 +156,8 @@ function SelectionCard({
     onUpdate,
     onDelete,
     type,
-    children
+    children,
+    formatDate
 }: SelectionCardProps) {
     return (
         <div className={`group relative bg-white p-8 border-[1.5px] transition-all flex flex-col h-full rounded-[2rem] overflow-hidden ${
@@ -156,7 +173,7 @@ function SelectionCard({
                     <div className="flex items-center gap-2.5 mt-3">
                         <div className={`h-2 w-2 rounded-full ${isActive ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-black/10'}`}></div>
                         <p className="text-[11px] text-black/40 uppercase tracking-[0.1em] font-black">
-                            {startDate?.toDate().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} — {isActive ? 'Present' : endDate?.toDate().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                            {formatDate(startDate)} — {isActive ? 'Present' : formatDate(endDate || "")}
                         </p>
                     </div>
                 </div>

@@ -37,6 +37,8 @@ export interface SkillCategory {
     category: string;
     items: string;
     isSelected: boolean;
+    updatedAt?: string | null;
+    createdAt?: string | null;
 }
 
 export interface ResumeData {

@@ -16,12 +16,12 @@ export interface EducationItem {
     minorName?: string | null;
     doubleMajor?: string | null;
     gpa?: string | null;
-    startDate: Timestamp;
-    endDate: Timestamp | null;
+    startDate: string;
+    endDate: string | null;
     isActive: boolean;
     isSelected: boolean;
-    createdAt: Timestamp;
-    updatedAt?: Timestamp;
+    createdAt: string;
+    updatedAt?: string | null;
 }
 
 interface UpdateEducationData {
@@ -52,10 +52,17 @@ export async function getEducations() {
         .orderBy("startDate", "desc")
         .get()
 
-    return snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-    })) as EducationItem[];
+    return snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+            id: doc.id,
+            ...data,
+            startDate: data.startDate?.toDate().toISOString(),
+            endDate: data.endDate?.toDate().toISOString() || null,
+            createdAt: data.createdAt?.toDate().toISOString(),
+            updatedAt: data.updatedAt?.toDate().toISOString() || null,
+        };
+    }) as EducationItem[];
 }
 
 // --- 1. CREATE ---
@@ -103,6 +110,7 @@ export async function createEducation(formData: FormData){
         .add(data)
 
     revalidatePath("/test")
+    revalidatePath("/dashboard")
 }
 
 // --- 2. UPDATE (Handles partial updates flawlessly) ---
@@ -156,6 +164,7 @@ export async function updateEducation(educationId: string, formData: FormData) {
     }
 
     revalidatePath("/test")
+    revalidatePath("/dashboard")
 }
 
 // --- 3. DELETE ---
@@ -171,4 +180,5 @@ export async function deleteEducation(educationId: string) {
         .delete()
 
     revalidatePath("/test")
+    revalidatePath("/dashboard")
 }

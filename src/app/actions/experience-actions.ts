@@ -13,11 +13,11 @@ export interface ExperienceItem {
     company: string;
     isActive: boolean;
     isSelected: boolean;
-    startDate: Timestamp;
-    endDate: Timestamp | null;
+    startDate: string;
+    endDate: string | null;
     description: string[];
-    createdAt: Timestamp;
-    updatedAt?: Timestamp;
+    createdAt: string;
+    updatedAt?: string | null;
 }
 
 interface UpdateExperienceData {
@@ -43,10 +43,17 @@ export async function getExperiences() {
         .orderBy("startDate", "desc")
         .get()
 
-    return snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-    })) as ExperienceItem[]
+    return snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+            id: doc.id,
+            ...data,
+            startDate: data.startDate?.toDate().toISOString(),
+            endDate: data.endDate?.toDate().toISOString() || null,
+            createdAt: data.createdAt?.toDate().toISOString(),
+            updatedAt: data.updatedAt?.toDate().toISOString() || null,
+        };
+    }) as ExperienceItem[]; // We will refine the type in the next step or keep as any for now to avoid conflicts
 }
 
 // --- 1. CREATE ---
@@ -82,6 +89,7 @@ export async function createExperience(formData: FormData){
 
     revalidatePath("/test")
     revalidatePath("/work-test")
+    revalidatePath("/dashboard")
 }
 
 // --- 2. UPDATE (Handles partial updates flawlessly) ---
@@ -140,6 +148,7 @@ export async function updateExperience(experienceId: string, formData: FormData)
 
     revalidatePath("/test")
     revalidatePath("/work-test")
+    revalidatePath("/dashboard")
 }
 
 // --- 3. DELETE ---
@@ -156,4 +165,5 @@ export async function deleteExperience(experienceId: string) {
 
     revalidatePath("/test")
     revalidatePath("/work-test")
+    revalidatePath("/dashboard")
 }

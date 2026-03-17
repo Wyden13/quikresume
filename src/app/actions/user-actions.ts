@@ -5,8 +5,6 @@ import { db } from "@/lib/firestore"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
-import { PersonalInfo } from "@/types/schema"
-
 export async function getUserProfile() {
     const session = await auth()
     if (!session?.user?.id) return null
@@ -14,10 +12,22 @@ export async function getUserProfile() {
     const userDoc = await db.collection("users").doc(session.user.id).get()
     if (!userDoc.exists) return null
 
+    const data = userDoc.data();
+    if (!data) return null;
+
+    // Sanitize data: convert all Timestamps to strings
     return {
+        ...data,
         id: userDoc.id,
-        ...userDoc.data()
-    } as PersonalInfo & { id: string };
+        emailVerified: data.emailVerified?.toDate().toISOString() || null,
+        updatedAt: data.updatedAt?.toDate().toISOString() || null,
+    } as {
+        id: string;
+        firstName: string;
+        lastName: string;
+        email: string;
+        [key: string]: unknown;
+    }; 
 }
 
 export async function updateProfile(formData: FormData) {

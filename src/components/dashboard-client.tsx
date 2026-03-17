@@ -30,6 +30,31 @@ export default function DashboardClient({ initialExperiences, initialEducations,
         skills: [],
     });
 
+    // SYNC LOCAL STATE WITH LIBRARY PROPS
+    // This ensures Generate Resume view is updated when selection toggles in SelectionDisplay
+    React.useEffect(() => {
+        setResumeData(prev => ({
+            ...prev,
+            workExperience: initialExperiences.map(e => ({
+                id: e.id,
+                title: e.position,
+                company: e.company,
+                startDate: e.startDate ? e.startDate.split("T")[0] : "",
+                endDate: e.isActive ? "Present" : (e.endDate ? e.endDate.split("T")[0] : ""),
+                description: e.description.join("\n"),
+                isSelected: e.isSelected,
+            })),
+            education: initialEducations.map(e => ({
+                id: e.id,
+                degree: e.programName,
+                institution: e.schoolName,
+                year: `${e.startDate ? new Date(e.startDate).getFullYear() : ''} - ${e.isActive ? 'Present' : (e.endDate ? new Date(e.endDate).getFullYear() : '')}`,
+                details: e.gpa || "",
+                isSelected: e.isSelected,
+            })),
+        }));
+    }, [initialExperiences, initialEducations]);
+
     return (
         <div className="max-w-[1280px] mx-auto p-6 md:p-12 space-y-12">
             {/* Top Bar */}

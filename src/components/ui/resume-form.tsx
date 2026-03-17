@@ -3,8 +3,6 @@
 import React, { useEffect, useState } from 'react';
 import { ResumeData, WorkExperience, Education, SkillCategory } from "@/types/schema";
 import { getUserProfile } from "@/app/actions/user-actions";
-import { getExperiences } from "@/app/actions/experience-actions";
-import { getEducations } from "@/app/actions/education-actions";
 import { getSkills } from "@/app/actions/skill-actions";
 import { saveResumeData } from "@/app/actions/resume-actions";
 
@@ -84,44 +82,29 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
     const [isSaving, setIsSaving] = useState(false);
     const [isLoaded, setIsLoaded] = useState(false);
 
-    // PREFILL ALL INFO FROM MASTER LIBRARY ON INITIAL LOAD
+    // PREFILL PERSONAL INFO FROM MASTER LIBRARY ON INITIAL LOAD
     useEffect(() => {
         const prefillFromDB = async () => {
             if (isLoaded) return;
 
             const profile = await getUserProfile();
-            const exps = await getExperiences();
-            const edus = await getEducations();
+            // We only fetch skills here as others are synced via DashboardClient props now
             const sks = await getSkills();
 
             const fullName = profile ? `${profile.firstName} ${profile.lastName}`.trim() : "";
             
+            // Only update personal info if it's currently empty to avoid overwriting edits
+            const shouldUpdateProfile = !resumeData.personalInfo.fullName;
+
             onChange({
                 ...resumeData,
-                personalInfo: {
+                personalInfo: shouldUpdateProfile ? {
                     fullName: fullName || resumeData.personalInfo.fullName,
                     email: profile?.professionalEmail || profile?.email || resumeData.personalInfo.email,
                     phone: profile?.phoneNumber || resumeData.personalInfo.phone,
                     location: profile?.location || resumeData.personalInfo.location,
                     summary: profile?.bio || profile?.overview || resumeData.personalInfo.summary,
-                },
-                workExperience: exps.map(e => ({
-                    id: e.id,
-                    title: e.position,
-                    company: e.company,
-                    startDate: e.startDate?.toDate().toISOString().split("T")[0],
-                    endDate: e.isActive ? "Present" : e.endDate?.toDate().toISOString().split("T")[0] || "",
-                    description: e.description.join("\n"),
-                    isSelected: e.isSelected,
-                })),
-                education: edus.map(e => ({
-                    id: e.id,
-                    degree: e.programName,
-                    institution: e.schoolName,
-                    year: `${e.startDate?.toDate().getFullYear()} - ${e.isActive ? 'Present' : e.endDate?.toDate().getFullYear() || ''}`,
-                    details: e.gpa || "",
-                    isSelected: e.isSelected,
-                })),
+                } : resumeData.personalInfo,
                 skills: sks.map(s => ({
                     id: s.id,
                     category: s.category,
@@ -132,16 +115,18 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
             setIsLoaded(true);
         };
         prefillFromDB();
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [isLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const handleUpdateLibrary = async () => {
         setIsSaving(true);
         try {
-            await saveResumeData(resumeData);
-            // Optionally show success toast
-        } catch (error) {
+            const result = await saveResumeData(resumeData);
+            if (result.success) {
+                alert("Master library synchronized successfully!");
+            }
+        } catch (error: unknown) {
             console.error("Failed to save:", error);
-            alert("Failed to update library. Check console for details.");
+            alert(`Failed to update library: ${error instanceof Error ? error.message : "Unknown error"}`);
         } finally {
             setIsSaving(false);
         }
