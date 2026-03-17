@@ -6,17 +6,26 @@ import { ResumeForm } from "@/components/ui/resume-form";
 import SelectionDisplay from "@/components/ui/selection-display";
 import { ExperienceItem } from "@/app/actions/experience-actions";
 import { EducationItem } from "@/app/actions/education-actions";
+import { SkillCategory } from "@/types/schema";
+import { saveResumeData } from "@/app/actions/resume-actions";
 
 import { ResumePreview } from "@/components/ui/resume-preview";
 
 interface DashboardClientProps {
     initialExperiences: ExperienceItem[];
     initialEducations: EducationItem[];
+    initialSkills: SkillCategory[];
     userName: string;
 }
 
-export default function DashboardClient({ initialExperiences, initialEducations, userName }: DashboardClientProps) {
+export default function DashboardClient({
+                                            initialExperiences = [],
+                                            initialEducations = [],
+                                            initialSkills = [],
+                                            userName
+                                        }: DashboardClientProps) {
     const [view, setView] = useState<'library' | 'edit' | 'preview'>('library');
+    const [isSaving, setIsSaving] = useState(false);
     const [resumeData, setResumeData] = useState<ResumeData>({
         personalInfo: {
             fullName: "",
@@ -31,7 +40,6 @@ export default function DashboardClient({ initialExperiences, initialEducations,
     });
 
     // SYNC LOCAL STATE WITH LIBRARY PROPS
-    // This ensures Generate Resume view is updated when selection toggles in SelectionDisplay
     React.useEffect(() => {
         setResumeData(prev => ({
             ...prev,
@@ -52,8 +60,29 @@ export default function DashboardClient({ initialExperiences, initialEducations,
                 details: e.gpa || "",
                 isSelected: e.isSelected,
             })),
+            skills: initialSkills.map(s => ({
+                id: s.id,
+                category: s.category,
+                items: s.items,
+                isSelected: s.isSelected,
+            })),
         }));
-    }, [initialExperiences, initialEducations]);
+    }, [initialExperiences, initialEducations, initialSkills]);
+
+    const handleSaveAndExit = async () => {
+        setIsSaving(true);
+        try {
+            const result = await saveResumeData(resumeData);
+            if (result.success) {
+                setView('library');
+            }
+        } catch (error) {
+            console.error("Failed to save:", error);
+            alert("Failed to save your library changes.");
+        } finally {
+            setIsSaving(false);
+        }
+    };
 
     return (
         <div className="max-w-[1280px] mx-auto p-6 md:p-12 space-y-12">
@@ -68,22 +97,23 @@ export default function DashboardClient({ initialExperiences, initialEducations,
                     </p>
                 </div>
                 <div className="flex gap-3">
-                    <button 
-                        onClick={() => setView(view === 'edit' ? 'library' : 'edit')}
+                    <button
+                        onClick={view === 'edit' ? handleSaveAndExit : () => setView('edit')}
+                        disabled={isSaving}
                         className={`px-8 py-4 rounded-[2rem] font-black text-sm uppercase tracking-widest transition-all ${
-                            view === 'edit' 
-                            ? 'bg-black text-white shadow-xl shadow-black/20' 
-                            : 'bg-white text-black border-2 border-black/10 hover:border-black shadow-sm'
+                            view === 'edit'
+                                ? 'bg-black text-white shadow-xl shadow-black/20'
+                                : 'bg-white text-black border-2 border-black/10 hover:border-black shadow-sm'
                         }`}
                     >
-                        {view === 'edit' ? 'Close Editor' : 'Master Editor'}
+                        {isSaving ? 'Saving...' : view === 'edit' ? 'Save & Exit' : 'Master Editor'}
                     </button>
-                    <button 
+                    <button
                         onClick={() => setView(view === 'preview' ? 'library' : 'preview')}
                         className={`px-8 py-4 rounded-[2rem] font-black text-sm uppercase tracking-widest transition-all ${
-                            view === 'preview' 
-                            ? 'bg-black text-white shadow-xl shadow-black/20' 
-                            : 'bg-white text-black border-2 border-black/10 hover:border-black shadow-sm'
+                            view === 'preview'
+                                ? 'bg-black text-white shadow-xl shadow-black/20'
+                                : 'bg-white text-black border-2 border-black/10 hover:border-black shadow-sm'
                         }`}
                     >
                         {view === 'preview' ? 'Exit Preview' : 'Generate Resume'}
@@ -93,9 +123,11 @@ export default function DashboardClient({ initialExperiences, initialEducations,
 
             {view === 'edit' ? (
                 <div className="bg-white border-2 border-black/5 rounded-[3rem] overflow-hidden shadow-2xl shadow-black/5">
-                    <ResumeForm 
-                        resumeData={resumeData} 
-                        onChange={setResumeData} 
+                    <ResumeForm
+                        resumeData={resumeData}
+                        onChange={setResumeData}
+                        onSaveAndExit={handleSaveAndExit}
+                        isSaving={isSaving}
                     />
                 </div>
             ) : view === 'preview' ? (
@@ -110,10 +142,11 @@ export default function DashboardClient({ initialExperiences, initialEducations,
                         <h2 className="text-xl font-black text-gray-900 tracking-tighter uppercase text-[11px] tracking-[0.3em] opacity-30">Master Library</h2>
                         <p className="text-sm text-black/55 font-medium italic">Toggle items to include them in your next generated resume.</p>
                     </div>
-                    
-                    <SelectionDisplay 
-                        experiences={initialExperiences} 
-                        educations={initialEducations} 
+
+                    <SelectionDisplay
+                        experiences={initialExperiences}
+                        educations={initialEducations}
+                        skills={initialSkills}
                     />
                 </div>
             )}

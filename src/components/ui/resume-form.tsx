@@ -4,11 +4,9 @@ import React, { useEffect, useState } from 'react';
 import { ResumeData, WorkExperience, Education, SkillCategory } from "@/types/schema";
 import { getUserProfile } from "@/app/actions/user-actions";
 import { getSkills } from "@/app/actions/skill-actions";
-import { saveResumeData } from "@/app/actions/resume-actions";
-import {deleteEducation} from "@/app/actions/education-actions"
-import { deleteExperience } from "@/app/actions/experience-actions"
-import { deleteSkill } from "@/app/actions/skill-actions"
-
+import { deleteEducation } from "@/app/actions/education-actions";
+import { deleteExperience } from "@/app/actions/experience-actions";
+import { deleteSkill } from "@/app/actions/skill-actions";
 
 // --- LOCAL UI COMPONENTS (Styled with Tailwind) ---
 const Label = ({ children, htmlFor, className = "" }: { children: React.ReactNode; htmlFor?: string; className?: string }) => (
@@ -80,10 +78,11 @@ const Save = ({ className }: { className?: string }) => (
 interface ResumeFormProps {
     resumeData: ResumeData;
     onChange: (data: ResumeData) => void;
+    onSaveAndExit: () => void;
+    isSaving: boolean;
 }
 
-export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
-    const [isSaving, setIsSaving] = useState(false);
+export function ResumeForm({ resumeData, onChange, onSaveAndExit, isSaving }: ResumeFormProps) {
     const [isLoaded, setIsLoaded] = useState(false);
 
     // PREFILL PERSONAL INFO FROM MASTER LIBRARY ON INITIAL LOAD
@@ -92,12 +91,10 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
             if (isLoaded) return;
 
             const profile = await getUserProfile();
-            // We only fetch skills here as others are synced via DashboardClient props now
             const sks = await getSkills();
 
             const fullName = profile ? `${profile.firstName} ${profile.lastName}`.trim() : "";
-            
-            // Only update personal info if it's currently empty to avoid overwriting edits
+
             const shouldUpdateProfile = !resumeData.personalInfo.fullName;
 
             onChange({
@@ -120,21 +117,6 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
         };
         prefillFromDB();
     }, [isLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
-
-    const handleUpdateLibrary = async () => {
-        setIsSaving(true);
-        try {
-            const result = await saveResumeData(resumeData);
-            if (result.success) {
-                alert("Master library synchronized successfully!");
-            }
-        } catch (error: unknown) {
-            console.error("Failed to save:", error);
-            alert(`Failed to update library: ${error instanceof Error ? error.message : "Unknown error"}`);
-        } finally {
-            setIsSaving(false);
-        }
-    };
 
     const updatePersonalInfo = (field: string, value: string) => {
         onChange({
@@ -163,9 +145,11 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
     };
 
     const removeWorkExperience = async (id: string) => {
-        // If it's a new item (timestamp ID), just filter state.
-        // If it's a DB record (usually shorter/alphanumeric), call server action.
-        if (!id.includes(Date.now().toString().substring(0,6))) {
+        // If the ID contains only numbers, it's a temporary Date.now() ID.
+        // If it contains letters, it's a Firestore ID that needs to be deleted from the DB.
+        const isTemporaryId = /^\d+$/.test(id);
+
+        if (!isTemporaryId) {
             await deleteExperience(id);
         }
         onChange({
@@ -194,7 +178,9 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
     };
 
     const removeEducation = async (id: string) => {
-        if (!id.includes(Date.now().toString().substring(0,6))) {
+        const isTemporaryId = /^\d+$/.test(id);
+
+        if (!isTemporaryId) {
             await deleteEducation(id);
         }
         onChange({
@@ -223,7 +209,9 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
     };
 
     const removeSkillCategory = async (id: string) => {
-        if (!id.includes(Date.now().toString().substring(0,6))) {
+        const isTemporaryId = /^\d+$/.test(id);
+
+        if (!isTemporaryId) {
             await deleteSkill(id);
         }
         onChange({
@@ -237,18 +225,9 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
             {/* TOP ACTIONS BAR */}
             <div className="sticky top-0 z-20 bg-white/80 backdrop-blur-md flex justify-between items-center pb-8 border-b border-black/5 -mt-8 pt-8">
                 <div>
-                    <h2 className="text-2xl font-black tracking-tight uppercase">Master Editor</h2>
-                    <p className="text-black/40 text-xs font-black uppercase tracking-widest mt-0.5">Sync changes to your library</p>
+                    <h2 className="text-2xl font-black tracking-tight uppercase">Editor</h2>
+                    <p className="text-black/40 text-xs font-black uppercase tracking-widest mt-0.5">Edit your professional library</p>
                 </div>
-                <Button 
-                    onClick={handleUpdateLibrary} 
-                    variant="primary" 
-                    loading={isSaving}
-                    className="shadow-xl shadow-black/20"
-                >
-                    <Save className="w-4 h-4 mr-2" />
-                    Update Library
-                </Button>
             </div>
 
             {/* Personal Information */}
@@ -341,8 +320,8 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
                                         <span className="text-sm font-black uppercase tracking-tight">Include on Resume</span>
                                         <span className="text-[10px] text-black/40 font-bold uppercase tracking-widest">Toggle visibility for this role</span>
                                     </div>
-                                    <input 
-                                        type="checkbox" 
+                                    <input
+                                        type="checkbox"
                                         checked={exp.isSelected}
                                         onChange={(e) => updateWorkExperience(exp.id, "isSelected", e.target.checked)}
                                         className="w-6 h-6 accent-black cursor-pointer"
@@ -431,8 +410,8 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
                                         <span className="text-sm font-black uppercase tracking-tight">Include on Resume</span>
                                         <span className="text-[10px] text-black/40 font-bold uppercase tracking-widest">Toggle visibility for this education</span>
                                     </div>
-                                    <input 
-                                        type="checkbox" 
+                                    <input
+                                        type="checkbox"
                                         checked={edu.isSelected}
                                         onChange={(e) => updateEducation(edu.id, "isSelected", e.target.checked)}
                                         className="w-6 h-6 accent-black cursor-pointer"
@@ -509,8 +488,8 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
                                         <span className="text-sm font-black uppercase tracking-tight">Include on Resume</span>
                                         <span className="text-[10px] text-black/40 font-bold uppercase tracking-widest">Toggle visibility for this skill category</span>
                                     </div>
-                                    <input 
-                                        type="checkbox" 
+                                    <input
+                                        type="checkbox"
                                         checked={skill.isSelected}
                                         onChange={(e) => updateSkillCategory(skill.id, "isSelected", e.target.checked)}
                                         className="w-6 h-6 accent-black cursor-pointer"
@@ -537,6 +516,20 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
                     ))}
                 </div>
             </section>
+
+            {/* Bottom Save Action */}
+            <div className="pt-8 border-t border-black/5 mt-12 flex justify-end">
+                <Button
+                    onClick={onSaveAndExit}
+                    variant="primary"
+                    size="lg"
+                    loading={isSaving}
+                    className="w-full md:w-auto shadow-xl shadow-black/20"
+                >
+                    <Save className="w-5 h-5 mr-2" />
+                    Save & Exit
+                </Button>
+            </div>
         </div>
     );
 }

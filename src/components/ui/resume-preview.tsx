@@ -11,7 +11,6 @@ interface ResumePreviewProps {
 export function ResumePreview({ resumeData }: ResumePreviewProps) {
     const { personalInfo, workExperience = [], education = [], skills = [] } = resumeData;
 
-    // Helper to format dates from YYYY-MM-DD to MMM YYYY
     const formatDate = (dateStr: string) => {
         if (!dateStr) return "";
         if (dateStr.toLowerCase() === "present") return "Present";
@@ -24,19 +23,51 @@ export function ResumePreview({ resumeData }: ResumePreviewProps) {
         }
     };
 
-    // Only show items that are selected
     const selectedWorkExperience = workExperience.filter(exp => exp.isSelected);
     const selectedEducation = education.filter(edu => edu.isSelected);
     const selectedSkills = skills.filter(skill => skill.isSelected);
 
-    const handleDownload = () => {
-        window.print();
+    const handleDownload = async () => {
+        const element = document.getElementById("resume-preview");
+        if (!element) return;
+
+        // Dynamically import the libraries so they only load on click
+        const { toPng } = await import("html-to-image");
+        const { jsPDF } = await import("jspdf");
+
+        try {
+            // 1. Convert the HTML element to a high-quality image
+            const dataUrl = await toPng(element, {
+                quality: 1,
+                pixelRatio: 2, // Doubles resolution for crisp text
+                backgroundColor: '#ffffff'
+            });
+
+            // 2. Initialize an A4 PDF
+            const pdf = new jsPDF({
+                orientation: 'portrait',
+                unit: 'mm',
+                format: 'a4'
+            });
+
+            const pdfWidth = pdf.internal.pageSize.getWidth();
+            const pdfHeight = (element.offsetHeight * pdfWidth) / element.offsetWidth;
+
+            // 3. Place the image into the PDF and trigger download
+            pdf.addImage(dataUrl, 'PNG', 0, 0, pdfWidth, pdfHeight);
+
+            const fileName = `${personalInfo.fullName ? personalInfo.fullName.replace(/\s+/g, '_') : 'Resume'}.pdf`;
+            pdf.save(fileName);
+
+        } catch (err) {
+            console.error("Error generating PDF:", err);
+            alert("Failed to generate PDF. Check console for details.");
+        }
     };
 
     return (
-        <div className="flex flex-col items-center gap-8 py-12 bg-gray-100 min-h-screen">
-            {/* Download Button - Hidden during print */}
-            <button 
+        <div className="flex flex-col items-center gap-8 py-12 bg-white min-h-screen">
+            <button
                 onClick={handleDownload}
                 className="fixed bottom-8 right-8 z-50 bg-black text-white px-8 py-4 rounded-2xl font-black text-sm uppercase tracking-widest shadow-2xl hover:bg-black/80 transition-all active:scale-95 flex items-center gap-3 print:hidden"
             >
@@ -44,9 +75,8 @@ export function ResumePreview({ resumeData }: ResumePreviewProps) {
                 Download PDF
             </button>
 
-            {/* A4 Container */}
-            <div 
-                className="bg-white text-black shadow-2xl print:shadow-none print:m-0"
+            <div
+                className="bg-white text-black shadow-[16px_16px_0px_rgba(0,0,0,0.08)] print:shadow-none print:m-0"
                 style={{
                     width: "210mm",
                     minHeight: "297mm",
@@ -55,7 +85,6 @@ export function ResumePreview({ resumeData }: ResumePreviewProps) {
                 }}
                 id="resume-preview"
             >
-                {/* Header */}
                 <header className="mb-10 text-center border-b-2 border-black pb-8">
                     <h1 className="text-5xl font-black uppercase tracking-tighter mb-4">{personalInfo.fullName || "Your Name"}</h1>
                     <div className="flex flex-wrap justify-center gap-x-6 gap-y-3 text-[13px] font-bold uppercase tracking-widest text-black/55">
@@ -80,7 +109,6 @@ export function ResumePreview({ resumeData }: ResumePreviewProps) {
                     </div>
                 </header>
 
-                {/* Professional Summary */}
                 {personalInfo.summary && (
                     <section className="mb-10">
                         <h2 className="text-sm font-black uppercase tracking-[0.3em] text-black/30 mb-4 flex items-center gap-4">
@@ -91,7 +119,6 @@ export function ResumePreview({ resumeData }: ResumePreviewProps) {
                     </section>
                 )}
 
-                {/* Work Experience */}
                 {selectedWorkExperience.length > 0 && (
                     <section className="mb-10">
                         <h2 className="text-sm font-black uppercase tracking-[0.3em] text-black/30 mb-6 flex items-center gap-4">
@@ -121,7 +148,6 @@ export function ResumePreview({ resumeData }: ResumePreviewProps) {
                     </section>
                 )}
 
-                {/* Education */}
                 {selectedEducation.length > 0 && (
                     <section className="mb-10">
                         <h2 className="text-sm font-black uppercase tracking-[0.3em] text-black/30 mb-6 flex items-center gap-4">
@@ -143,7 +169,6 @@ export function ResumePreview({ resumeData }: ResumePreviewProps) {
                     </section>
                 )}
 
-                {/* Skills */}
                 {selectedSkills.length > 0 && (
                     <section>
                         <h2 className="text-sm font-black uppercase tracking-[0.3em] text-black/30 mb-6 flex items-center gap-4">
@@ -162,41 +187,26 @@ export function ResumePreview({ resumeData }: ResumePreviewProps) {
                 )}
             </div>
 
-            {/* Print styles */}
             <style dangerouslySetInnerHTML={{ __html: `
                 @media print {
-                    body {
-                        background: white !important;
-                        margin: 0 !important;
-                        padding: 0 !important;
-                    }
-                    .bg-gray-100 {
-                        background: white !important;
-                    }
-                    button, .fixed {
-                        display: none !important;
-                    }
+                    body * { visibility: hidden; }
+                    #resume-preview, #resume-preview * { visibility: visible; }
                     #resume-preview {
-                        width: 210mm !important;
-                        min-height: 297mm !important;
-                        padding: 20mm !important;
-                        margin: 0 !important;
-                        box-shadow: none !important;
                         position: absolute !important;
                         left: 0 !important;
                         top: 0 !important;
+                        width: 210mm !important;
+                        padding: 20mm !important;
+                        margin: 0 !important;
+                        box-shadow: none !important;
                     }
-                    @page {
-                        size: A4;
-                        margin: 0;
-                    }
+                    @page { size: A4; margin: 0; }
                 }
             ` }} />
         </div>
     );
 }
 
-// --- LOCAL ICONS ---
 function MailIcon({ className }: { className?: string }) {
     return (
         <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">

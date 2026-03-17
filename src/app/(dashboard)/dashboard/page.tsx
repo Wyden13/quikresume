@@ -1,7 +1,8 @@
 // src/app/(dashboard)/dashboard/page.tsx
-import {auth, signIn, signOut} from "@/auth"
+import { auth, signIn, signOut } from "@/auth"
 import { getExperiences } from "@/app/actions/experience-actions"
 import { getEducations } from "@/app/actions/education-actions"
+import { getSkills } from "@/app/actions/skill-actions"
 import DashboardClient from "@/components/dashboard-client"
 import Link from "next/link"
 import Image from "next/image"
@@ -9,12 +10,14 @@ import { redirect } from "next/navigation";
 
 export default async function DashboardPage() {
     const session = await auth();
-    const experiences = await getExperiences();
-    const educations = await getEducations();
 
     if (!session?.user?.id) {
         redirect("/login");
     }
+
+    const experiences = await getExperiences();
+    const educations = await getEducations();
+    const skills = await getSkills();
 
     return (
         <div className="min-h-screen flex flex-col bg-white text-black font-sans">
@@ -61,6 +64,7 @@ export default async function DashboardPage() {
                 <DashboardClient
                     initialExperiences={experiences}
                     initialEducations={educations}
+                    initialSkills={skills}
                     userName={session?.user?.name?.split(" ")[0] || "User"}
                 />
             </main>

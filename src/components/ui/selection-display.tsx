@@ -1,15 +1,22 @@
 // src/components/ui/selection-display.tsx
+"use client"
+
 import { deleteExperience, updateExperience } from "@/app/actions/experience-actions"
 import { deleteEducation, updateEducation, EducationItem } from "@/app/actions/education-actions"
+import { deleteSkill, updateSkill } from "@/app/actions/skill-actions"
 import { ExperienceItem } from "@/app/actions/experience-actions"
+import { SkillCategory } from "@/types/schema"
 
 interface SelectionDisplayProps {
     experiences: ExperienceItem[];
-    educations: EducationItem[]; 
+    educations: EducationItem[];
+    skills: SkillCategory[];
 }
 
-export default function SelectionDisplay({ experiences, educations }: SelectionDisplayProps) {
-    const hasItems = (experiences && experiences.length > 0) || (educations && educations.length > 0);
+export default function SelectionDisplay({ experiences, educations, skills }: SelectionDisplayProps) {
+    const hasItems = (experiences && experiences.length > 0) ||
+        (educations && educations.length > 0) ||
+        (skills && skills.length > 0);
 
     // Helper to format string dates
     const formatDate = (dateStr: string) => {
@@ -23,15 +30,13 @@ export default function SelectionDisplay({ experiences, educations }: SelectionD
     };
 
     if (!hasItems) {
-// ... (rest of component)
-
         return (
             <div className="p-20 border-2 border-dashed border-black/5 rounded-[2.5rem] text-center bg-gray-50/50">
                 <div className="w-16 h-16 bg-black/5 rounded-full flex items-center justify-center mx-auto mb-4">
                     <LibraryIcon className="w-8 h-8 text-black/20" />
                 </div>
                 <p className="text-black/40 font-bold text-xl tracking-tight">Your library is empty.</p>
-                <p className="text-black/30 text-sm mt-1">Add your experience or education to get started.</p>
+                <p className="text-black/30 text-sm mt-1">Add your experience, education, or skills to get started.</p>
             </div>
         );
     }
@@ -50,7 +55,7 @@ export default function SelectionDisplay({ experiences, educations }: SelectionD
                             <p className="text-sm text-black/40 font-medium italic">Work history & roles</p>
                         </div>
                     </div>
-                    
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         {experiences.map((exp) => (
                             <SelectionCard
@@ -126,9 +131,40 @@ export default function SelectionDisplay({ experiences, educations }: SelectionD
                     </div>
                 </section>
             )}
+
+            {/* Skills Section */}
+            {skills && skills.length > 0 && (
+                <section className="space-y-8">
+                    <div className="flex items-center gap-4 px-2">
+                        <div className="w-12 h-12 bg-purple-600 rounded-2xl flex items-center justify-center shadow-lg shadow-purple-600/10">
+                            <CodeIcon className="w-6 h-6 text-white" />
+                        </div>
+                        <div>
+                            <h2 className="text-2xl font-bold tracking-tight text-gray-900">Skills & Expertise</h2>
+                            <p className="text-sm text-black/40 font-medium italic">Technical & professional skills</p>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        {skills.map((skill) => (
+                            <SkillCard
+                                key={skill.id}
+                                id={skill.id}
+                                category={skill.category}
+                                items={skill.items}
+                                isSelected={skill.isSelected}
+                                onUpdate={updateSkill}
+                                onDelete={deleteSkill}
+                            />
+                        ))}
+                    </div>
+                </section>
+            )}
         </div>
     )
 }
+
+// --- SUB-COMPONENTS ---
 
 interface SelectionCardProps {
     id: string;
@@ -146,24 +182,24 @@ interface SelectionCardProps {
 }
 
 function SelectionCard({
-    id,
-    title,
-    subtitle,
-    startDate,
-    endDate,
-    isActive,
-    isSelected,
-    onUpdate,
-    onDelete,
-    type,
-    children,
-    formatDate
-}: SelectionCardProps) {
+                           id,
+                           title,
+                           subtitle,
+                           startDate,
+                           endDate,
+                           isActive,
+                           isSelected,
+                           onUpdate,
+                           onDelete,
+                           type,
+                           children,
+                           formatDate
+                       }: SelectionCardProps) {
     return (
         <div className={`group relative bg-white p-8 border-[1.5px] transition-all flex flex-col h-full rounded-[2rem] overflow-hidden ${
-            isSelected 
-            ? 'border-black ring-4 ring-black/5 shadow-2xl shadow-black/5 z-10 scale-[1.02]' 
-            : 'border-black/5 shadow-sm hover:shadow-xl hover:border-black/20 hover:scale-[1.01]'
+            isSelected
+                ? 'border-black ring-4 ring-black/5 shadow-2xl shadow-black/5 z-10 scale-[1.02]'
+                : 'border-black/5 shadow-sm hover:shadow-xl hover:border-black/20 hover:scale-[1.01]'
         }`}>
             {/* Header Status */}
             <div className="flex justify-between items-start mb-6">
@@ -197,9 +233,9 @@ function SelectionCard({
                     <button
                         type="submit"
                         className={`w-full py-3.5 rounded-2xl text-[13px] font-black transition-all flex items-center justify-center gap-2 ${
-                            isSelected 
-                            ? 'bg-black text-white shadow-lg shadow-black/20 hover:bg-black/80' 
-                            : 'bg-white text-black border-2 border-black/10 hover:border-black hover:bg-black/5 shadow-sm'
+                            isSelected
+                                ? 'bg-black text-white shadow-lg shadow-black/20 hover:bg-black/80'
+                                : 'bg-white text-black border-2 border-black/10 hover:border-black hover:bg-black/5 shadow-sm'
                         }`}
                     >
                         {isSelected ? (
@@ -218,9 +254,9 @@ function SelectionCard({
                     <button
                         type="submit"
                         className={`w-full py-3.5 rounded-2xl text-[13px] font-black transition-all flex items-center justify-center gap-2 ${
-                            isActive 
-                            ? 'bg-blue-50 text-blue-600 border-2 border-blue-200' 
-                            : 'bg-gray-50 text-black/30 border-2 border-transparent hover:bg-gray-100'
+                            isActive
+                                ? 'bg-blue-50 text-blue-600 border-2 border-blue-200'
+                                : 'bg-gray-50 text-black/30 border-2 border-transparent hover:bg-gray-100'
                         }`}
                     >
                         {isActive ? (type === 'education' ? 'Active Student' : 'Currently Here') : 'Mark Finished'}
@@ -234,6 +270,80 @@ function SelectionCard({
             )}
         </div>
     )
+}
+
+// Custom Card for Skills (Since they don't have dates/active toggles)
+interface SkillCardProps {
+    id: string;
+    category: string;
+    items: string;
+    isSelected: boolean;
+    onUpdate: (id: string, formData: FormData) => Promise<void>;
+    onDelete: (id: string) => Promise<void>;
+}
+
+function SkillCard({ id, category, items, isSelected, onUpdate, onDelete }: SkillCardProps) {
+    return (
+        <div className={`group relative bg-white p-8 border-[1.5px] transition-all flex flex-col h-full rounded-[2rem] overflow-hidden ${
+            isSelected
+                ? 'border-black ring-4 ring-black/5 shadow-2xl shadow-black/5 z-10 scale-[1.02]'
+                : 'border-black/5 shadow-sm hover:shadow-xl hover:border-black/20 hover:scale-[1.01]'
+        }`}>
+            <div className="flex justify-between items-start mb-6">
+                <div className="space-y-1 pr-12">
+                    <h3 className="font-black text-xl text-gray-900 leading-[1.1] tracking-tight group-hover:text-black transition-colors">{category}</h3>
+                </div>
+
+                <form action={onDelete.bind(null, id)}>
+                    <button className="absolute top-6 right-6 text-black/10 hover:text-red-500 p-2.5 hover:bg-red-50 rounded-2xl transition-all active:scale-90">
+                        <TrashIcon className="h-5 w-5" />
+                    </button>
+                </form>
+            </div>
+
+            <div className="flex-1 mb-10">
+                <p className="text-black/60 font-medium leading-relaxed">{items}</p>
+            </div>
+
+            <div className="pt-6 border-t border-black/5 mt-auto">
+                <form action={onUpdate.bind(null, id)} className="w-full">
+                    <input type="hidden" name="isSelected" value={(!isSelected).toString()} />
+                    <button
+                        type="submit"
+                        className={`w-full py-3.5 rounded-2xl text-[13px] font-black transition-all flex items-center justify-center gap-2 ${
+                            isSelected
+                                ? 'bg-black text-white shadow-lg shadow-black/20 hover:bg-black/80'
+                                : 'bg-white text-black border-2 border-black/10 hover:border-black hover:bg-black/5 shadow-sm'
+                        }`}
+                    >
+                        {isSelected ? (
+                            <>
+                                <CheckIcon className="w-4 h-4" />
+                                Included
+                            </>
+                        ) : (
+                            'Add to Resume'
+                        )}
+                    </button>
+                </form>
+            </div>
+
+            {isSelected && (
+                <div className="absolute top-0 right-0 w-24 h-24 bg-black pointer-events-none transform rotate-45 translate-x-12 -translate-y-12"></div>
+            )}
+        </div>
+    )
+}
+
+// --- LOCAL ICONS ---
+
+function CodeIcon({ className }: { className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="16 18 22 12 16 6"></polyline>
+            <polyline points="8 6 2 12 8 18"></polyline>
+        </svg>
+    );
 }
 
 function TrashIcon({ className }: { className?: string }) {
