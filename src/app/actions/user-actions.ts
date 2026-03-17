@@ -21,13 +21,13 @@ export async function getUserProfile() {
         id: userDoc.id,
         emailVerified: data.emailVerified?.toDate().toISOString() || null,
         updatedAt: data.updatedAt?.toDate().toISOString() || null,
-    } as {
+    } as unknown as {
         id: string;
         firstName: string;
         lastName: string;
         email: string;
         [key: string]: unknown;
-    }; 
+    };
 }
 
 export async function updateProfile(formData: FormData) {

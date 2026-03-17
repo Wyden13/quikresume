@@ -1,15 +1,20 @@
 // src/app/(dashboard)/dashboard/page.tsx
-import { auth, signOut } from "@/auth"
+import {auth, signIn, signOut} from "@/auth"
 import { getExperiences } from "@/app/actions/experience-actions"
 import { getEducations } from "@/app/actions/education-actions"
 import DashboardClient from "@/components/dashboard-client"
 import Link from "next/link"
 import Image from "next/image"
+import { redirect } from "next/navigation";
 
 export default async function DashboardPage() {
     const session = await auth();
     const experiences = await getExperiences();
     const educations = await getEducations();
+
+    if (!session?.user?.id) {
+        redirect("/login");
+    }
 
     return (
         <div className="min-h-screen flex flex-col bg-white text-black font-sans">

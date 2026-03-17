@@ -99,11 +99,11 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
             onChange({
                 ...resumeData,
                 personalInfo: shouldUpdateProfile ? {
-                    fullName: fullName || resumeData.personalInfo.fullName,
-                    email: profile?.professionalEmail || profile?.email || resumeData.personalInfo.email,
-                    phone: profile?.phoneNumber || resumeData.personalInfo.phone,
-                    location: profile?.location || resumeData.personalInfo.location,
-                    summary: profile?.bio || profile?.overview || resumeData.personalInfo.summary,
+                    fullName: String(fullName || resumeData.personalInfo.fullName || ""),
+                    email: String(profile?.professionalEmail || profile?.email || resumeData.personalInfo.email || ""),
+                    phone: String(profile?.phoneNumber || resumeData.personalInfo.phone || ""),
+                    location: String(profile?.location || resumeData.personalInfo.location || ""),
+                    summary: String(profile?.bio || profile?.overview || resumeData.personalInfo.summary || ""),
                 } : resumeData.personalInfo,
                 skills: sks.map(s => ({
                     id: s.id,
