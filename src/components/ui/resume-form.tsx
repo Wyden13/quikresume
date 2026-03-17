@@ -5,6 +5,10 @@ import { ResumeData, WorkExperience, Education, SkillCategory } from "@/types/sc
 import { getUserProfile } from "@/app/actions/user-actions";
 import { getSkills } from "@/app/actions/skill-actions";
 import { saveResumeData } from "@/app/actions/resume-actions";
+import {deleteEducation} from "@/app/actions/education-actions"
+import { deleteExperience } from "@/app/actions/experience-actions"
+import { deleteSkill } from "@/app/actions/skill-actions"
+
 
 // --- LOCAL UI COMPONENTS (Styled with Tailwind) ---
 const Label = ({ children, htmlFor, className = "" }: { children: React.ReactNode; htmlFor?: string; className?: string }) => (
@@ -158,7 +162,12 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
         });
     };
 
-    const removeWorkExperience = (id: string) => {
+    const removeWorkExperience = async (id: string) => {
+        // If it's a new item (timestamp ID), just filter state.
+        // If it's a DB record (usually shorter/alphanumeric), call server action.
+        if (!id.includes(Date.now().toString().substring(0,6))) {
+            await deleteExperience(id);
+        }
         onChange({
             ...resumeData,
             workExperience: resumeData.workExperience.filter((exp) => exp.id !== id),
@@ -184,7 +193,10 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
         });
     };
 
-    const removeEducation = (id: string) => {
+    const removeEducation = async (id: string) => {
+        if (!id.includes(Date.now().toString().substring(0,6))) {
+            await deleteEducation(id);
+        }
         onChange({
             ...resumeData,
             education: resumeData.education.filter((edu) => edu.id !== id),
@@ -210,7 +222,10 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
         });
     };
 
-    const removeSkillCategory = (id: string) => {
+    const removeSkillCategory = async (id: string) => {
+        if (!id.includes(Date.now().toString().substring(0,6))) {
+            await deleteSkill(id);
+        }
         onChange({
             ...resumeData,
             skills: resumeData.skills.filter((skill) => skill.id !== id),

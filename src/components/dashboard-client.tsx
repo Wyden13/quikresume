@@ -61,7 +61,7 @@ export default function DashboardClient({ initialExperiences, initialEducations,
             <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b border-black/5 pb-12">
                 <div className="space-y-2">
                     <h1 className="text-4xl font-black tracking-tight text-gray-900 leading-none">
-                        Welcome back, {userName}!
+                        Welcome, {userName}!
                     </h1>
                     <p className="text-lg text-black/40 font-bold">
                         Manage your professional library and tailor your resume.
