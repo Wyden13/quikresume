@@ -5,6 +5,21 @@ import { db } from "@/lib/firestore"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
+import { PersonalInfo } from "@/types/schema"
+
+export async function getUserProfile() {
+    const session = await auth()
+    if (!session?.user?.id) return null
+
+    const userDoc = await db.collection("users").doc(session.user.id).get()
+    if (!userDoc.exists) return null
+
+    return {
+        id: userDoc.id,
+        ...userDoc.data()
+    } as PersonalInfo & { id: string };
+}
+
 export async function updateProfile(formData: FormData) {
     const session = await auth()
     if (!session?.user?.id) throw new Error("Unauthorized")

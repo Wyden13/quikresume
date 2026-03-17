@@ -1,13 +1,19 @@
-// src/app/dashboard/page.tsx
+// src/app/(dashboard)/dashboard/page.tsx
 import { auth } from "@/auth"
+import { getExperiences } from "@/app/actions/experience-actions"
+import { getEducations } from "@/app/actions/education-actions"
+import DashboardClient from "@/components/dashboard-client"
 
 export default async function DashboardPage() {
     const session = await auth();
+    const experiences = await getExperiences();
+    const educations = await getEducations();
 
     return (
-        <div className="p-8">
-            <h1 className="text-2xl font-bold">Welcome back, {session?.user?.name}!</h1>
-            <p className="text-gray-600">Start building your resume below.</p>
-        </div>
-    )
+        <DashboardClient 
+            initialExperiences={experiences} 
+            initialEducations={educations} 
+            userName={session?.user?.name?.split(" ")[0] || "User"}
+        />
+    );
 }

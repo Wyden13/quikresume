@@ -6,7 +6,24 @@ import { revalidatePath } from "next/cache"
 import { Timestamp } from "firebase-admin/firestore";
 
 // --- TYPE DEFINITION ---
-// Ensures strict typing for partial updates and fixes ESLint 'any' errors
+export interface EducationItem {
+    id: string;
+    schoolName: string;
+    locationCity: string;
+    locationProvince?: string | null;
+    locationCountry?: string | null;
+    programName: string;
+    minorName?: string | null;
+    doubleMajor?: string | null;
+    gpa?: string | null;
+    startDate: Timestamp;
+    endDate: Timestamp | null;
+    isActive: boolean;
+    isSelected: boolean;
+    createdAt: Timestamp;
+    updatedAt?: Timestamp;
+}
+
 interface UpdateEducationData {
     schoolName?: string;
     locationCity?: string;
@@ -21,6 +38,24 @@ interface UpdateEducationData {
     isActive?: boolean;
     isSelected?: boolean;
     updatedAt: Timestamp;
+}
+
+// --- 0. READ ---
+export async function getEducations() {
+    const session = await auth()
+    if (!session?.user?.id) return []
+
+    const snapshot = await db
+        .collection("users")
+        .doc(session.user.id)
+        .collection("education")
+        .orderBy("startDate", "desc")
+        .get()
+
+    return snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+    })) as EducationItem[];
 }
 
 // --- 1. CREATE ---

@@ -7,6 +7,19 @@ import { Timestamp } from "firebase-admin/firestore";
 
 // --- TYPE DEFINITION ---
 // This completely removes the ESLint 'any' error and gives WebStorm perfect autocomplete
+export interface ExperienceItem {
+    id: string;
+    position: string;
+    company: string;
+    isActive: boolean;
+    isSelected: boolean;
+    startDate: Timestamp;
+    endDate: Timestamp | null;
+    description: string[];
+    createdAt: Timestamp;
+    updatedAt?: Timestamp;
+}
+
 interface UpdateExperienceData {
     position?: string;
     company?: string;
@@ -16,6 +29,24 @@ interface UpdateExperienceData {
     endDate?: Timestamp | null;
     description?: string[];
     updatedAt: Timestamp;
+}
+
+// --- 0. READ ---
+export async function getExperiences() {
+    const session = await auth()
+    if (!session?.user?.id) return []
+
+    const snapshot = await db
+        .collection("users")
+        .doc(session.user.id)
+        .collection("experience")
+        .orderBy("startDate", "desc")
+        .get()
+
+    return snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+    })) as ExperienceItem[]
 }
 
 // --- 1. CREATE ---
@@ -50,6 +81,7 @@ export async function createExperience(formData: FormData){
         .add(data)
 
     revalidatePath("/test")
+    revalidatePath("/work-test")
 }
 
 // --- 2. UPDATE (Handles partial updates flawlessly) ---
@@ -107,6 +139,7 @@ export async function updateExperience(experienceId: string, formData: FormData)
     }
 
     revalidatePath("/test")
+    revalidatePath("/work-test")
 }
 
 // --- 3. DELETE ---
@@ -122,4 +155,5 @@ export async function deleteExperience(experienceId: string) {
         .delete()
 
     revalidatePath("/test")
+    revalidatePath("/work-test")
 }
