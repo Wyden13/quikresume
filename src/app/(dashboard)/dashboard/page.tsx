@@ -21,7 +21,15 @@ export default async function DashboardPage() {
             {/* Header */}
             <header className="flex flex-row justify-between items-center px-6 py-6 md:px-16 md:py-6 w-full max-w-[1280px] mx-auto border-b border-black/5">
                 <Link href="/" className="flex flex-row items-center gap-2">
-                    <div className="w-7 h-7 md:w-10 md:h-10 bg-gray-200 rounded-md"></div>
+                    {/* Updated Logo Icon */}
+                    <Image
+                        src="/icons/quik-resume.svg"
+                        alt="quikResume Logo"
+                        width={40}
+                        height={40}
+                        className="w-7 h-7 md:w-10 md:h-10"
+                        priority
+                    />
                     <span className="font-semibold text-lg md:text-2xl tracking-tight">quikResume</span>
                 </Link>
                 <div className="flex flex-row items-center gap-4 md:gap-6">
@@ -62,7 +70,14 @@ export default async function DashboardPage() {
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center px-6 py-12 md:px-16 md:py-16 gap-14">
                     <div className="flex flex-col md:flex-row items-start md:items-center gap-6 md:gap-8">
                         <Link href="/" className="flex flex-row items-center gap-2">
-                            <div className="w-8 h-8 bg-gray-200 rounded-lg"></div>
+                            {/* Updated Footer Logo Icon */}
+                            <Image
+                                src="/icons/quik-resume.svg"
+                                alt="quikResume Logo"
+                                width={32}
+                                height={32}
+                                className="w-8 h-8"
+                            />
                             <span className="font-semibold text-[18px] md:text-[20px] tracking-tight">quikResume</span>
                         </Link>
 

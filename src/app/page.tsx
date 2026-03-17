@@ -1,6 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { auth } from "@/auth";
+import Image from 'next/image';
 
 export default async function Home() {
   const session = await auth();
@@ -10,7 +11,14 @@ export default async function Home() {
         {/* Header */}
         <header className="flex flex-row justify-between items-center px-6 py-6 md:px-16 md:py-6 w-full max-w-[1280px] mx-auto">
           <div className="flex flex-row items-center gap-2">
-            <div className="w-7 h-7 md:w-10 md:h-10 bg-gray-200 rounded-md"></div>
+            {/* Logo Image */}
+            <Image
+                src="/icons/quik-resume.svg"
+                alt="quikResume Logo"
+                width={40}
+                height={40}
+                className="w-7 h-7 md:w-10 md:h-10"
+            />
             <span className="font-semibold text-lg md:text-2xl tracking-tight">quikResume</span>
           </div>
           <div className="flex flex-row items-center gap-6">
@@ -33,7 +41,7 @@ export default async function Home() {
 
         {/* Hero Section */}
         <section className="flex flex-col md:flex-row justify-center items-start md:items-center w-full max-w-[1280px] mx-auto md:h-[540px]">
-          {/* Mobile Image (shows first on mobile) */}
+          {/* Mobile Image */}
           <div className="w-full h-[298px] bg-gray-100 md:hidden"></div>
 
           <div className="flex flex-col justify-center items-start px-6 py-14 md:px-16 md:py-[120px] gap-8 md:w-1/2">
@@ -69,7 +77,6 @@ export default async function Home() {
 
         {/* Features Section */}
         <section className="flex flex-col items-center w-full max-w-[1280px] mx-auto">
-
           {/* Row 1 */}
           <div className="flex flex-col md:flex-row justify-center items-center px-6 py-10 md:px-16 md:py-20 gap-8 md:gap-16 w-full">
             <div className="w-full md:w-[544px] h-[243px] md:h-[432px] bg-pink-100 rounded-2xl order-1 md:order-2 md:hidden"></div>
@@ -106,13 +113,11 @@ export default async function Home() {
               </Link>
             </div>
           </div>
-
         </section>
 
         {/* Info Row */}
         <section className="bg-black/5 w-full">
           <div className="flex flex-col md:flex-row items-start px-6 py-10 md:px-16 md:py-[120px] gap-12 max-w-[1280px] mx-auto">
-
             <div className="flex flex-col items-start pt-6 gap-3 md:gap-4 border-t border-black/15 flex-1 w-full">
               <h3 className="font-bold text-[18px] md:text-[24px] leading-none tracking-tight">
                 Use Our Web- Extension
@@ -121,7 +126,6 @@ export default async function Home() {
                 Our web extension allows you to auto fill the details from your resume to every application site!
               </p>
             </div>
-
             <div className="flex flex-col items-start pt-6 gap-3 md:gap-4 border-t border-black/15 flex-1 w-full">
               <h3 className="font-bold text-[18px] md:text-[24px] leading-none tracking-tight">
                 Hassle Free Handling
@@ -130,7 +134,6 @@ export default async function Home() {
                 We will save all your resumes and track which jobs you applied for.
               </p>
             </div>
-
             <div className="flex flex-col items-start pt-6 gap-3 md:gap-4 border-t border-black/15 flex-1 w-full">
               <h3 className="font-bold text-[18px] md:text-[24px] leading-none tracking-tight">
                 Powerful AI tools
@@ -139,33 +142,35 @@ export default async function Home() {
                 Our AI tools allow you to tailor your resume perfectly for every kind of job!
               </p>
             </div>
-
           </div>
         </section>
 
         {/* Footer */}
         <footer className="w-full max-w-[1280px] mx-auto border-t border-black/10">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center px-6 py-16 md:p-16 gap-14 md:gap-[120px]">
-
             <div className="flex flex-col md:flex-row items-start md:items-center gap-6 md:gap-8">
               <div className="flex flex-row items-center gap-2">
-                <div className="w-8 h-8 bg-gray-200 rounded-lg"></div>
+                {/* Footer Logo Image */}
+                <Image
+                    src="/icons/quik-resume.svg"
+                    alt="quikResume Logo"
+                    width={32}
+                    height={32}
+                    className="w-8 h-8"
+                />
                 <span className="font-semibold text-[18px] md:text-[20px] tracking-tight">quikResume</span>
               </div>
-
               <nav className="flex flex-col md:flex-row items-start gap-4 md:gap-8">
                 <Link href="#" className="font-medium text-[16px] text-black/55 hover:text-black transition-colors">Features</Link>
                 <Link href="#" className="font-medium text-[16px] text-black/55 hover:text-black transition-colors">Learn more</Link>
                 <Link href="#" className="font-medium text-[16px] text-black/55 hover:text-black transition-colors">Support</Link>
               </nav>
             </div>
-
             <div className="flex flex-row items-center gap-4 md:gap-6">
               <div className="w-6 h-6 bg-black/45 rounded-sm"></div>
               <div className="w-6 h-6 bg-black/45 rounded-sm"></div>
               <div className="w-6 h-6 bg-black/45 rounded-sm"></div>
             </div>
-
           </div>
         </footer>
       </div>
