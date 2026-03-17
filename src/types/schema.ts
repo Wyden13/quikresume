@@ -20,6 +20,7 @@ export interface WorkExperience {
     startDate: string;
     endDate: string;
     description: string;
+    isSelected: boolean;
 }
 
 export interface Education {
@@ -28,12 +29,14 @@ export interface Education {
     institution: string;
     year: string;
     details: string;
+    isSelected: boolean;
 }
 
 export interface SkillCategory {
     id: string;
     category: string;
     items: string;
+    isSelected: boolean;
 }
 
 export interface ResumeData {

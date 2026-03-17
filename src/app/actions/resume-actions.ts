@@ -45,6 +45,7 @@ export async function saveResumeData(data: ResumeData) {
             startDate: exp.startDate ? Timestamp.fromDate(new Date(exp.startDate)) : Timestamp.now(),
             endDate: (exp.endDate && exp.endDate !== "Present") ? Timestamp.fromDate(new Date(exp.endDate)) : null,
             isActive: exp.endDate === "Present",
+            isSelected: exp.isSelected,
             description: exp.description.split("\n").filter(l => l.trim() !== ""),
             updatedAt: Timestamp.now(),
         }, { merge: true });
@@ -62,6 +63,7 @@ export async function saveResumeData(data: ResumeData) {
             startDate: edu.year.split("-")[0]?.trim() ? Timestamp.fromDate(new Date(edu.year.split("-")[0].trim())) : Timestamp.now(),
             endDate: edu.year.split("-")[1]?.trim() ? Timestamp.fromDate(new Date(edu.year.split("-")[1].trim())) : null,
             isActive: edu.year.toLowerCase().includes("present"),
+            isSelected: edu.isSelected,
             gpa: edu.details || null,
             updatedAt: Timestamp.now(),
         }, { merge: true });
@@ -76,6 +78,7 @@ export async function saveResumeData(data: ResumeData) {
         batch.set(skillRef, {
             category: skill.category,
             items: skill.items,
+            isSelected: skill.isSelected,
             updatedAt: Timestamp.now(),
         }, { merge: true });
     }

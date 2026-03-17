@@ -7,6 +7,8 @@ import SelectionDisplay from "@/components/ui/selection-display";
 import { ExperienceItem } from "@/app/actions/experience-actions";
 import { EducationItem } from "@/app/actions/education-actions";
 
+import { ResumePreview } from "@/components/ui/resume-preview";
+
 interface DashboardClientProps {
     initialExperiences: ExperienceItem[];
     initialEducations: EducationItem[];
@@ -14,7 +16,7 @@ interface DashboardClientProps {
 }
 
 export default function DashboardClient({ initialExperiences, initialEducations, userName }: DashboardClientProps) {
-    const [view, setView] = useState<'library' | 'edit'>('library');
+    const [view, setView] = useState<'library' | 'edit' | 'preview'>('library');
     const [resumeData, setResumeData] = useState<ResumeData>({
         personalInfo: {
             fullName: "",
@@ -42,7 +44,7 @@ export default function DashboardClient({ initialExperiences, initialEducations,
                 </div>
                 <div className="flex gap-3">
                     <button 
-                        onClick={() => setView(view === 'library' ? 'edit' : 'library')}
+                        onClick={() => setView(view === 'edit' ? 'library' : 'edit')}
                         className={`px-8 py-4 rounded-[2rem] font-black text-sm uppercase tracking-widest transition-all ${
                             view === 'edit' 
                             ? 'bg-black text-white shadow-xl shadow-black/20' 
@@ -51,8 +53,15 @@ export default function DashboardClient({ initialExperiences, initialEducations,
                     >
                         {view === 'edit' ? 'Close Editor' : 'Master Editor'}
                     </button>
-                    <button className="px-8 py-4 bg-gray-50 text-black/20 rounded-[2rem] font-black text-sm uppercase tracking-widest cursor-not-allowed border-2 border-transparent">
-                        Generate Resume
+                    <button 
+                        onClick={() => setView(view === 'preview' ? 'library' : 'preview')}
+                        className={`px-8 py-4 rounded-[2rem] font-black text-sm uppercase tracking-widest transition-all ${
+                            view === 'preview' 
+                            ? 'bg-black text-white shadow-xl shadow-black/20' 
+                            : 'bg-white text-black border-2 border-black/10 hover:border-black shadow-sm'
+                        }`}
+                    >
+                        {view === 'preview' ? 'Exit Preview' : 'Generate Resume'}
                     </button>
                 </div>
             </div>
@@ -63,6 +72,12 @@ export default function DashboardClient({ initialExperiences, initialEducations,
                         resumeData={resumeData} 
                         onChange={setResumeData} 
                     />
+                </div>
+            ) : view === 'preview' ? (
+                <div className="max-w-[900px] mx-auto bg-gray-100 p-8 rounded-[3rem] shadow-2xl">
+                    <div className="bg-white shadow-2xl rounded-sm overflow-hidden">
+                        <ResumePreview resumeData={resumeData} />
+                    </div>
                 </div>
             ) : (
                 <div className="space-y-12">

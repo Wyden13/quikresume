@@ -5,6 +5,7 @@ import { ResumeData, WorkExperience, Education, SkillCategory } from "@/types/sc
 import { getUserProfile } from "@/app/actions/user-actions";
 import { getExperiences } from "@/app/actions/experience-actions";
 import { getEducations } from "@/app/actions/education-actions";
+import { getSkills } from "@/app/actions/skill-actions";
 import { saveResumeData } from "@/app/actions/resume-actions";
 
 // --- LOCAL UI COMPONENTS (Styled with Tailwind) ---
@@ -91,6 +92,7 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
             const profile = await getUserProfile();
             const exps = await getExperiences();
             const edus = await getEducations();
+            const sks = await getSkills();
 
             const fullName = profile ? `${profile.firstName} ${profile.lastName}`.trim() : "";
             
@@ -110,6 +112,7 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
                     startDate: e.startDate?.toDate().toISOString().split("T")[0],
                     endDate: e.isActive ? "Present" : e.endDate?.toDate().toISOString().split("T")[0] || "",
                     description: e.description.join("\n"),
+                    isSelected: e.isSelected,
                 })),
                 education: edus.map(e => ({
                     id: e.id,
@@ -117,12 +120,19 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
                     institution: e.schoolName,
                     year: `${e.startDate?.toDate().getFullYear()} - ${e.isActive ? 'Present' : e.endDate?.toDate().getFullYear() || ''}`,
                     details: e.gpa || "",
+                    isSelected: e.isSelected,
+                })),
+                skills: sks.map(s => ({
+                    id: s.id,
+                    category: s.category,
+                    items: s.items,
+                    isSelected: s.isSelected,
                 }))
             });
             setIsLoaded(true);
         };
         prefillFromDB();
-    }, [isLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const handleUpdateLibrary = async () => {
         setIsSaving(true);
@@ -149,12 +159,12 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
             ...resumeData,
             workExperience: [
                 ...resumeData.workExperience,
-                { id: Date.now().toString(), title: "", company: "", startDate: "", endDate: "", description: "" },
+                { id: Date.now().toString(), title: "", company: "", startDate: "", endDate: "", description: "", isSelected: true },
             ],
         });
     };
 
-    const updateWorkExperience = (id: string, field: keyof WorkExperience, value: string) => {
+    const updateWorkExperience = (id: string, field: keyof WorkExperience, value: string | boolean) => {
         onChange({
             ...resumeData,
             workExperience: resumeData.workExperience.map((exp) =>
@@ -175,12 +185,12 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
             ...resumeData,
             education: [
                 ...resumeData.education,
-                { id: Date.now().toString(), degree: "", institution: "", year: "", details: "" },
+                { id: Date.now().toString(), degree: "", institution: "", year: "", details: "", isSelected: true },
             ],
         });
     };
 
-    const updateEducation = (id: string, field: keyof Education, value: string) => {
+    const updateEducation = (id: string, field: keyof Education, value: string | boolean) => {
         onChange({
             ...resumeData,
             education: resumeData.education.map((edu) =>
@@ -201,12 +211,12 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
             ...resumeData,
             skills: [
                 ...resumeData.skills,
-                { id: Date.now().toString(), category: "", items: "" },
+                { id: Date.now().toString(), category: "", items: "", isSelected: true },
             ],
         });
     };
 
-    const updateSkillCategory = (id: string, field: keyof SkillCategory, value: string) => {
+    const updateSkillCategory = (id: string, field: keyof SkillCategory, value: string | boolean) => {
         onChange({
             ...resumeData,
             skills: resumeData.skills.map((skill) =>
@@ -326,6 +336,18 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
                                 <Trash2 className="size-4" />
                             </Button>
                             <div className="space-y-6">
+                                <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-black/5">
+                                    <div className="flex flex-col">
+                                        <span className="text-sm font-black uppercase tracking-tight">Include on Resume</span>
+                                        <span className="text-[10px] text-black/40 font-bold uppercase tracking-widest">Toggle visibility for this role</span>
+                                    </div>
+                                    <input 
+                                        type="checkbox" 
+                                        checked={exp.isSelected}
+                                        onChange={(e) => updateWorkExperience(exp.id, "isSelected", e.target.checked)}
+                                        className="w-6 h-6 accent-black cursor-pointer"
+                                    />
+                                </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <div>
                                         <Label>Position</Label>
@@ -404,6 +426,18 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
                                 <Trash2 className="size-4" />
                             </Button>
                             <div className="space-y-6">
+                                <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-black/5">
+                                    <div className="flex flex-col">
+                                        <span className="text-sm font-black uppercase tracking-tight">Include on Resume</span>
+                                        <span className="text-[10px] text-black/40 font-bold uppercase tracking-widest">Toggle visibility for this education</span>
+                                    </div>
+                                    <input 
+                                        type="checkbox" 
+                                        checked={edu.isSelected}
+                                        onChange={(e) => updateEducation(edu.id, "isSelected", e.target.checked)}
+                                        className="w-6 h-6 accent-black cursor-pointer"
+                                    />
+                                </div>
                                 <div>
                                     <Label>Degree / Program</Label>
                                     <Input
@@ -470,6 +504,18 @@ export function ResumeForm({ resumeData, onChange }: ResumeFormProps) {
                                 <Trash2 className="size-4" />
                             </Button>
                             <div className="space-y-6">
+                                <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-black/5">
+                                    <div className="flex flex-col">
+                                        <span className="text-sm font-black uppercase tracking-tight">Include on Resume</span>
+                                        <span className="text-[10px] text-black/40 font-bold uppercase tracking-widest">Toggle visibility for this skill category</span>
+                                    </div>
+                                    <input 
+                                        type="checkbox" 
+                                        checked={skill.isSelected}
+                                        onChange={(e) => updateSkillCategory(skill.id, "isSelected", e.target.checked)}
+                                        className="w-6 h-6 accent-black cursor-pointer"
+                                    />
+                                </div>
                                 <div>
                                     <Label>Category Name</Label>
                                     <Input
