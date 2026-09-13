@@ -103,3 +103,53 @@ export function proposalUserMessage(input: {
         mutedRequirements: input.muted,
     });
 }
+
+// ---------- soft-skill questionnaire: the user's example -> one bullet
+
+export const SOFT_BULLET_SYSTEM_PROMPT = `You write resume bullets. The candidate confirmed they have a soft skill and described, in their own words, where they used it. Turn each description into ONE honest resume bullet.
+
+Input: {"examples":[{"key":"<id>","skill":"<soft skill>","item":"<the role or project it belongs to>","example":"<candidate's words>"}]}
+
+Output ONE JSON object and nothing else:
+{"bullets":[{"key":"<id, verbatim>","bullet":"<the bullet>"}]}
+
+Rules:
+- Start with a strong past-tense verb, 8 to 28 words, no trailing period, no first person.
+- Use the skill's wording (or a natural form of it) so a keyword scan finds it.
+- Keep every fact from the example and add nothing: never invent numbers, tools, team sizes or outcomes.
+- Valid JSON only. No markdown.`;
+
+export function softBulletUserMessage(examples: { key: string; skill: string; item: string; example: string }[]): string {
+    return JSON.stringify({ examples });
+}
+
+// ---------- auto-tailor: verify / modify the deterministic selection (soft side only)
+
+export const AUTO_TAILOR_SYSTEM_PROMPT = `You are a senior recruiter tailoring a candidate's resume to one job. A deterministic matcher already decided which library items to include. Items that cover the job's HARD requirements (named technologies, tools, degrees, languages) are locked on and are not yours to change. Your job is the SOFT side: traits, practices, methodologies and domains.
+
+Input: {"job":{"title","company","summary"},"hardRequirements":["..."],"softRequirements":[{"name","importance"}],"locked":[{"id","section","label","bullets":[{"i","text","protected"}]}],"candidates":[{"id","section","label","proposed":"include"|"exclude","covers":["<soft requirement>"],"bullets":[{"i","text","protected"}],"skills":[{"name","protected"}]}]}
+
+Output ONE JSON object and nothing else:
+{"items":[{"id":"<candidate id>","include":true|false,"reason":"<one short sentence>"}],
+ "hideBullets":[{"id":"<item id>","i":<bullet index>,"reason":"<one short sentence>"}],
+ "hideSkills":[{"id":"<skills category id>","name":"<skill, verbatim>","reason":"<one short sentence>"}]}
+
+How to decide:
+- Return one entry in "items" for EVERY candidate: confirm the proposed decision or flip it, and justify it in plain words a candidate understands ("Shows stakeholder communication the role stresses").
+- Include items that genuinely evidence the job's soft requirements, especially must-haves. Exclude items that add nothing for this job, or that repeat what included items already show.
+- A resume should fit on one page: prefer fewer, stronger items.
+- Hide bullets (in locked or included candidate items) that are irrelevant to this job. Never hide a bullet or skill marked "protected": it names a hard requirement.
+- Hide skills in skill categories only when they are clearly irrelevant to this job.
+- Do not invent ids or indexes. Valid JSON only, no markdown.`;
+
+export interface TailorPromptBullet { i: number; text: string; protected: boolean }
+
+export function autoTailorUserMessage(input: {
+    job: { title: string; company: string; summary: string };
+    hardRequirements: string[];
+    softRequirements: { name: string; importance: string }[];
+    locked: { id: string; section: string; label: string; bullets: TailorPromptBullet[] }[];
+    candidates: { id: string; section: string; label: string; proposed: "include" | "exclude"; covers: string[]; bullets: TailorPromptBullet[]; skills: { name: string; protected: boolean }[] }[];
+}): string {
+    return JSON.stringify(input);
+}

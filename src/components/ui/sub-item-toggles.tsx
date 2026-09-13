@@ -17,10 +17,14 @@ interface SubItemListProps {
     /** Prefix for input ids (must be unique on the page). */
     idPrefix: string;
     disabled?: boolean;
+    /** Keys that must stay shown (checkbox / chip disabled). */
+    lockedKeys?: readonly string[];
+    /** Optional note per key (e.g. why it is hidden), shown under a bullet. */
+    notes?: Readonly<Record<string, string>>;
     className?: string;
 }
 
-export function SubItemList({ entries, hidden, onToggle, variant, idPrefix, disabled, className }: SubItemListProps) {
+export function SubItemList({ entries, hidden, onToggle, variant, idPrefix, disabled, lockedKeys = [], notes = {}, className }: SubItemListProps) {
     if (entries.length === 0) return null;
     const off = new Set(hidden);
     const shown = entries.filter(e => !off.has(e.key)).length;
@@ -35,12 +39,17 @@ export function SubItemList({ entries, hidden, onToggle, variant, idPrefix, disa
                     {unique.map((e, i) => {
                         const on = !off.has(e.key);
                         const id = `${idPrefix}-b${i}`;
+                        const locked = lockedKeys.includes(e.key);
                         return (
                             <li key={e.key} className="flex items-start gap-2.5">
-                                <Checkbox id={id} checked={on} onChange={() => onToggle(e.key)} disabled={disabled} className="mt-0.5" />
-                                <label htmlFor={id} className={cn("cursor-pointer leading-relaxed", on ? "text-fg-muted" : "text-fg-subtle line-through decoration-fg-subtle/60")}>
-                                    {e.label}
-                                </label>
+                                <Checkbox id={id} checked={on} onChange={() => onToggle(e.key)} disabled={disabled || locked} className="mt-0.5" />
+                                <div className="min-w-0">
+                                    <label htmlFor={id} className={cn("leading-relaxed", locked ? "cursor-not-allowed" : "cursor-pointer", on ? "text-fg-muted" : "text-fg-subtle line-through decoration-fg-subtle/60")}>
+                                        {e.label}
+                                    </label>
+                                    {locked && <span className="block text-xs text-fg-subtle">Names a hard requirement · always shown</span>}
+                                    {!on && notes[e.key] && <span className="block text-xs text-fg-subtle">{notes[e.key]}</span>}
+                                </div>
                             </li>
                         );
                     })}
@@ -55,8 +64,8 @@ export function SubItemList({ entries, hidden, onToggle, variant, idPrefix, disa
                                 type="button"
                                 aria-pressed={on}
                                 onClick={() => onToggle(e.key)}
-                                disabled={disabled}
-                                title={on ? "Shown on résumé · click to hide" : "Hidden · click to show"}
+                                disabled={disabled || lockedKeys.includes(e.key)}
+                                title={lockedKeys.includes(e.key) ? "Names a hard requirement · always shown" : notes[e.key] ?? (on ? "Shown on résumé · click to hide" : "Hidden · click to show")}
                                 className={cn(
                                     "inline-flex h-7 items-center rounded-md border px-2.5 text-xs font-medium transition-colors",
                                     on

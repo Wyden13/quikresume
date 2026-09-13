@@ -56,7 +56,8 @@ src/
   app/api/import/route.ts                    POST upload -> GLM-4.6V -> ResumeData draft (see Resume import)
   app/api/tags/{analyze,backfill}/route.ts   tag unsaved draft items (nothing persisted) / re-tag stale library items
   app/api/jobs/{analyze,proposals,reconcile}/route.ts   JD -> requirements (+ reconcile when the form carries `resume`) /
-                                             gap -> proposals (re-reconciles first) / re-run the reconcile pass for a saved job
+                                             gap -> proposals (re-reconciles first; UI hidden) / re-run the reconcile pass for a saved job
+  app/api/jobs/{auto-tailor,soft-skills}/route.ts   auto-tailor plan (see Auto-tailor) / questionnaire answers -> library
   app/actions/*-actions.ts                   "use server" CRUD per collection + resume-actions.ts (save + tagging)
                                              + user-actions.ts (profile), variant-actions.ts, job-actions.ts, tag-actions.ts,
                                              auth-actions.ts (signOutAction, passed to the client sidebar)
@@ -78,7 +79,9 @@ src/
   components/ui/variant-toolbar.tsx          Save as / Load / Update variant on the library view
   components/ui/variants-page.tsx            /dashboard/variants: search, labels, rename, duplicate, delete, load
   components/ui/insights-view.tsx, tag-charts.tsx   tag charts (recharts radar / bars) + tag table, filterable by kind
-  components/ui/job-match-view.tsx, proposal-cards.tsx, use-page-count.ts   Job Match
+  components/ui/job-match-view.tsx, proposal-cards.tsx, use-page-count.ts   Job Match (grouped requirements, Guidelines card)
+  components/ui/job-match/{auto-tailor-dialog,soft-skill-questions}.tsx   Auto-tailor stepper + soft-skill questionnaire
+  lib/match/auto-tailor.ts                   pure: buildTailorPlan, mergeAiReview, applyPlan, trimSteps
   components/ui/resume-preview.tsx           Typst preview + PDF download (client only; `compact` for the side pane)
   components/ui/pane-resize-handle.tsx       drag / keyboard splitter for the preview pane (width in preview-pane-store)
   components/ui/sub-item-toggles.tsx         per-bullet checkboxes / per-skill chips (Library: SubItemToggles in library-row, Editor)
@@ -204,8 +207,37 @@ Weight of a tag = number of selected items carrying it (`aggregateTags`, compute
   proposals, muted rules filtered, statuses preserved by id, stored on the job. "Ignore similar" writes a
   `{kind, tag | itemId}` rule to `users/{uid}/meta/preferences.mutedProposals`.
 - Apply: include/exclude call the item's `update*` action (or edit the draft when one is open); rewrite /
-  add-skill always edit the draft (`applyProposal`) and open the editor. "Tailor for this job" keeps a sticky
-  panel (`job-context-panel.tsx`) with the live score and page count on the Library / Editor views.
+  add-skill always edit the draft (`applyProposal`) and open the editor. "Tailor manually" keeps a sticky
+  strip (`job-context-strip.tsx`) with the live score and page count on the Library / Editor views.
+- **The Suggestions card is hidden** (`SHOW_SUGGESTIONS = false` in `job-match-view.tsx`); the route, proposal cards and
+  mute rules are kept. The job page shows requirements grouped Hard / Soft (by `requirementTier`), a Guidelines card
+  (missing must-haves, keyword gaps, declined soft skills) and Auto-tailor.
+- `patchJob` runs `stripUndefined`: Firestore rejects `undefined` values, which used to crash the proposals route
+  (proposals carry optional `section` / `current` / …) and surfaced as a generic "Could not get suggestions".
+
+## Auto-tailor
+
+```
+questions (soft gaps) -> POST /api/jobs/auto-tailor -> auto-trim (browser Typst) -> review -> createVariantFromPlan
+```
+
+- **Gate:** disabled while `scoreJob(reqs, withAllSelected(library)).missingMust` is non-empty (client and route, 409).
+- **Questionnaire** (`soft-skill-questions.tsx`, `POST /api/jobs/soft-skills`): asks about the job's soft requirements no
+  library item covers. Yes appends the skill to a printed "Soft skills" skill category (created if missing); an optional
+  example is worded into one bullet by the text model (verbatim on failure) and appended to the picked item. Touched items
+  are re-tagged (30 s) and also get the answered requirement's tag, with `contentHash = tagsHash`, so coverage is
+  immediate. No is stored in `meta/preferences.declinedSoftSkills` and shown as a Guidelines warning on later jobs
+  ("I have one now" re-opens the question; Yes clears it).
+- **Plan** (`lib/match/auto-tailor.ts`, pure): items covering a hard requirement (plus the newest education) are
+  *locked on*; the rest follow `recommendSelection` over the soft requirements. Bullets / skills that literally name a hard
+  requirement are *protected*. The text model (`AUTO_TAILOR_SYSTEM_PROMPT`) confirms or flips unlocked decisions and may
+  hide unprotected bullets / skills; `mergeAiReview` ignores anything touching a locked include, a protected line, an
+  unknown id or index. AI failure returns the tag-based plan with a warning.
+- **Trim:** unless "Allow more than one page" is ticked, the dialog applies `trimSteps` (bullets of weak unlocked items,
+  then those items, then unprotected bullets of locked items; the first bullet of an item stays) recompiling until one
+  page. Every trim is marked and reversible in the review; allowing more pages restores the untrimmed plan.
+- **Create:** `createVariantFromPlan({name, labels, items, hidden})` writes the variant, loads it
+  (`applyVariantSelection`) and switches the dashboard to manual tailoring for that job.
 
 ## Resume import
 
@@ -294,7 +326,7 @@ Subcollections, each item doc has `isSelected`, `tags`, `contentHash`, `tagsHash
 | `variants` | `name, labels: string[], items: {experience: string[], …}, hidden: {itemId: string[]}, templateId` (pointers only) |
 | `jobs` | `title, company, source, jdText, summary, requirements[] ({name, display, kind, importance, yearsMin, satisfiedBy[], evidence[], reason}), proposals[], proposalsAt, lastScore` |
 | `meta/tags` | `aliases: Record<alias, canonical>` |
-| `meta/preferences` | `mutedProposals: {kind, tag?, itemId?}[], caps: Record<ResumeListKey, number \| null>` |
+| `meta/preferences` | `mutedProposals: {kind, tag?, itemId?}[], caps: Record<ResumeListKey, number \| null>, declinedSoftSkills: {name, display, at}[]` |
 
 Dates are stored as Firestore `Timestamp` at **UTC midnight** (`toUtcDate`). In the editor model
 `startDate` is `"YYYY-MM-DD" | ""` and `endDate` is `"YYYY-MM-DD" | "Present" | ""`; `"Present"`

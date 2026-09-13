@@ -81,9 +81,18 @@ export const DEFAULT_CAPS: Caps = {
     languages: null,
 };
 
+/** A soft skill the user said they don't have (auto-tailor questionnaire). Warned about on later jobs until answered Yes. */
+export interface DeclinedSkill {
+    /** Requirement tag key. */
+    name: string;
+    display: string;
+    at: string | null;
+}
+
 export interface Preferences {
     mutedProposals: MuteRule[];
     caps: Caps;
+    declinedSoftSkills: DeclinedSkill[];
 }
 
 /** hard = named technologies, tools, credentials, languages (missing = disqualifying); soft = traits and practices (missing = keyword advice). */

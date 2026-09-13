@@ -12,9 +12,9 @@ const TONE: Record<BadgeTone, string> = {
     success: "bg-success-bg text-success",
 };
 
-export function Badge({ tone = "neutral", className, children, title }: { tone?: BadgeTone; className?: string; children: React.ReactNode; title?: string }) {
+export function Badge({ tone = "neutral", size = "sm", className, children, title }: { tone?: BadgeTone; size?: "xs" | "sm"; className?: string; children: React.ReactNode; title?: string }) {
     return (
-        <span title={title} className={cn("inline-flex h-5 items-center rounded-sm px-1.5 text-xs font-medium whitespace-nowrap", TONE[tone], className)}>
+        <span title={title} className={cn("inline-flex items-center rounded-sm font-medium whitespace-nowrap", size === "xs" ? "h-[18px] px-1.5 text-[11px]" : "h-5 px-1.5 text-xs", TONE[tone], className)}>
             {children}
         </span>
     );

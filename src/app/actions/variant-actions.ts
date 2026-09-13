@@ -5,7 +5,9 @@ import { revalidatePath } from "next/cache"
 import { Timestamp } from "firebase-admin/firestore";
 import { db } from "@/lib/firestore";
 import { userCol } from "@/lib/db/user-collection";
-import { applyVariantSelection, readVariant, readVariants, snapshotSelection } from "@/lib/db/variants";
+import { applyVariantSelection, listItemIds, readVariant, readVariants, snapshotSelection } from "@/lib/db/variants";
+import { COLLECTION_NAMES } from "@/lib/sections";
+import { readVariantHidden, readVariantItems, type VariantHidden, type VariantItems } from "@/lib/variants";
 import { DEFAULT_TEMPLATE } from "@/lib/typst/templates";
 import type { ResumeVariant } from "@/types/db";
 
@@ -106,4 +108,27 @@ export async function loadVariant(id: string): Promise<{ missing: number }> {
     await db.collection("users").doc(uid).set({ loadedVariantId: id, updatedAt: now }, { merge: true });
     revalidate();
     return { missing };
+}
+
+/**
+ * Saves a selection built in the browser (auto-tailor review) as a new variant and
+ * loads it as the working selection. Ids that no longer exist are dropped.
+ */
+export async function createVariantFromPlan(input: { name: string; labels?: string[]; items: VariantItems; hidden: VariantHidden }): Promise<{ id: string; missing: number }> {
+    const uid = await requireUid();
+    const existing = await listItemIds(uid);
+    const requested = readVariantItems(input.items as unknown as Record<string, string[]>);
+    const items = readVariantItems({});
+    for (const c of COLLECTION_NAMES) items[c] = requested[c].filter(id => existing[c].includes(id));
+    const kept = new Set(COLLECTION_NAMES.flatMap(c => items[c]));
+    const hidden = Object.fromEntries(Object.entries(readVariantHidden(input.hidden) ?? {}).filter(([id, keys]) => kept.has(id) && keys.length > 0));
+
+    const now = Timestamp.now();
+    const ref = await userCol(uid, "variants").add({
+        name: cleanName(input.name) || "Tailored resume", labels: cleanLabels(input.labels ?? []), items, hidden, templateId: DEFAULT_TEMPLATE, createdAt: now, updatedAt: now,
+    });
+    const { missing } = await applyVariantSelection(uid, items, hidden);
+    await db.collection("users").doc(uid).set({ loadedVariantId: ref.id, updatedAt: now }, { merge: true });
+    revalidate();
+    return { id: ref.id, missing };
 }

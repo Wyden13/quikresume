@@ -81,7 +81,7 @@ export default async function DashboardPage() {
             variantUsage={variantUsage(variants)}
             loadedVariantId={loadedVariantId}
             jobs={jobs}
-            preferences={preferences ?? { mutedProposals: [], caps: DEFAULT_CAPS }}
+            preferences={preferences ?? { mutedProposals: [], caps: DEFAULT_CAPS, declinedSoftSkills: [] }}
             tagAliases={tagAliases}
             userName={initialResumeData.personalInfo.firstName || session.user.name?.split(" ")[0] || "there"}
         />

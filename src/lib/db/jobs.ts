@@ -8,7 +8,7 @@ import { readMeta, writeMeta } from "@/lib/db/meta";
 import { isTagKind } from "@/lib/tags/types";
 import { RESUME_LIST_KEYS, type ResumeListKey } from "@/types/schema";
 import {
-    DEFAULT_CAPS, type Caps, type JobRecord, type MuteRule, type Preferences, type Proposal, type ProposalKind,
+    DEFAULT_CAPS, type Caps, type DeclinedSkill, type JobRecord, type MuteRule, type Preferences, type Proposal, type ProposalKind,
     type ProposalStatus, type Requirement,
 } from "@/lib/match/types";
 
@@ -94,8 +94,22 @@ export async function createJob(uid: string, job: Omit<JobRecord, "id" | "create
     return { ...job, id: ref.id, proposals: [], proposalsAt: null, lastScore: null, createdAt: now.toDate().toISOString(), updatedAt: now.toDate().toISOString() };
 }
 
+/**
+ * Firestore rejects `undefined` anywhere in a document ("Cannot use undefined as a
+ * Firestore value"), and proposals/requirements carry optional fields. Drop them.
+ */
+export function stripUndefined<T>(value: T): T {
+    if (Array.isArray(value)) return value.map(stripUndefined) as T;
+    if (value && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
+        return Object.fromEntries(
+            Object.entries(value as Record<string, unknown>).filter(([, v]) => v !== undefined).map(([k, v]) => [k, stripUndefined(v)]),
+        ) as T;
+    }
+    return value;
+}
+
 export async function patchJob(uid: string, id: string, patch: Record<string, unknown>): Promise<void> {
-    await userCol(uid, "jobs").doc(id).update({ ...patch, updatedAt: Timestamp.now() });
+    await userCol(uid, "jobs").doc(id).update({ ...stripUndefined(patch), updatedAt: Timestamp.now() });
 }
 
 export async function deleteJobDoc(uid: string, id: string): Promise<void> {
@@ -128,14 +142,27 @@ function readCaps(v: unknown): Caps {
     return caps;
 }
 
+function readDeclined(v: unknown): DeclinedSkill[] {
+    if (!Array.isArray(v)) return [];
+    const out: DeclinedSkill[] = [];
+    for (const r of v) {
+        if (!r || typeof r !== "object") continue;
+        const o = r as Record<string, unknown>;
+        if (typeof o.name !== "string" || !o.name) continue;
+        out.push({ name: o.name, display: strOf(o.display) || o.name, at: typeof o.at === "string" ? o.at : null });
+    }
+    return out;
+}
+
 export async function readPreferences(uid: string): Promise<Preferences> {
     const d = await readMeta(uid, "preferences");
-    return { mutedProposals: readMuteRules(d.mutedProposals), caps: readCaps(d.caps) };
+    return { mutedProposals: readMuteRules(d.mutedProposals), caps: readCaps(d.caps), declinedSoftSkills: readDeclined(d.declinedSoftSkills) };
 }
 
 export async function writePreferences(uid: string, patch: Partial<Preferences>): Promise<void> {
     const data: Record<string, unknown> = {};
     if (patch.mutedProposals) data.mutedProposals = patch.mutedProposals.map(r => ({ kind: r.kind, tag: r.tag ?? null, itemId: r.itemId ?? null }));
     if (patch.caps) data.caps = patch.caps;
+    if (patch.declinedSoftSkills) data.declinedSoftSkills = patch.declinedSoftSkills.map(r => ({ name: r.name, display: r.display, at: r.at ?? null }));
     await writeMeta(uid, "preferences", data);
 }

@@ -2,8 +2,9 @@
 "use client";
 
 // Job Match: analyse a job description, score a resume source against it
-// (working selection / saved variant / uploaded resume), inspect the ATS
-// keyword table, and work through AI proposals.
+// (working selection / saved variant / uploaded resume), follow the guidelines,
+// inspect the ATS keyword table, and auto-tailor a variant. The AI proposals
+// card is hidden (SHOW_SUGGESTIONS).
 
 import React, { useState } from "react";
 import dynamic from "next/dynamic";
@@ -12,7 +13,7 @@ import type { ResumeData } from "@/types/schema";
 import type { ResumeVariant } from "@/types/db";
 import type { JobRecord, MuteRule, Preferences, Proposal, Requirement, ResumeSource } from "@/lib/match/types";
 import type { AliasMap } from "@/lib/tags/normalize";
-import { jobKindTotals, scoreJob } from "@/lib/match/score";
+import { jobKindTotals, requirementTier, scoreJob, withAllSelected } from "@/lib/match/score";
 import { muteRuleFor } from "@/lib/match/proposals";
 import { aggregateTags, kindTotals } from "@/lib/tags/aggregate";
 import { applyTags, allInputs, tagContext } from "@/lib/tags/content";
@@ -37,6 +38,13 @@ import { EmptyState } from "@/components/ui/primitives/empty-state";
 import { Table, Td, Th } from "@/components/ui/primitives/table";
 import { ChevronDown, Target } from "@/components/ui/primitives/icons";
 import { useResumePageCount } from "@/components/ui/use-page-count";
+import { Dialog } from "@/components/ui/primitives/dialog";
+import { Lock, Wand2 } from "@/components/ui/primitives/icons";
+import { AutoTailorDialog } from "@/components/ui/job-match/auto-tailor-dialog";
+import { SoftSkillQuestions } from "@/components/ui/job-match/soft-skill-questions";
+
+/** The Suggestions card (AI proposals) is hidden from the UI; its code paths stay for later. */
+const SHOW_SUGGESTIONS = false;
 
 const Charts = dynamic(() => import("@/components/ui/tag-charts").then(m => ({ default: ChartsBundle(m) })), {
     ssr: false,
@@ -362,6 +370,14 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, activeJobI
 
     const tailoring = activeJobId === job.id;
 
+    // Library-wide view (every item on): the auto-tailor gate and the soft-skill questions.
+    const library = scoreJob(job.requirements, withAllSelected(resumeData), aliases);
+    const declinedNames = new Set(preferences.declinedSoftSkills.map(d => d.name));
+    const declinedNeeded = library.keywordGaps.filter(r => declinedNames.has(r.name));
+    const [tailorRun, setTailorRun] = useState(0);
+    const [answering, setAnswering] = useState(false);
+    const [notice, setNotice] = useState<string | null>(null);
+
     return (
         <div className="space-y-4">
             {/* Header */}
@@ -371,8 +387,20 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, activeJobI
                     hint={<>{job.company || "Unknown company"}{job.source.fileName ? ` · from ${job.source.fileName}` : ""}</>}
                     action={
                         <>
-                            <Button size="sm" variant={tailoring ? "secondary" : "primary"} onClick={() => onTailor(tailoring ? null : job.id)}>
-                                {tailoring ? "Stop tailoring" : "Tailor for this job"}
+                            <Button
+                                size="sm"
+                                variant="primary"
+                                icon={library.missingMust.length > 0 ? Lock : Wand2}
+                                onClick={() => setTailorRun(n => n + 1)}
+                                disabled={library.missingMust.length > 0 || source.kind === "upload"}
+                                title={library.missingMust.length > 0
+                                    ? `Auto-tailor needs every hard must-have covered. Missing: ${library.missingMust.map(r => r.display).join(", ")}`
+                                    : source.kind === "upload" ? "Auto-tailor works on your own library" : "Build a variant tailored to this job"}
+                            >
+                                Auto-tailor
+                            </Button>
+                            <Button size="sm" variant="secondary" onClick={() => onTailor(tailoring ? null : job.id)}>
+                                {tailoring ? "Stop tailoring" : "Tailor manually"}
                             </Button>
                             <Button size="sm" variant="danger" onClick={onDelete}>Delete</Button>
                         </>
@@ -380,19 +408,11 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, activeJobI
                 />
                 <CardBody className="space-y-3">
                     {job.summary && <p className="text-13 text-fg-muted">{job.summary}</p>}
-                    <div className="flex flex-wrap gap-1">
-                        {job.requirements.map(r => (
-                            <Badge
-                                key={r.name}
-                                tone={r.importance === "must" ? "strong" : "neutral"}
-                                title={`${r.importance === "must" ? "Must-have" : "Nice-to-have"} · ${kindMeta(r.kind).label}${r.yearsMin ? ` · ${r.yearsMin}+ years` : ""}`}
-                            >
-                                {r.display}{r.yearsMin ? <span className="ml-1 opacity-60">{r.yearsMin}y+</span> : null}
-                            </Badge>
-                        ))}
-                    </div>
+                    <RequirementGroups requirements={job.requirements} />
                 </CardBody>
             </Card>
+
+            {notice && <NoticeBanner tone="success" onDismiss={() => setNotice(null)}>{notice}</NoticeBanner>}
 
             {/* Source + score */}
             <Card>
@@ -437,19 +457,7 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, activeJobI
                                     <dt className="text-fg-subtle">Length</dt>
                                     <dd className={cn("tabular-nums", pages !== null && pages > 1 && "text-warning")}>{pages === null ? "…" : `${pages} ${pages === 1 ? "page" : "pages"}${pages > 1 ? " · over one page" : ""}`}</dd>
                                 </dl>
-                                <div className="min-w-0 space-y-2 text-13 @2xl:ml-auto @2xl:max-w-[50%] @2xl:text-right">
-                                    {match.missingMust.length > 0 && (
-                                        <div>
-                                            <p className="text-xs text-fg-subtle">Missing must-haves</p>
-                                            <p className="font-medium text-danger">{match.missingMust.map(r => r.display).join(", ")}</p>
-                                        </div>
-                                    )}
-                                    {match.keywordGaps.length > 0 && (
-                                        <div>
-                                            <p className="text-xs text-fg-subtle">Add these keywords before applying</p>
-                                            <p className="font-medium text-warning">{match.keywordGaps.map(r => r.display).join(", ")}</p>
-                                        </div>
-                                    )}
+                                <div className="@2xl:ml-auto">
                                     <Button size="sm" onClick={recheck} loading={busy === "recheck"} title="Ask the AI to match requirements against your whole library: equivalent degrees, implied skills, related projects.">
                                         Re-check with AI
                                     </Button>
@@ -460,6 +468,16 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, activeJobI
                     )}
                 </CardBody>
             </Card>
+
+            {/* Guidelines */}
+            <GuidelinesCard
+                missingMust={match.missingMust}
+                keywordGaps={match.keywordGaps}
+                libraryMissingMust={library.missingMust}
+                declinedNeeded={declinedNeeded}
+                onAnswerDeclined={() => setAnswering(true)}
+                showScoreSource={source.kind !== "selection"}
+            />
 
             {/* ATS table */}
             <Card>
@@ -500,8 +518,8 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, activeJobI
                 )}
             </Card>
 
-            {/* Suggestions */}
-            <Card>
+            {/* Suggestions (hidden, see SHOW_SUGGESTIONS) */}
+            {SHOW_SUGGESTIONS && <Card>
                 <CardHeader
                     title="Suggestions"
                     hint="Include/exclude picks come from keyword coverage under your section limits; rewrites and gaps from the AI coach."
@@ -531,7 +549,125 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, activeJobI
                         onUnmute={unmute}
                     />
                 </CardBody>
-            </Card>
+            </Card>}
+
+            {tailorRun > 0 && (
+                <AutoTailorDialog
+                    key={tailorRun}
+                    open
+                    onClose={() => setTailorRun(0)}
+                    job={job}
+                    resumeData={resumeData}
+                    declined={preferences.declinedSoftSkills}
+                    aliases={aliases}
+                    onCreated={(message) => { setNotice(message); onTailor(job.id); }}
+                />
+            )}
+
+            {answering && (
+                <Dialog open onClose={() => setAnswering(false)} size="lg" title="Soft skills you said you don't have" description="Changed your mind? Add them and the warning goes away.">
+                    <SoftSkillQuestions
+                        gaps={declinedNeeded}
+                        declined={preferences.declinedSoftSkills}
+                        library={resumeData}
+                        onSkip={() => setAnswering(false)}
+                        skipLabel="Close"
+                        onSaved={(r) => { setAnswering(false); setNotice(r.warning ? `Saved. ${r.warning}` : "Saved to your library."); router.refresh(); }}
+                    />
+                </Dialog>
+            )}
+        </div>
+    );
+}
+
+// ---------- requirement groups
+
+function RequirementGroups({ requirements }: { requirements: Requirement[] }) {
+    const order = (a: Requirement, b: Requirement) =>
+        (a.importance === b.importance ? 0 : a.importance === "must" ? -1 : 1) || a.display.localeCompare(b.display);
+    const groups = [
+        { label: "Hard requirements", hint: "Named technologies, tools, degrees and languages. Missing a must-have is disqualifying.", items: requirements.filter(r => requirementTier(r) === "hard").sort(order) },
+        { label: "Soft requirements", hint: "Traits, practices and domains. Missing ones are keyword advice.", items: requirements.filter(r => requirementTier(r) === "soft").sort(order) },
+    ].filter(g => g.items.length > 0);
+
+    return (
+        <div className="space-y-2.5">
+            {groups.map(g => (
+                <div key={g.label} className="grid gap-1.5 @xl:grid-cols-[9.5rem_minmax(0,1fr)] @xl:gap-3">
+                    <p className="pt-px text-xs text-fg-subtle" title={g.hint}>
+                        {g.label} <span className="tabular-nums">{g.items.length}</span>
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                        {g.items.map(r => (
+                            <Badge
+                                key={r.name}
+                                size="xs"
+                                tone={r.importance === "must" ? "strong" : "neutral"}
+                                title={`${r.importance === "must" ? "Must-have" : "Nice-to-have"} · ${kindMeta(r.kind).label}${r.yearsMin ? ` · ${r.yearsMin}+ years` : ""}`}
+                            >
+                                {r.display}{r.yearsMin ? <span className="ml-1 opacity-60">{r.yearsMin}y+</span> : null}
+                            </Badge>
+                        ))}
+                    </div>
+                </div>
+            ))}
+            <p className="flex items-center gap-3 text-[11px] text-fg-subtle">
+                <span className="inline-flex items-center gap-1"><span className="size-2 rounded-[2px] bg-accent" aria-hidden />must-have</span>
+                <span className="inline-flex items-center gap-1"><span className="size-2 rounded-[2px] bg-surface-muted ring-1 ring-border" aria-hidden />nice-to-have</span>
+            </p>
+        </div>
+    );
+}
+
+// ---------- guidelines
+
+function GuidelinesCard({ missingMust, keywordGaps, libraryMissingMust, declinedNeeded, onAnswerDeclined, showScoreSource }: {
+    missingMust: Requirement[];
+    keywordGaps: Requirement[];
+    libraryMissingMust: Requirement[];
+    declinedNeeded: Requirement[];
+    onAnswerDeclined: () => void;
+    showScoreSource: boolean;
+}) {
+    const declined = new Set(declinedNeeded.map(r => r.name));
+    const gaps = keywordGaps.filter(r => !declined.has(r.name));
+    const empty = missingMust.length === 0 && gaps.length === 0 && declinedNeeded.length === 0 && libraryMissingMust.length === 0;
+    return (
+        <Card>
+            <CardHeader title="Guidelines" hint={showScoreSource ? "For the résumé being scored above." : "For your working selection."} />
+            <CardBody className="space-y-3 text-13">
+                {empty && <p className="text-fg-muted">Nothing missing. Every requirement is covered by the résumé above.</p>}
+                {libraryMissingMust.length > 0 && (
+                    <GuidelineRow tone="danger" label="Auto-tailor is locked">
+                        Nothing in your library covers these hard must-haves: <span className="font-medium">{libraryMissingMust.map(r => r.display).join(", ")}</span>. Add them to your library (if you have them) to unlock it.
+                    </GuidelineRow>
+                )}
+                {missingMust.length > 0 && (
+                    <GuidelineRow tone="danger" label="Missing must-haves">
+                        <span className="font-medium">{missingMust.map(r => r.display).join(", ")}</span>
+                    </GuidelineRow>
+                )}
+                {gaps.length > 0 && (
+                    <GuidelineRow tone="warning" label="Add these keywords before applying">
+                        <span className="font-medium">{gaps.map(r => r.display).join(", ")}</span>
+                    </GuidelineRow>
+                )}
+                {declinedNeeded.length > 0 && (
+                    <GuidelineRow tone="warning" label="You said you don't have">
+                        <span className="font-medium">{declinedNeeded.map(r => r.display).join(", ")}</span>
+                        <Button size="sm" className="ml-2" onClick={onAnswerDeclined}>I have one now</Button>
+                    </GuidelineRow>
+                )}
+            </CardBody>
+        </Card>
+    );
+}
+
+function GuidelineRow({ tone, label, children }: { tone: "danger" | "warning"; label: string; children: React.ReactNode }) {
+    return (
+        <div className="grid gap-1 @xl:grid-cols-[12rem_minmax(0,1fr)] @xl:gap-3">
+            <p className={cn("text-xs font-medium", tone === "danger" ? "text-danger" : "text-warning")}>{label}</p>
+            <div className="text-fg">{children}</div>
         </div>
     );
 }

@@ -49,7 +49,13 @@ export function reconcileItems(resume: ResumeData): ProposalPromptItem[] {
     return items.slice(0, MAX_ITEMS);
 }
 
-export async function reconcileRequirements(requirements: Requirement[], resume: ResumeData, aliases: AliasMap): Promise<ReconcileResult> {
+export async function reconcileRequirements(
+    requirements: Requirement[],
+    resume: ResumeData,
+    aliases: AliasMap,
+    /** Routes with a time budget pass a shorter timeout and no retry. */
+    opts: { timeoutMs?: number; retries?: number } = {},
+): Promise<ReconcileResult> {
     const inventory = aggregateTags(resume, { selectedOnly: false });
     const tagByKey = new Map(inventory.map(t => [t.name, t]));
     const tagByDisplay = new Map(inventory.map(t => [t.display.toLowerCase(), t.name]));
@@ -70,7 +76,7 @@ export async function reconcileRequirements(requirements: Requirement[], resume:
                 { role: "system", content: RECONCILE_SYSTEM_PROMPT },
                 { role: "user", content: reconcileUserMessage({ requirements, candidateTags, items }) },
             ],
-            { model: textModel(), json: true, effort: "low", temperature: 0.1, maxTokens: 6000, timeoutMs: 60_000 },
+            { model: textModel(), json: true, effort: "low", temperature: 0.1, maxTokens: 6000, timeoutMs: opts.timeoutMs ?? 60_000, retries: opts.retries },
         );
         matches = (extractJson(result.text) as { matches?: unknown }).matches;
     } catch (err) {
