@@ -3,10 +3,15 @@
 import React, { useState } from "react";
 import dynamic from "next/dynamic";
 import type { ResumeData } from "@/types/schema";
-import type { CertificationItem, EducationItem, ExperienceItem, ProjectItem, SkillCategoryItem } from "@/types/db";
+import type {
+    AwardItem, CertificationItem, EducationItem, ExperienceItem, LanguageItem, ProjectItem, PublicationItem,
+    SkillCategoryItem, VolunteeringItem,
+} from "@/types/db";
 import { ResumeForm } from "@/components/ui/resume-form";
 import SelectionDisplay from "@/components/ui/selection-display";
+import { ResumeImport } from "@/components/ui/resume-import";
 import { saveResumeData } from "@/app/actions/resume-actions";
+import { mergeImport, type ImportSelection } from "@/lib/import/merge";
 
 // The preview compiles Typst in the browser (wasm), so it must never render on the server.
 const ResumePreview = dynamic(
@@ -29,10 +34,14 @@ interface DashboardClientProps {
     skills: SkillCategoryItem[];
     projects: ProjectItem[];
     certifications: CertificationItem[];
+    awards: AwardItem[];
+    volunteering: VolunteeringItem[];
+    publications: PublicationItem[];
+    languages: LanguageItem[];
     userName: string;
 }
 
-type View = "library" | "edit" | "preview";
+type View = "library" | "edit" | "preview" | "import";
 
 export default function DashboardClient({
     initialResumeData,
@@ -41,11 +50,16 @@ export default function DashboardClient({
     skills,
     projects,
     certifications,
+    awards,
+    volunteering,
+    publications,
+    languages,
     userName,
 }: DashboardClientProps) {
     const [view, setView] = useState<View>("library");
     const [isSaving, setIsSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
+    const [importNotice, setImportNotice] = useState<string | null>(null);
 
     // Draft model: `draft` is null unless the editor is open. Everything else
     // reads server truth from props, which Next refreshes after each server
@@ -59,14 +73,18 @@ export default function DashboardClient({
     };
 
     const openEditor = () => {
-        setDraft(initialResumeData);
+        // Keep an in-progress draft (e.g. one seeded by an import) if there is one.
+        setDraft(prev => prev ?? initialResumeData);
         setSaveError(null);
         setView("edit");
     };
 
     const discardDraft = () => {
+        const dirty = draft !== null && JSON.stringify(draft) !== JSON.stringify(initialResumeData);
+        if (dirty && !window.confirm("Discard your unsaved changes?")) return;
         setDraft(null);
         setSaveError(null);
+        setImportNotice(null);
         setView("library");
     };
 
@@ -81,6 +99,7 @@ export default function DashboardClient({
             const result = await saveResumeData(draft);
             if (result.success) {
                 setDraft(null);
+                setImportNotice(null);
                 setView("library");
             }
         } catch (error) {
@@ -91,8 +110,19 @@ export default function DashboardClient({
         }
     };
 
+    const handleImport = (selection: ImportSelection, meta: { fileName: string }) => {
+        const merged = mergeImport(draft ?? initialResumeData, selection);
+        setDraft(merged.data);
+        const parts = [`Imported ${merged.added} ${merged.added === 1 ? "item" : "items"} from ${meta.fileName}.`];
+        if (merged.skipped > 0) parts.push(`${merged.skipped} already in your library ${merged.skipped === 1 ? "was" : "were"} skipped.`);
+        parts.push("Review below, then Save & Exit to keep them.");
+        setImportNotice(parts.join(" "));
+        setSaveError(null);
+        setView("edit");
+    };
+
     const pill = (active: boolean) =>
-        `px-8 py-4 rounded-[2rem] font-black text-sm uppercase tracking-widest transition-all ${
+        `px-6 md:px-8 py-4 rounded-[2rem] font-black text-sm uppercase tracking-widest transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
             active
                 ? "bg-black text-white shadow-xl shadow-black/20"
                 : "bg-white text-black border-2 border-black/10 hover:border-black shadow-sm"
@@ -120,8 +150,15 @@ export default function DashboardClient({
                                 {isSaving ? "Saving…" : "Save & Exit"}
                             </button>
                         </>
+                    ) : view === "import" ? (
+                        <button onClick={() => setView("library")} className={pill(false)}>
+                            Back to Library
+                        </button>
                     ) : (
                         <>
+                            <button onClick={() => setView("import")} className={pill(false)}>
+                                Import Resume
+                            </button>
                             <button onClick={openEditor} className={pill(false)}>
                                 Master Editor
                             </button>
@@ -137,8 +174,16 @@ export default function DashboardClient({
             </div>
 
             {saveError && (
-                <div className="border-2 border-red-200 bg-red-50 rounded-2xl p-5 text-red-800 text-sm font-bold">
+                <div role="alert" className="border-2 border-red-200 bg-red-50 rounded-2xl p-5 text-red-800 text-sm font-bold">
                     {saveError}
+                </div>
+            )}
+            {view === "edit" && importNotice && (
+                <div role="status" className="border-2 border-emerald-200 bg-emerald-50 rounded-2xl p-5 text-emerald-900 text-sm font-bold flex items-start justify-between gap-4">
+                    <span>{importNotice}</span>
+                    <button type="button" onClick={() => setImportNotice(null)} className="text-emerald-900/50 hover:text-emerald-900 font-black uppercase text-[10px] tracking-widest shrink-0">
+                        Dismiss
+                    </button>
                 </div>
             )}
 
@@ -155,6 +200,8 @@ export default function DashboardClient({
                 <div className="bg-gray-100 p-6 md:p-10 rounded-[3rem] shadow-2xl">
                     <ResumePreview resumeData={resumeData} />
                 </div>
+            ) : view === "import" ? (
+                <ResumeImport current={resumeData} onImport={handleImport} onCancel={() => setView("library")} />
             ) : (
                 <div className="space-y-12">
                     <div className="flex flex-col gap-1 px-4">
@@ -168,6 +215,12 @@ export default function DashboardClient({
                         skills={skills}
                         projects={projects}
                         certifications={certifications}
+                        awards={awards}
+                        volunteering={volunteering}
+                        publications={publications}
+                        languages={languages}
+                        onImport={() => setView("import")}
+                        onEdit={openEditor}
                     />
                 </div>
             )}

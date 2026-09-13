@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored browser bundles copied by the postinstall scripts.
+    "public/pdfjs/**",
+    "public/typst/wasm/**",
   ]),
 ]);
 

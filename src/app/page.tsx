@@ -23,7 +23,7 @@ export default async function Home() {
           </div>
           <div className="flex flex-row items-center gap-6">
             {session ? (
-                <Link href="/dashboard" className="flex justify-center items-center px-4 py-3 bg-black text-[#F8F2DC] rounded-xl font-medium text-base">
+                <Link href="/dashboard" className="flex justify-center items-center px-4 py-3 bg-black text-white rounded-xl font-medium text-base">
                   Dashboard
                 </Link>
             ) : (
@@ -31,7 +31,7 @@ export default async function Home() {
                   <Link href="/login" className="hidden md:flex font-medium text-base hover:text-black/70 transition-colors">
                     Login
                   </Link>
-                  <Link href="/login" className="flex justify-center items-center px-4 py-3 bg-black text-[#F8F2DC] rounded-xl font-medium text-base hover:bg-black/80 transition-colors">
+                  <Link href="/login" className="flex justify-center items-center px-4 py-3 bg-black text-white rounded-xl font-medium text-base hover:bg-black/80 transition-colors">
                     Sign Up
                   </Link>
                 </>
@@ -166,11 +166,9 @@ export default async function Home() {
                 <Link href="#" className="font-medium text-[16px] text-black/55 hover:text-black transition-colors">Support</Link>
               </nav>
             </div>
-            <div className="flex flex-row items-center gap-4 md:gap-6">
-              <div className="w-6 h-6 bg-black/45 rounded-sm"></div>
-              <div className="w-6 h-6 bg-black/45 rounded-sm"></div>
-              <div className="w-6 h-6 bg-black/45 rounded-sm"></div>
-            </div>
+            <p className="text-[12px] text-black/30 font-bold uppercase tracking-widest">
+              &copy; {new Date().getFullYear()} quikResume
+            </p>
           </div>
         </footer>
       </div>

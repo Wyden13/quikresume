@@ -71,6 +71,46 @@ export interface Certification {
     isSelected: boolean;
 }
 
+export interface Award {
+    id: string;
+    title: string;
+    issuer: string;
+    /** "YYYY-MM-DD" | "" */
+    date: string;
+    description: string;
+    isSelected: boolean;
+}
+
+export interface Volunteering {
+    id: string;
+    role: string;
+    organization: string;
+    startDate: string;
+    endDate: string;
+    description: string;
+    isSelected: boolean;
+}
+
+export interface Publication {
+    id: string;
+    title: string;
+    /** Journal, conference or publisher. */
+    venue: string;
+    /** "YYYY-MM-DD" | "" */
+    date: string;
+    link: string;
+    authors: string;
+    isSelected: boolean;
+}
+
+export interface Language {
+    id: string;
+    language: string;
+    /** e.g. "Native", "Fluent", "B2". */
+    proficiency: string;
+    isSelected: boolean;
+}
+
 export interface ResumeData {
     personalInfo: PersonalInfo;
     workExperience: WorkExperience[];
@@ -78,7 +118,26 @@ export interface ResumeData {
     skills: SkillCategory[];
     projects: Project[];
     certifications: Certification[];
+    awards: Award[];
+    volunteering: Volunteering[];
+    publications: Publication[];
+    languages: Language[];
 }
+
+/** The list-valued keys of ResumeData. */
+export type ResumeListKey = Exclude<keyof ResumeData, "personalInfo">;
+
+export const RESUME_LIST_KEYS: ResumeListKey[] = [
+    "workExperience",
+    "education",
+    "skills",
+    "projects",
+    "certifications",
+    "awards",
+    "volunteering",
+    "publications",
+    "languages",
+];
 
 export function emptyPersonalInfo(): PersonalInfo {
     return {
@@ -103,5 +162,9 @@ export function emptyResumeData(): ResumeData {
         skills: [],
         projects: [],
         certifications: [],
+        awards: [],
+        volunteering: [],
+        publications: [],
+        languages: [],
     };
 }

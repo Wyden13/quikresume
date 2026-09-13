@@ -5,14 +5,18 @@
 
 import { PRESENT, toDateInputValue } from "@/lib/dates";
 import type {
+    AwardItem,
     CertificationItem,
     EducationItem,
     ExperienceItem,
+    LanguageItem,
     ProjectItem,
+    PublicationItem,
     SkillCategoryItem,
     UserProfile,
+    VolunteeringItem,
 } from "@/types/db";
-import type { ResumeData } from "@/types/schema";
+import type { PersonalInfo, ResumeData } from "@/types/schema";
 
 export interface ResumeSources {
     profile: UserProfile | null;
@@ -23,11 +27,15 @@ export interface ResumeSources {
     skills: SkillCategoryItem[];
     projects: ProjectItem[];
     certifications: CertificationItem[];
+    awards: AwardItem[];
+    volunteering: VolunteeringItem[];
+    publications: PublicationItem[];
+    languages: LanguageItem[];
 }
 
 const s = (v: string | null | undefined): string => v ?? "";
 
-function splitName(profile: UserProfile | null, fallbackName?: string | null): { firstName: string; lastName: string } {
+export function splitName(profile: UserProfile | null, fallbackName?: string | null): { firstName: string; lastName: string } {
     if (profile?.firstName || profile?.lastName) {
         return { firstName: s(profile.firstName), lastName: s(profile.lastName) };
     }
@@ -96,5 +104,69 @@ export function toResumeData(src: ResumeSources): ResumeData {
             year: c.year,
             isSelected: c.isSelected,
         })),
+        awards: src.awards.map(a => ({
+            id: a.id,
+            title: a.title,
+            issuer: s(a.issuer),
+            date: toDateInputValue(a.date),
+            description: s(a.description),
+            isSelected: a.isSelected,
+        })),
+        volunteering: src.volunteering.map(v => ({
+            id: v.id,
+            role: v.role,
+            organization: v.organization,
+            startDate: toDateInputValue(v.startDate),
+            endDate: endDateOf(v.isActive, v.endDate),
+            description: v.description.join("\n"),
+            isSelected: v.isSelected,
+        })),
+        publications: src.publications.map(pub => ({
+            id: pub.id,
+            title: pub.title,
+            venue: s(pub.venue),
+            date: toDateInputValue(pub.date),
+            link: s(pub.link),
+            authors: s(pub.authors),
+            isSelected: pub.isSelected,
+        })),
+        languages: src.languages.map(l => ({
+            id: l.id,
+            language: l.language,
+            proficiency: s(l.proficiency),
+            isSelected: l.isSelected,
+        })),
     };
+}
+
+/** Optional strings are stored as null, never "". */
+const orNull = (v: string | null | undefined): string | null => (v && v.trim() !== "" ? v.trim() : null);
+
+/**
+ * PersonalInfo -> fields of the users/{uid} document. Shared by saveResumeData
+ * (Master Editor) and updateUserProfile (Profile page) so both write the same
+ * shape. The caller adds `updatedAt`.
+ */
+export function personalInfoToUserDoc(p: PersonalInfo) {
+    return {
+        firstName: p.firstName.trim(),
+        lastName: p.lastName.trim(),
+        headline: orNull(p.headline),
+        professionalEmail: orNull(p.email),
+        phoneNumber: orNull(p.phone),
+        location: orNull(p.location),
+        github: orNull(p.github),
+        linkedIn: orNull(p.linkedin),
+        website: orNull(p.website),
+        bio: orNull(p.summary),
+    };
+}
+
+/** Editor-model personal info from the stored profile (+ session name fallback). */
+export function toPersonalInfo(profile: UserProfile | null, fallbackName?: string | null): PersonalInfo {
+    return toResumeData({
+        profile, fallbackName,
+        experiences: [], educations: [], skills: [], projects: [], certifications: [],
+        awards: [], volunteering: [], publications: [], languages: [],
+    }).personalInfo;
 }

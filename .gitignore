@@ -86,3 +86,5 @@ next-env.d.ts
 public/typst/wasm/
 # Local typst CLI output
 .typst-out/
+# pdf.js worker copied from node_modules by scripts/copy-pdfjs-worker.mjs
+public/pdfjs/

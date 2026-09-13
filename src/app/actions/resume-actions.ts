@@ -8,6 +8,7 @@ import type { ResumeData } from "@/types/schema"
 import { PRESENT, toUtcDate } from "@/lib/dates";
 import { isTempId } from "@/lib/ids";
 import { toBullets } from "@/lib/typst/doc";
+import { personalInfoToUserDoc } from "@/lib/resume-mapper";
 
 // Firestore allows at most 500 writes per batch.
 const BATCH_LIMIT = 450;
@@ -41,18 +42,8 @@ export async function saveResumeData(data: ResumeData) {
         ...(isTempId(id) ? { createdAt: now } : {}),
     });
 
-    const p = data.personalInfo;
     writes.push(batch => batch.set(userRef, {
-        firstName: p.firstName.trim(),
-        lastName: p.lastName.trim(),
-        headline: orNull(p.headline),
-        professionalEmail: orNull(p.email),
-        phoneNumber: orNull(p.phone),
-        location: orNull(p.location),
-        github: orNull(p.github),
-        linkedIn: orNull(p.linkedin),
-        website: orNull(p.website),
-        bio: orNull(p.summary),
+        ...personalInfoToUserDoc(data.personalInfo),
         updatedAt: now,
     }, { merge: true }));
 
@@ -114,6 +105,51 @@ export async function saveResumeData(data: ResumeData) {
             issuer: orNull(cert.issuer),
             year: cert.year.trim(),
             isSelected: cert.isSelected ?? true,
+        }), { merge: true }));
+    }
+
+    for (const award of data.awards) {
+        const ref = docFor("awards", award.id);
+        writes.push(batch => batch.set(ref, withMeta(award.id, {
+            title: award.title.trim() || "Untitled Award",
+            issuer: orNull(award.issuer),
+            date: toTimestamp(award.date),
+            description: orNull(award.description),
+            isSelected: award.isSelected ?? true,
+        }), { merge: true }));
+    }
+
+    for (const vol of data.volunteering) {
+        const ref = docFor("volunteering", vol.id);
+        writes.push(batch => batch.set(ref, withMeta(vol.id, {
+            role: vol.role.trim() || "Untitled Role",
+            organization: vol.organization.trim() || "Unknown Organization",
+            startDate: toTimestamp(vol.startDate),
+            endDate: vol.endDate === PRESENT ? null : toTimestamp(vol.endDate),
+            isActive: vol.endDate === PRESENT,
+            isSelected: vol.isSelected ?? true,
+            description: toBullets(vol.description),
+        }), { merge: true }));
+    }
+
+    for (const pub of data.publications) {
+        const ref = docFor("publications", pub.id);
+        writes.push(batch => batch.set(ref, withMeta(pub.id, {
+            title: pub.title.trim() || "Untitled Publication",
+            venue: orNull(pub.venue),
+            date: toTimestamp(pub.date),
+            link: orNull(pub.link),
+            authors: orNull(pub.authors),
+            isSelected: pub.isSelected ?? true,
+        }), { merge: true }));
+    }
+
+    for (const lang of data.languages) {
+        const ref = docFor("languages", lang.id);
+        writes.push(batch => batch.set(ref, withMeta(lang.id, {
+            language: lang.language.trim() || "Unknown Language",
+            proficiency: orNull(lang.proficiency),
+            isSelected: lang.isSelected ?? true,
         }), { merge: true }));
     }
 

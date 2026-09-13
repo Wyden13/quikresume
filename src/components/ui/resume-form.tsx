@@ -1,57 +1,23 @@
 "use client";
 
-import React from "react";
-import type { Certification, Education, Project, ResumeData, SkillCategory, WorkExperience } from "@/types/schema";
+import React, { useState } from "react";
+import Link from "next/link";
+import type {
+    Award, Certification, Education, Language, Project, Publication, ResumeData, ResumeListKey, SkillCategory,
+    Volunteering, WorkExperience,
+} from "@/types/schema";
 import { deleteEducation } from "@/app/actions/education-actions";
 import { deleteExperience } from "@/app/actions/experience-actions";
 import { deleteSkill } from "@/app/actions/skill-actions";
 import { deleteProject } from "@/app/actions/project-actions";
 import { deleteCertification } from "@/app/actions/certification-actions";
+import { deleteAward } from "@/app/actions/award-actions";
+import { deleteVolunteering } from "@/app/actions/volunteering-actions";
+import { deletePublication } from "@/app/actions/publication-actions";
+import { deleteLanguage } from "@/app/actions/language-actions";
 import { isTempId, newTempId } from "@/lib/ids";
 import { PRESENT } from "@/lib/dates";
-
-// --- LOCAL UI COMPONENTS (Styled with Tailwind) ---
-const Label = ({ children, htmlFor, className = "" }: { children: React.ReactNode; htmlFor?: string; className?: string }) => (
-    <label htmlFor={htmlFor} className={`block text-sm font-black text-black/40 mb-1.5 uppercase tracking-widest ${className}`}>
-        {children}
-    </label>
-);
-
-const Input = (props: React.InputHTMLAttributes<HTMLInputElement>) => (
-    <input
-        {...props}
-        className={`w-full p-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:border-black outline-none transition-all font-medium disabled:opacity-40 ${props.className || ""}`}
-    />
-);
-
-const Textarea = (props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) => (
-    <textarea
-        {...props}
-        className={`w-full p-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:border-black outline-none transition-all font-medium resize-none ${props.className || ""}`}
-    />
-);
-
-const Button = ({ children, onClick, variant = "default", size = "md", className = "", disabled = false, loading = false, title }: { children: React.ReactNode; onClick?: () => void; variant?: "default" | "ghost" | "primary"; size?: "sm" | "md" | "lg"; className?: string; disabled?: boolean; loading?: boolean; title?: string }) => {
-    const base = "inline-flex items-center justify-center font-black transition-all rounded-2xl active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100";
-    const variants = {
-        default: "bg-white text-black border-2 border-black/10 hover:border-black hover:bg-black/5",
-        ghost: "bg-transparent text-black/40 hover:bg-black/5 hover:text-black",
-        primary: "bg-black text-white hover:bg-black/80 shadow-lg shadow-black/10",
-    };
-    const sizes = {
-        sm: "px-4 py-2 text-xs uppercase tracking-widest",
-        md: "px-6 py-3.5 text-sm uppercase tracking-widest",
-        lg: "px-8 py-4 text-base uppercase tracking-widest",
-    };
-    return (
-        <button type="button" onClick={onClick} disabled={disabled || loading} title={title} className={`${base} ${variants[variant]} ${sizes[size]} ${className}`}>
-            {loading ? (
-                <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin mr-2"></div>
-            ) : null}
-            {children}
-        </button>
-    );
-};
+import { Button, Input, Label, Textarea } from "@/components/ui/form-controls";
 
 const Plus = ({ className }: { className?: string }) => (
     <svg xmlns="http://www.w3.org/2000/svg" className={className} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
@@ -107,7 +73,7 @@ function ItemCard({ onRemove, isSelected, onToggle, toggleHint, children }: {
                 size="sm"
                 onClick={onRemove}
                 title="Delete"
-                className="absolute top-4 right-4 text-black/10 hover:text-red-500 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                className="absolute top-4 right-4 text-black/25 hover:text-red-500 hover:bg-red-50"
             >
                 <Trash2 className="size-4" />
             </Button>
@@ -131,7 +97,8 @@ function ItemCard({ onRemove, isSelected, onToggle, toggleHint, children }: {
 }
 
 /** Start date + end date, with a "current" checkbox that stores endDate as "Present". */
-function DateRangeFields({ startDate, endDate, currentLabel, onChange }: {
+function DateRangeFields({ idPrefix, startDate, endDate, currentLabel, onChange }: {
+    idPrefix: string;
     startDate: string;
     endDate: string;
     currentLabel: string;
@@ -141,12 +108,13 @@ function DateRangeFields({ startDate, endDate, currentLabel, onChange }: {
     return (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
-                <Label>Start Date</Label>
-                <Input type="date" value={startDate} onChange={(e) => onChange({ startDate: e.target.value })} />
+                <Label htmlFor={`${idPrefix}-start`}>Start Date</Label>
+                <Input id={`${idPrefix}-start`} type="date" value={startDate} onChange={(e) => onChange({ startDate: e.target.value })} />
             </div>
             <div>
-                <Label>End Date</Label>
+                <Label htmlFor={`${idPrefix}-end`}>End Date</Label>
                 <Input
+                    id={`${idPrefix}-end`}
                     type="date"
                     value={isCurrent ? "" : endDate}
                     disabled={isCurrent}
@@ -170,8 +138,11 @@ function DateRangeFields({ startDate, endDate, currentLabel, onChange }: {
 
 // --- FORM ---
 
-type ListKey = "workExperience" | "education" | "skills" | "projects" | "certifications";
+type ListKey = ResumeListKey;
 type ItemOf<K extends ListKey> = ResumeData[K][number];
+
+/** Stable DOM id for a list-item field so labels can point at their inputs. */
+const fid = (itemId: string, field: string) => `${itemId}-${field}`;
 
 interface ResumeFormProps {
     resumeData: ResumeData;
@@ -182,6 +153,8 @@ interface ResumeFormProps {
 }
 
 export function ResumeForm({ resumeData, onChange, onSaveAndExit, isSaving }: ResumeFormProps) {
+    const [deleteError, setDeleteError] = useState<string | null>(null);
+
     const updatePersonalInfo = (field: keyof ResumeData["personalInfo"], value: string) => {
         onChange(prev => ({ ...prev, personalInfo: { ...prev.personalInfo, [field]: value } }));
     };
@@ -202,9 +175,10 @@ export function ResumeForm({ resumeData, onChange, onSaveAndExit, isSaving }: Re
         if (!isTempId(id)) {
             try {
                 await deleteAction(id);
+                setDeleteError(null);
             } catch (err) {
                 console.error("Failed to delete item:", err);
-                alert("Could not delete this item. Please try again.");
+                setDeleteError("Could not delete this item. Please try again.");
                 return;
             }
         }
@@ -216,6 +190,10 @@ export function ResumeForm({ resumeData, onChange, onSaveAndExit, isSaving }: Re
     const newSkill = (): SkillCategory => ({ id: newTempId(), category: "", items: "", isSelected: true });
     const newProject = (): Project => ({ id: newTempId(), title: "", stack: "", link: "", startDate: "", endDate: "", description: "", isSelected: true });
     const newCertification = (): Certification => ({ id: newTempId(), name: "", issuer: "", year: "", isSelected: true });
+    const newAward = (): Award => ({ id: newTempId(), title: "", issuer: "", date: "", description: "", isSelected: true });
+    const newVolunteering = (): Volunteering => ({ id: newTempId(), role: "", organization: "", startDate: "", endDate: "", description: "", isSelected: true });
+    const newPublication = (): Publication => ({ id: newTempId(), title: "", venue: "", date: "", link: "", authors: "", isSelected: true });
+    const newLanguage = (): Language => ({ id: newTempId(), language: "", proficiency: "", isSelected: true });
 
     const addButton = (label: string, onClick: () => void) => (
         <Button onClick={onClick} size="sm" variant="default">
@@ -227,10 +205,20 @@ export function ResumeForm({ resumeData, onChange, onSaveAndExit, isSaving }: Re
     const p = resumeData.personalInfo;
 
     return (
-        <div className="h-full overflow-y-auto p-8 space-y-12 bg-white">
+        <div className="p-6 md:p-8 space-y-12 bg-white">
+            {deleteError && (
+                <div role="alert" className="border-2 border-red-200 bg-red-50 rounded-2xl p-5 text-red-800 text-sm font-bold">
+                    {deleteError}
+                </div>
+            )}
+
             {/* Personal Information */}
             <section className="space-y-6">
                 <SectionHeading index="01" title="Personal Information" />
+                <p className="text-sm text-black/50 font-medium -mt-2">
+                    These details are also editable on your{" "}
+                    <Link href="/dashboard/profile" className="font-bold text-black underline underline-offset-4">Profile</Link> page.
+                </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                         <Label htmlFor="firstName">First Name</Label>
@@ -289,23 +277,24 @@ export function ResumeForm({ resumeData, onChange, onSaveAndExit, isSaving }: Re
                         >
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div>
-                                    <Label>Position</Label>
-                                    <Input value={exp.title} onChange={(e) => updateItem("workExperience", exp.id, { title: e.target.value })} placeholder="Senior Software Engineer" />
+                                    <Label htmlFor={fid(exp.id, "title")}>Position</Label>
+                                    <Input id={fid(exp.id, "title")} value={exp.title} onChange={(e) => updateItem("workExperience", exp.id, { title: e.target.value })} placeholder="Senior Software Engineer" />
                                 </div>
                                 <div>
-                                    <Label>Company</Label>
-                                    <Input value={exp.company} onChange={(e) => updateItem("workExperience", exp.id, { company: e.target.value })} placeholder="Tech Corp" />
+                                    <Label htmlFor={fid(exp.id, "company")}>Company</Label>
+                                    <Input id={fid(exp.id, "company")} value={exp.company} onChange={(e) => updateItem("workExperience", exp.id, { company: e.target.value })} placeholder="Tech Corp" />
                                 </div>
                             </div>
                             <DateRangeFields
+                                idPrefix={exp.id}
                                 startDate={exp.startDate}
                                 endDate={exp.endDate}
                                 currentLabel="I work here now"
                                 onChange={(patch) => updateItem("workExperience", exp.id, patch)}
                             />
                             <div>
-                                <Label>Responsibilities (one per line)</Label>
-                                <Textarea value={exp.description} onChange={(e) => updateItem("workExperience", exp.id, { description: e.target.value })} placeholder="Enter your key achievements, one per line..." rows={4} />
+                                <Label htmlFor={fid(exp.id, "description")}>Responsibilities (one per line)</Label>
+                                <Textarea id={fid(exp.id, "description")} value={exp.description} onChange={(e) => updateItem("workExperience", exp.id, { description: e.target.value })} placeholder="Enter your key achievements, one per line..." rows={4} />
                             </div>
                         </ItemCard>
                     ))}
@@ -325,14 +314,15 @@ export function ResumeForm({ resumeData, onChange, onSaveAndExit, isSaving }: Re
                             toggleHint="Toggle visibility for this education"
                         >
                             <div>
-                                <Label>Degree / Program</Label>
-                                <Input value={edu.degree} onChange={(e) => updateItem("education", edu.id, { degree: e.target.value })} placeholder="B.S. in Computer Science" />
+                                <Label htmlFor={fid(edu.id, "degree")}>Degree / Program</Label>
+                                <Input id={fid(edu.id, "degree")} value={edu.degree} onChange={(e) => updateItem("education", edu.id, { degree: e.target.value })} placeholder="B.S. in Computer Science" />
                             </div>
                             <div>
-                                <Label>Institution</Label>
-                                <Input value={edu.institution} onChange={(e) => updateItem("education", edu.id, { institution: e.target.value })} placeholder="State University" />
+                                <Label htmlFor={fid(edu.id, "institution")}>Institution</Label>
+                                <Input id={fid(edu.id, "institution")} value={edu.institution} onChange={(e) => updateItem("education", edu.id, { institution: e.target.value })} placeholder="State University" />
                             </div>
                             <DateRangeFields
+                                idPrefix={edu.id}
                                 startDate={edu.startDate}
                                 endDate={edu.endDate}
                                 currentLabel="Currently enrolled"
@@ -340,17 +330,17 @@ export function ResumeForm({ resumeData, onChange, onSaveAndExit, isSaving }: Re
                             />
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div>
-                                    <Label>GPA (Optional)</Label>
-                                    <Input value={edu.gpa} onChange={(e) => updateItem("education", edu.id, { gpa: e.target.value })} placeholder="3.8 / 4.0" />
+                                    <Label htmlFor={fid(edu.id, "gpa")}>GPA (Optional)</Label>
+                                    <Input id={fid(edu.id, "gpa")} value={edu.gpa} onChange={(e) => updateItem("education", edu.id, { gpa: e.target.value })} placeholder="3.8 / 4.0" />
                                 </div>
                                 <div>
-                                    <Label>Minor (Optional)</Label>
-                                    <Input value={edu.minor} onChange={(e) => updateItem("education", edu.id, { minor: e.target.value })} placeholder="Statistics" />
+                                    <Label htmlFor={fid(edu.id, "minor")}>Minor (Optional)</Label>
+                                    <Input id={fid(edu.id, "minor")} value={edu.minor} onChange={(e) => updateItem("education", edu.id, { minor: e.target.value })} placeholder="Statistics" />
                                 </div>
                             </div>
                             <div>
-                                <Label>Honors / Coursework (Optional)</Label>
-                                <Textarea value={edu.details} onChange={(e) => updateItem("education", edu.id, { details: e.target.value })} placeholder="Dean's List. Coursework: Distributed Systems, Machine Learning..." rows={2} />
+                                <Label htmlFor={fid(edu.id, "details")}>Honors / Coursework (Optional)</Label>
+                                <Textarea id={fid(edu.id, "details")} value={edu.details} onChange={(e) => updateItem("education", edu.id, { details: e.target.value })} placeholder="Dean's List. Coursework: Distributed Systems, Machine Learning..." rows={2} />
                             </div>
                         </ItemCard>
                     ))}
@@ -370,12 +360,12 @@ export function ResumeForm({ resumeData, onChange, onSaveAndExit, isSaving }: Re
                             toggleHint="Toggle visibility for this skill category"
                         >
                             <div>
-                                <Label>Category Name</Label>
-                                <Input value={skill.category} onChange={(e) => updateItem("skills", skill.id, { category: e.target.value })} placeholder="Languages" />
+                                <Label htmlFor={fid(skill.id, "category")}>Category Name</Label>
+                                <Input id={fid(skill.id, "category")} value={skill.category} onChange={(e) => updateItem("skills", skill.id, { category: e.target.value })} placeholder="Languages" />
                             </div>
                             <div>
-                                <Label>Skills (Comma Separated)</Label>
-                                <Input value={skill.items} onChange={(e) => updateItem("skills", skill.id, { items: e.target.value })} placeholder="Python, Java, TypeScript, Go, SQL" />
+                                <Label htmlFor={fid(skill.id, "items")}>Skills (Comma Separated)</Label>
+                                <Input id={fid(skill.id, "items")} value={skill.items} onChange={(e) => updateItem("skills", skill.id, { items: e.target.value })} placeholder="Python, Java, TypeScript, Go, SQL" />
                             </div>
                         </ItemCard>
                     ))}
@@ -396,27 +386,28 @@ export function ResumeForm({ resumeData, onChange, onSaveAndExit, isSaving }: Re
                         >
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div>
-                                    <Label>Title</Label>
-                                    <Input value={project.title} onChange={(e) => updateItem("projects", project.id, { title: e.target.value })} placeholder="Support Ticket Classifier" />
+                                    <Label htmlFor={fid(project.id, "title")}>Title</Label>
+                                    <Input id={fid(project.id, "title")} value={project.title} onChange={(e) => updateItem("projects", project.id, { title: e.target.value })} placeholder="Support Ticket Classifier" />
                                 </div>
                                 <div>
-                                    <Label>Link (Optional)</Label>
-                                    <Input value={project.link} onChange={(e) => updateItem("projects", project.id, { link: e.target.value })} placeholder="github.com/you/project" />
+                                    <Label htmlFor={fid(project.id, "link")}>Link (Optional)</Label>
+                                    <Input id={fid(project.id, "link")} value={project.link} onChange={(e) => updateItem("projects", project.id, { link: e.target.value })} placeholder="github.com/you/project" />
                                 </div>
                             </div>
                             <div>
-                                <Label>Tech Stack</Label>
-                                <Input value={project.stack} onChange={(e) => updateItem("projects", project.id, { stack: e.target.value })} placeholder="PyTorch, FastAPI, Docker, AWS Lambda" />
+                                <Label htmlFor={fid(project.id, "stack")}>Tech Stack</Label>
+                                <Input id={fid(project.id, "stack")} value={project.stack} onChange={(e) => updateItem("projects", project.id, { stack: e.target.value })} placeholder="PyTorch, FastAPI, Docker, AWS Lambda" />
                             </div>
                             <DateRangeFields
+                                idPrefix={project.id}
                                 startDate={project.startDate}
                                 endDate={project.endDate}
                                 currentLabel="Ongoing"
                                 onChange={(patch) => updateItem("projects", project.id, patch)}
                             />
                             <div>
-                                <Label>Highlights (one per line)</Label>
-                                <Textarea value={project.description} onChange={(e) => updateItem("projects", project.id, { description: e.target.value })} placeholder="What you built, with a number. Impact or scale." rows={4} />
+                                <Label htmlFor={fid(project.id, "description")}>Highlights (one per line)</Label>
+                                <Textarea id={fid(project.id, "description")} value={project.description} onChange={(e) => updateItem("projects", project.id, { description: e.target.value })} placeholder="What you built, with a number. Impact or scale." rows={4} />
                             </div>
                         </ItemCard>
                     ))}
@@ -437,16 +428,157 @@ export function ResumeForm({ resumeData, onChange, onSaveAndExit, isSaving }: Re
                         >
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                 <div className="md:col-span-2">
-                                    <Label>Name</Label>
-                                    <Input value={cert.name} onChange={(e) => updateItem("certifications", cert.id, { name: e.target.value })} placeholder="AWS Certified Cloud Practitioner" />
+                                    <Label htmlFor={fid(cert.id, "name")}>Name</Label>
+                                    <Input id={fid(cert.id, "name")} value={cert.name} onChange={(e) => updateItem("certifications", cert.id, { name: e.target.value })} placeholder="AWS Certified Cloud Practitioner" />
                                 </div>
                                 <div>
-                                    <Label>Year</Label>
-                                    <Input value={cert.year} onChange={(e) => updateItem("certifications", cert.id, { year: e.target.value })} placeholder="2025" />
+                                    <Label htmlFor={fid(cert.id, "year")}>Year</Label>
+                                    <Input id={fid(cert.id, "year")} value={cert.year} onChange={(e) => updateItem("certifications", cert.id, { year: e.target.value })} placeholder="2025" />
                                 </div>
                                 <div className="md:col-span-3">
-                                    <Label>Issuer (Optional)</Label>
-                                    <Input value={cert.issuer} onChange={(e) => updateItem("certifications", cert.id, { issuer: e.target.value })} placeholder="Amazon Web Services" />
+                                    <Label htmlFor={fid(cert.id, "issuer")}>Issuer (Optional)</Label>
+                                    <Input id={fid(cert.id, "issuer")} value={cert.issuer} onChange={(e) => updateItem("certifications", cert.id, { issuer: e.target.value })} placeholder="Amazon Web Services" />
+                                </div>
+                            </div>
+                        </ItemCard>
+                    ))}
+                </div>
+            </section>
+
+            {/* Volunteering & Leadership */}
+            <section className="space-y-8">
+                <SectionHeading index="07" title="Volunteering & Leadership" action={addButton("Add New", () => addItem("volunteering", newVolunteering()))} />
+                <div className="space-y-6">
+                    {resumeData.volunteering.map((vol) => (
+                        <ItemCard
+                            key={vol.id}
+                            isSelected={vol.isSelected}
+                            onToggle={(checked) => updateItem("volunteering", vol.id, { isSelected: checked })}
+                            onRemove={() => removeItem("volunteering", vol.id, deleteVolunteering)}
+                            toggleHint="Toggle visibility for this activity"
+                        >
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <Label htmlFor={fid(vol.id, "role")}>Role</Label>
+                                    <Input id={fid(vol.id, "role")} value={vol.role} onChange={(e) => updateItem("volunteering", vol.id, { role: e.target.value })} placeholder="Coding Mentor" />
+                                </div>
+                                <div>
+                                    <Label htmlFor={fid(vol.id, "organization")}>Organization</Label>
+                                    <Input id={fid(vol.id, "organization")} value={vol.organization} onChange={(e) => updateItem("volunteering", vol.id, { organization: e.target.value })} placeholder="Girls Who Code" />
+                                </div>
+                            </div>
+                            <DateRangeFields
+                                idPrefix={vol.id}
+                                startDate={vol.startDate}
+                                endDate={vol.endDate}
+                                currentLabel="Still involved"
+                                onChange={(patch) => updateItem("volunteering", vol.id, patch)}
+                            />
+                            <div>
+                                <Label htmlFor={fid(vol.id, "description")}>Highlights (one per line)</Label>
+                                <Textarea id={fid(vol.id, "description")} value={vol.description} onChange={(e) => updateItem("volunteering", vol.id, { description: e.target.value })} placeholder="What you did and the impact, one per line..." rows={3} />
+                            </div>
+                        </ItemCard>
+                    ))}
+                </div>
+            </section>
+
+            {/* Publications */}
+            <section className="space-y-8">
+                <SectionHeading index="08" title="Publications" action={addButton("Add Publication", () => addItem("publications", newPublication()))} />
+                <div className="space-y-6">
+                    {resumeData.publications.map((pub) => (
+                        <ItemCard
+                            key={pub.id}
+                            isSelected={pub.isSelected}
+                            onToggle={(checked) => updateItem("publications", pub.id, { isSelected: checked })}
+                            onRemove={() => removeItem("publications", pub.id, deletePublication)}
+                            toggleHint="Toggle visibility for this publication"
+                        >
+                            <div>
+                                <Label htmlFor={fid(pub.id, "title")}>Title</Label>
+                                <Input id={fid(pub.id, "title")} value={pub.title} onChange={(e) => updateItem("publications", pub.id, { title: e.target.value })} placeholder="Efficient Tracing at Scale" />
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <div className="md:col-span-2">
+                                    <Label htmlFor={fid(pub.id, "venue")}>Venue / Publisher</Label>
+                                    <Input id={fid(pub.id, "venue")} value={pub.venue} onChange={(e) => updateItem("publications", pub.id, { venue: e.target.value })} placeholder="USENIX ATC" />
+                                </div>
+                                <div>
+                                    <Label htmlFor={fid(pub.id, "date")}>Date</Label>
+                                    <Input id={fid(pub.id, "date")} type="date" value={pub.date} onChange={(e) => updateItem("publications", pub.id, { date: e.target.value })} />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <Label htmlFor={fid(pub.id, "authors")}>Authors (Optional)</Label>
+                                    <Input id={fid(pub.id, "authors")} value={pub.authors} onChange={(e) => updateItem("publications", pub.id, { authors: e.target.value })} placeholder="A. Morgan, J. Doe" />
+                                </div>
+                                <div>
+                                    <Label htmlFor={fid(pub.id, "link")}>Link (Optional)</Label>
+                                    <Input id={fid(pub.id, "link")} value={pub.link} onChange={(e) => updateItem("publications", pub.id, { link: e.target.value })} placeholder="doi.org/10.1000/xyz" />
+                                </div>
+                            </div>
+                        </ItemCard>
+                    ))}
+                </div>
+            </section>
+
+            {/* Awards */}
+            <section className="space-y-8">
+                <SectionHeading index="09" title="Awards & Honors" action={addButton("Add Award", () => addItem("awards", newAward()))} />
+                <div className="space-y-6">
+                    {resumeData.awards.map((award) => (
+                        <ItemCard
+                            key={award.id}
+                            isSelected={award.isSelected}
+                            onToggle={(checked) => updateItem("awards", award.id, { isSelected: checked })}
+                            onRemove={() => removeItem("awards", award.id, deleteAward)}
+                            toggleHint="Toggle visibility for this award"
+                        >
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <div className="md:col-span-2">
+                                    <Label htmlFor={fid(award.id, "title")}>Title</Label>
+                                    <Input id={fid(award.id, "title")} value={award.title} onChange={(e) => updateItem("awards", award.id, { title: e.target.value })} placeholder="Dean's List" />
+                                </div>
+                                <div>
+                                    <Label htmlFor={fid(award.id, "date")}>Date</Label>
+                                    <Input id={fid(award.id, "date")} type="date" value={award.date} onChange={(e) => updateItem("awards", award.id, { date: e.target.value })} />
+                                </div>
+                                <div className="md:col-span-3">
+                                    <Label htmlFor={fid(award.id, "issuer")}>Issuer (Optional)</Label>
+                                    <Input id={fid(award.id, "issuer")} value={award.issuer} onChange={(e) => updateItem("awards", award.id, { issuer: e.target.value })} placeholder="State University" />
+                                </div>
+                            </div>
+                            <div>
+                                <Label htmlFor={fid(award.id, "description")}>Description (Optional)</Label>
+                                <Textarea id={fid(award.id, "description")} value={award.description} onChange={(e) => updateItem("awards", award.id, { description: e.target.value })} placeholder="Top 5% of the class, 3 semesters running." rows={2} />
+                            </div>
+                        </ItemCard>
+                    ))}
+                </div>
+            </section>
+
+            {/* Languages */}
+            <section className="space-y-8">
+                <SectionHeading index="10" title="Languages" action={addButton("Add Language", () => addItem("languages", newLanguage()))} />
+                <div className="space-y-6">
+                    {resumeData.languages.map((lang) => (
+                        <ItemCard
+                            key={lang.id}
+                            isSelected={lang.isSelected}
+                            onToggle={(checked) => updateItem("languages", lang.id, { isSelected: checked })}
+                            onRemove={() => removeItem("languages", lang.id, deleteLanguage)}
+                            toggleHint="Toggle visibility for this language"
+                        >
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <Label htmlFor={fid(lang.id, "language")}>Language</Label>
+                                    <Input id={fid(lang.id, "language")} value={lang.language} onChange={(e) => updateItem("languages", lang.id, { language: e.target.value })} placeholder="French" />
+                                </div>
+                                <div>
+                                    <Label htmlFor={fid(lang.id, "proficiency")}>Proficiency (Optional)</Label>
+                                    <Input id={fid(lang.id, "proficiency")} value={lang.proficiency} onChange={(e) => updateItem("languages", lang.id, { proficiency: e.target.value })} placeholder="Native / Fluent / B2" />
                                 </div>
                             </div>
                         </ItemCard>

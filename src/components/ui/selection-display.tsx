@@ -2,13 +2,21 @@
 "use client"
 
 import React from "react";
+import { useFormStatus } from "react-dom";
 import { deleteExperience, updateExperience } from "@/app/actions/experience-actions"
 import { deleteEducation, updateEducation } from "@/app/actions/education-actions"
 import { deleteSkill, updateSkill } from "@/app/actions/skill-actions"
 import { deleteProject, updateProject } from "@/app/actions/project-actions"
 import { deleteCertification, updateCertification } from "@/app/actions/certification-actions"
-import type { CertificationItem, EducationItem, ExperienceItem, ProjectItem, SkillCategoryItem } from "@/types/db"
-import { formatDateRange, PRESENT } from "@/lib/dates"
+import { deleteAward, updateAward } from "@/app/actions/award-actions"
+import { deleteVolunteering, updateVolunteering } from "@/app/actions/volunteering-actions"
+import { deletePublication, updatePublication } from "@/app/actions/publication-actions"
+import { deleteLanguage, updateLanguage } from "@/app/actions/language-actions"
+import type {
+    AwardItem, CertificationItem, EducationItem, ExperienceItem, LanguageItem, ProjectItem, PublicationItem,
+    SkillCategoryItem, VolunteeringItem,
+} from "@/types/db"
+import { formatDateRange, formatMonthYear, PRESENT } from "@/lib/dates"
 
 interface SelectionDisplayProps {
     experiences: ExperienceItem[];
@@ -16,24 +24,44 @@ interface SelectionDisplayProps {
     skills: SkillCategoryItem[];
     projects: ProjectItem[];
     certifications: CertificationItem[];
+    awards: AwardItem[];
+    volunteering: VolunteeringItem[];
+    publications: PublicationItem[];
+    languages: LanguageItem[];
+    /** Opens the resume import flow (shown in the empty state). */
+    onImport?: () => void;
+    /** Opens the Master Editor (shown in the empty state). */
+    onEdit?: () => void;
 }
 
-export default function SelectionDisplay({ experiences, educations, skills, projects, certifications }: SelectionDisplayProps) {
-    const hasItems =
-        experiences.length > 0 ||
-        educations.length > 0 ||
-        skills.length > 0 ||
-        projects.length > 0 ||
-        certifications.length > 0;
+export default function SelectionDisplay({
+    experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages, onImport, onEdit,
+}: SelectionDisplayProps) {
+    const hasItems = [experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages]
+        .some(list => list.length > 0);
 
     if (!hasItems) {
         return (
-            <div className="p-20 border-2 border-dashed border-black/5 rounded-[2.5rem] text-center bg-gray-50/50">
+            <div className="p-12 md:p-20 border-2 border-dashed border-black/5 rounded-[2.5rem] text-center bg-gray-50/50">
                 <div className="w-16 h-16 bg-black/5 rounded-full flex items-center justify-center mx-auto mb-4">
                     <LibraryIcon className="w-8 h-8 text-black/20" />
                 </div>
                 <p className="text-black/40 font-bold text-xl tracking-tight">Your library is empty.</p>
-                <p className="text-black/30 text-sm mt-1">Open the Master Editor to add experience, education, projects, skills or certifications.</p>
+                <p className="text-black/30 text-sm mt-1">Import an existing resume to fill it in seconds, or add items by hand in the Master Editor.</p>
+                {(onImport || onEdit) && (
+                    <div className="flex flex-wrap justify-center gap-3 mt-8">
+                        {onImport && (
+                            <button type="button" onClick={onImport} className="px-6 py-3.5 rounded-2xl bg-black text-white text-sm font-black uppercase tracking-widest shadow-lg shadow-black/10 hover:bg-black/80 transition-all active:scale-[0.98]">
+                                Import Resume
+                            </button>
+                        )}
+                        {onEdit && (
+                            <button type="button" onClick={onEdit} className="px-6 py-3.5 rounded-2xl bg-white text-black border-2 border-black/10 hover:border-black text-sm font-black uppercase tracking-widest transition-all active:scale-[0.98]">
+                                Master Editor
+                            </button>
+                        )}
+                    </div>
+                )}
             </div>
         );
     }
@@ -137,6 +165,60 @@ export default function SelectionDisplay({ experiences, educations, skills, proj
                 </LibrarySection>
             )}
 
+            {volunteering.length > 0 && (
+                <LibrarySection icon={<HeartIcon className="w-6 h-6 text-white" />} color="bg-rose-500 shadow-rose-500/10" title="Volunteering & Leadership" subtitle="Community, clubs & extracurriculars">
+                    {volunteering.map((vol) => (
+                        <SelectionCard
+                            key={vol.id}
+                            id={vol.id}
+                            title={vol.role}
+                            subtitle={vol.organization}
+                            startDate={vol.startDate}
+                            endDate={vol.endDate}
+                            isActive={vol.isActive}
+                            isSelected={vol.isSelected}
+                            onUpdate={updateVolunteering}
+                            onDelete={deleteVolunteering}
+                            type="volunteering"
+                        >
+                            <BulletList items={vol.description} />
+                        </SelectionCard>
+                    ))}
+                </LibrarySection>
+            )}
+
+            {publications.length > 0 && (
+                <LibrarySection icon={<BookIcon className="w-6 h-6 text-white" />} color="bg-indigo-600 shadow-indigo-600/10" title="Publications" subtitle="Papers, articles & talks">
+                    {publications.map((pub) => (
+                        <SimpleCard
+                            key={pub.id}
+                            id={pub.id}
+                            title={pub.title}
+                            body={[pub.authors, pub.venue, formatMonthYear(pub.date)].filter(Boolean).join(" · ")}
+                            isSelected={pub.isSelected}
+                            onUpdate={updatePublication}
+                            onDelete={deletePublication}
+                        />
+                    ))}
+                </LibrarySection>
+            )}
+
+            {awards.length > 0 && (
+                <LibrarySection icon={<TrophyIcon className="w-6 h-6 text-white" />} color="bg-orange-500 shadow-orange-500/10" title="Awards & Honors" subtitle="Scholarships, prizes & recognition">
+                    {awards.map((award) => (
+                        <SimpleCard
+                            key={award.id}
+                            id={award.id}
+                            title={award.title}
+                            body={[[award.issuer, formatMonthYear(award.date)].filter(Boolean).join(" · "), award.description].filter(Boolean).join("\n")}
+                            isSelected={award.isSelected}
+                            onUpdate={updateAward}
+                            onDelete={deleteAward}
+                        />
+                    ))}
+                </LibrarySection>
+            )}
+
             {certifications.length > 0 && (
                 <LibrarySection icon={<AwardIcon className="w-6 h-6 text-white" />} color="bg-amber-500 shadow-amber-500/10" title="Certifications" subtitle="Credentials & licenses">
                     {certifications.map((cert) => (
@@ -148,6 +230,22 @@ export default function SelectionDisplay({ experiences, educations, skills, proj
                             isSelected={cert.isSelected}
                             onUpdate={updateCertification}
                             onDelete={deleteCertification}
+                        />
+                    ))}
+                </LibrarySection>
+            )}
+
+            {languages.length > 0 && (
+                <LibrarySection icon={<GlobeIcon className="w-6 h-6 text-white" />} color="bg-sky-600 shadow-sky-600/10" title="Languages" subtitle="Spoken languages & proficiency">
+                    {languages.map((lang) => (
+                        <SimpleCard
+                            key={lang.id}
+                            id={lang.id}
+                            title={lang.language}
+                            body={lang.proficiency ?? ""}
+                            isSelected={lang.isSelected}
+                            onUpdate={updateLanguage}
+                            onDelete={deleteLanguage}
                         />
                     ))}
                 </LibrarySection>
@@ -200,18 +298,27 @@ function Chip({ label, value }: { label: string; value: string }) {
 const cardClass = (isSelected: boolean) =>
     `group relative bg-white p-8 border-[1.5px] transition-all flex flex-col h-full rounded-[2rem] overflow-hidden ${
         isSelected
-            ? "border-black ring-4 ring-black/5 shadow-2xl shadow-black/5 z-10 scale-[1.02]"
-            : "border-black/5 shadow-sm hover:shadow-xl hover:border-black/20 hover:scale-[1.01]"
+            ? "border-black ring-4 ring-black/5 shadow-2xl shadow-black/5"
+            : "border-black/5 shadow-sm hover:shadow-xl hover:border-black/20"
     }`;
 
 type ServerAction = (id: string, formData: FormData) => Promise<void>;
+
+/** Submit button that disables itself while its form action is pending (prevents double toggles). */
+function PendingButton({ className, title, children }: { className: string; title?: string; children: React.ReactNode }) {
+    const { pending } = useFormStatus();
+    return (
+        <button type="submit" title={title} disabled={pending} aria-busy={pending} className={`${className} disabled:opacity-60 disabled:cursor-wait`}>
+            {children}
+        </button>
+    );
+}
 
 function IncludeToggle({ id, isSelected, onUpdate }: { id: string; isSelected: boolean; onUpdate: ServerAction }) {
     return (
         <form action={onUpdate.bind(null, id)} className="w-full">
             <input type="hidden" name="isSelected" value={(!isSelected).toString()} />
-            <button
-                type="submit"
+            <PendingButton
                 className={`w-full py-3.5 rounded-2xl text-[13px] font-black transition-all flex items-center justify-center gap-2 ${
                     isSelected
                         ? "bg-black text-white shadow-lg shadow-black/20 hover:bg-black/80"
@@ -226,22 +333,28 @@ function IncludeToggle({ id, isSelected, onUpdate }: { id: string; isSelected: b
                 ) : (
                     "Add to Resume"
                 )}
-            </button>
+            </PendingButton>
         </form>
     );
 }
 
 function DeleteButton({ id, onDelete }: { id: string; onDelete: (id: string) => Promise<void> }) {
+    // z-20 keeps it above the black "selected" corner ribbon.
     return (
-        <form action={onDelete.bind(null, id)}>
-            <button type="submit" title="Delete" className="absolute top-6 right-6 text-black/10 hover:text-red-500 p-2.5 hover:bg-red-50 rounded-2xl transition-all active:scale-90">
+        <form action={onDelete.bind(null, id)} className="absolute top-5 right-5 z-20">
+            <PendingButton title="Delete" className="bg-white/90 text-black/35 hover:text-red-500 p-2.5 hover:bg-red-50 rounded-full shadow-sm border border-black/5 transition-all active:scale-90 flex">
                 <TrashIcon className="h-5 w-5" />
-            </button>
+            </PendingButton>
         </form>
     );
 }
 
-const ACTIVE_LABEL = { experience: "Currently Here", education: "Active Student", project: "Ongoing" } as const;
+const ACTIVE_LABEL = {
+    experience: "Currently Here",
+    education: "Active Student",
+    project: "Ongoing",
+    volunteering: "Currently Volunteering",
+} as const;
 
 interface SelectionCardProps {
     id: string;
@@ -281,8 +394,7 @@ function SelectionCard({ id, title, subtitle, startDate, endDate, isActive, isSe
                 <IncludeToggle id={id} isSelected={isSelected} onUpdate={onUpdate} />
                 <form action={onUpdate.bind(null, id)} className="w-full">
                     <input type="hidden" name="isActive" value={(!isActive).toString()} />
-                    <button
-                        type="submit"
+                    <PendingButton
                         className={`w-full py-3.5 rounded-2xl text-[13px] font-black transition-all flex items-center justify-center gap-2 ${
                             isActive
                                 ? "bg-blue-50 text-blue-600 border-2 border-blue-200"
@@ -290,7 +402,7 @@ function SelectionCard({ id, title, subtitle, startDate, endDate, isActive, isSe
                         }`}
                     >
                         {isActive ? ACTIVE_LABEL[type] : "Mark Finished"}
-                    </button>
+                    </PendingButton>
                 </form>
             </div>
 
@@ -322,7 +434,7 @@ function SimpleCard({ id, title, body, isSelected, onUpdate, onDelete }: SimpleC
             </div>
 
             <div className="flex-1 mb-10">
-                {body && <p className="text-black/60 font-medium leading-relaxed">{body}</p>}
+                {body && <p className="text-black/60 font-medium leading-relaxed whitespace-pre-line">{body}</p>}
             </div>
 
             <div className="pt-6 border-t border-black/5 mt-auto">
@@ -407,6 +519,46 @@ function LibraryIcon({ className }: { className?: string }) {
         <svg {...iconProps} strokeWidth={2} className={className}>
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
             <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+        </svg>
+    );
+}
+
+function HeartIcon({ className }: { className?: string }) {
+    return (
+        <svg {...iconProps} className={className}>
+            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+        </svg>
+    );
+}
+
+function BookIcon({ className }: { className?: string }) {
+    return (
+        <svg {...iconProps} className={className}>
+            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+        </svg>
+    );
+}
+
+function TrophyIcon({ className }: { className?: string }) {
+    return (
+        <svg {...iconProps} className={className}>
+            <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path>
+            <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path>
+            <path d="M4 22h16"></path>
+            <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"></path>
+            <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"></path>
+            <path d="M18 2H6v7a6 6 0 0 0 12 0V2z"></path>
+        </svg>
+    );
+}
+
+function GlobeIcon({ className }: { className?: string }) {
+    return (
+        <svg {...iconProps} className={className}>
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="2" y1="12" x2="22" y2="12"></line>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
         </svg>
     );
 }

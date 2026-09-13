@@ -11,12 +11,12 @@ export default async function LoginPage() {
             {/* Header */}
             <header className="flex flex-row justify-between items-center px-6 py-6 md:px-16 md:py-6 w-full max-w-[1280px] mx-auto">
                 <Link href="/" className="flex flex-row items-center gap-2">
-                    <div className="w-7 h-7 md:w-10 md:h-10 bg-gray-200 rounded-md"></div>
+                    <Image src="/icons/quik-resume.svg" alt="quikResume Logo" width={40} height={40} className="w-7 h-7 md:w-10 md:h-10" priority />
                     <span className="font-semibold text-lg md:text-2xl tracking-tight">quikResume</span>
                 </Link>
                 <div className="flex flex-row items-center gap-6">
                     {session ? (
-                        <Link href="/dashboard" className="flex justify-center items-center px-4 py-3 bg-black text-[#F8F2DC] rounded-xl font-medium text-base hover:bg-black/80 transition-colors">
+                        <Link href="/dashboard" className="flex justify-center items-center px-4 py-3 bg-black text-white rounded-xl font-medium text-base hover:bg-black/80 transition-colors">
                             Dashboard
                         </Link>
                     ) : (

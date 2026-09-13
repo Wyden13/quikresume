@@ -7,7 +7,7 @@
 // Templates receive this object via `sys.inputs.resume` and must not do any
 // filtering or date logic of their own; they are pure styling.
 
-import { formatDateRange } from "@/lib/dates";
+import { formatDateRange, formatMonthYear } from "@/lib/dates";
 import type { PersonalInfo, ResumeData } from "@/types/schema";
 
 export interface TypstHeader {
@@ -56,6 +56,33 @@ export interface TypstCertification {
     year: string;
 }
 
+export interface TypstAward {
+    title: string;
+    issuer: string;
+    date: string;
+    description: string;
+}
+
+export interface TypstVolunteering {
+    title: string;
+    organization: string;
+    date: string;
+    bullets: string[];
+}
+
+export interface TypstPublication {
+    title: string;
+    venue: string;
+    date: string;
+    link: string;
+    authors: string;
+}
+
+export interface TypstLanguage {
+    language: string;
+    proficiency: string;
+}
+
 export interface TypstResumeDoc {
     header: TypstHeader;
     summary: string;
@@ -63,7 +90,11 @@ export interface TypstResumeDoc {
     skills: TypstSkill[];
     projects: TypstProject[];
     experience: TypstExperience[];
+    volunteering: TypstVolunteering[];
+    publications: TypstPublication[];
+    awards: TypstAward[];
     certifications: TypstCertification[];
+    languages: TypstLanguage[];
 }
 
 const s = (v: string | null | undefined): string => (v ?? "").trim();
@@ -120,9 +151,37 @@ export function toTypstDoc(data: ResumeData): TypstResumeDoc {
                 date: formatDateRange(x.startDate, x.endDate),
                 bullets: toBullets(x.description),
             })),
+        volunteering: data.volunteering
+            .filter(v => v.isSelected)
+            .map(v => ({
+                title: s(v.role),
+                organization: s(v.organization),
+                date: formatDateRange(v.startDate, v.endDate),
+                bullets: toBullets(v.description),
+            })),
+        publications: data.publications
+            .filter(pub => pub.isSelected)
+            .map(pub => ({
+                title: s(pub.title),
+                venue: s(pub.venue),
+                date: formatMonthYear(pub.date),
+                link: s(pub.link),
+                authors: s(pub.authors),
+            })),
+        awards: data.awards
+            .filter(a => a.isSelected)
+            .map(a => ({
+                title: s(a.title),
+                issuer: s(a.issuer),
+                date: formatMonthYear(a.date),
+                description: s(a.description),
+            })),
         certifications: data.certifications
             .filter(c => c.isSelected)
             .map(c => ({ name: s(c.name), issuer: s(c.issuer), year: s(c.year) })),
+        languages: data.languages
+            .filter(l => l.isSelected)
+            .map(l => ({ language: s(l.language), proficiency: s(l.proficiency) })),
     };
 }
 

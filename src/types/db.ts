@@ -83,3 +83,48 @@ export interface CertificationItem {
     createdAt: string | null;
     updatedAt?: string | null;
 }
+
+export interface AwardItem {
+    id: string;
+    title: string;
+    issuer: string | null;
+    date: string | null;
+    description: string | null;
+    isSelected: boolean;
+    createdAt: string | null;
+    updatedAt?: string | null;
+}
+
+export interface VolunteeringItem {
+    id: string;
+    role: string;
+    organization: string;
+    startDate: string | null;
+    endDate: string | null;
+    isActive: boolean;
+    description: string[];
+    isSelected: boolean;
+    createdAt: string | null;
+    updatedAt?: string | null;
+}
+
+export interface PublicationItem {
+    id: string;
+    title: string;
+    venue: string | null;
+    date: string | null;
+    link: string | null;
+    authors: string | null;
+    isSelected: boolean;
+    createdAt: string | null;
+    updatedAt?: string | null;
+}
+
+export interface LanguageItem {
+    id: string;
+    language: string;
+    proficiency: string | null;
+    isSelected: boolean;
+    createdAt: string | null;
+    updatedAt?: string | null;
+}

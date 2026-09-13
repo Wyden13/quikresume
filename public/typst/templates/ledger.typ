@@ -146,6 +146,27 @@
   stack-entries(items, x => entry(x.title, meta: x.company, date: x.date, bullets(x.bullets)))
 }
 
+#let volunteering(items) = if items.len() > 0 {
+  stack-entries(items, v => entry(v.title, meta: v.organization, date: v.date, bullets(v.bullets)))
+}
+
+#let publications(items) = if items.len() > 0 {
+  stack-entries(items, p => {
+    let title = if opt(p.link) { link(as-url(p.link))[#p.title] } else { p.title }
+    let byline = join-present((p.authors, p.venue), " · ")
+    entry(title, date: p.date, if opt(byline) { text(fill: muted, byline) })
+  })
+}
+
+#let awards(items) = if items.len() > 0 {
+  stack-entries(items, a => entry(a.title, meta: a.issuer, date: a.date,
+    if opt(a.description) { text(fill: muted, a.description) }))
+}
+
+#let languages(items) = if items.len() > 0 {
+  items.map(l => if opt(l.proficiency) { l.language + " (" + l.proficiency + ")" } else { l.language }).join(" · ")
+}
+
 #let certifications(items) = if items.len() > 0 {
   block(breakable: false, grid(
     columns: (1fr, auto), column-gutter: 12pt, row-gutter: 4pt,
@@ -170,5 +191,9 @@
   section("Skills", skills(data.skills))
   section("Projects", projects(data.projects))
   section("Experience", experience(data.experience))
+  section("Volunteering & Leadership", volunteering(data.at("volunteering", default: ())))
+  section("Publications", publications(data.at("publications", default: ())))
+  section("Awards & Honors", awards(data.at("awards", default: ())))
   section("Certifications", certifications(data.certifications))
+  section("Languages", languages(data.at("languages", default: ())))
 }

@@ -21,12 +21,30 @@
     }
   ],
   "skills": [
-    { "label": "Languages", "value": "Python, Java, TypeScript, Go, SQL, Bash" },
-    { "label": "AI / ML", "value": "PyTorch, scikit-learn, Hugging Face, LangChain, pandas, NumPy, MLflow" },
-    { "label": "Cloud & DevOps", "value": "AWS (EC2, S3, Lambda, IAM), Docker, Kubernetes, Terraform, GitHub Actions, Jenkins, Linux" },
-    { "label": "Data & Analytics", "value": "PostgreSQL, Spark, dbt, Airflow, Tableau, Power BI, Excel" },
-    { "label": "Testing & QA", "value": "pytest, JUnit, Selenium, Playwright, Postman, TDD" },
-    { "label": "Web & Tools", "value": "React, Node.js, FastAPI, REST, Git, Jira, Agile/Scrum" }
+    {
+      "label": "Languages",
+      "value": "Python, Java, TypeScript, Go, SQL, Bash"
+    },
+    {
+      "label": "AI / ML",
+      "value": "PyTorch, scikit-learn, Hugging Face, LangChain, pandas, NumPy, MLflow"
+    },
+    {
+      "label": "Cloud & DevOps",
+      "value": "AWS (EC2, S3, Lambda, IAM), Docker, Kubernetes, Terraform, GitHub Actions, Jenkins, Linux"
+    },
+    {
+      "label": "Data & Analytics",
+      "value": "PostgreSQL, Spark, dbt, Airflow, Tableau, Power BI, Excel"
+    },
+    {
+      "label": "Testing & QA",
+      "value": "pytest, JUnit, Selenium, Playwright, Postman, TDD"
+    },
+    {
+      "label": "Web & Tools",
+      "value": "React, Node.js, FastAPI, REST, Git, Jira, Agile/Scrum"
+    }
   ],
   "projects": [
     {
@@ -74,8 +92,57 @@
     }
   ],
   "certifications": [
-    { "name": "AWS Certified Cloud Practitioner", "issuer": "Amazon Web Services", "year": "2025" },
-    { "name": "Google Data Analytics Professional Certificate", "issuer": "", "year": "2025" },
-    { "name": "ISTQB Certified Tester — Foundation Level", "issuer": "", "year": "2024" }
+    {
+      "name": "AWS Certified Cloud Practitioner",
+      "issuer": "Amazon Web Services",
+      "year": "2025"
+    },
+    {
+      "name": "Google Data Analytics Professional Certificate",
+      "issuer": "",
+      "year": "2025"
+    },
+    {
+      "name": "ISTQB Certified Tester — Foundation Level",
+      "issuer": "",
+      "year": "2024"
+    }
+  ],
+  "volunteering": [
+    {
+      "title": "Coding Mentor",
+      "organization": "Girls Who Code",
+      "date": "Sep 2023 – Present",
+      "bullets": [
+        "Ran weekly Python workshops for 25 high-school students; 80% went on to ship a capstone project."
+      ]
+    }
+  ],
+  "publications": [
+    {
+      "title": "Efficient Tracing at Scale",
+      "venue": "USENIX ATC",
+      "date": "Jul 2025",
+      "link": "",
+      "authors": "A. Morgan, J. Doe"
+    }
+  ],
+  "awards": [
+    {
+      "title": "Hackathon Winner",
+      "issuer": "TechFest",
+      "date": "Mar 2025",
+      "description": "First place out of 40 teams for a real-time transit delay predictor."
+    }
+  ],
+  "languages": [
+    {
+      "language": "English",
+      "proficiency": "Native"
+    },
+    {
+      "language": "French",
+      "proficiency": "B2"
+    }
   ]
 }

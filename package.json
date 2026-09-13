@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "postinstall": "node scripts/copy-typst-wasm.mjs",
+    "postinstall": "node scripts/copy-typst-wasm.mjs && node scripts/copy-pdfjs-worker.mjs",
     "typst:sample": "typst compile --root public/typst --font-path public/typst/fonts --ignore-system-fonts public/typst/main.typ .typst-out/sample.pdf"
   },
   "dependencies": {
@@ -16,10 +16,14 @@
     "@myriaddreamin/typst-ts-web-compiler": "0.7.0",
     "@myriaddreamin/typst.ts": "0.7.0",
     "firebase-admin": "^13.7.0",
+    "mammoth": "^1.12.3",
     "next": "16.1.6",
     "next-auth": "^5.0.0-beta.30",
+    "pdfjs-dist": "^6.3.289",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "server-only": "^0.0.1",
+    "zod": "^4.6.4"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

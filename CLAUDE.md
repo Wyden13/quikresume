@@ -11,12 +11,15 @@ Resume builder. Users keep their full professional history in a **Master Library
 - NextAuth v5 beta: Google provider, JWT sessions, `@auth/firebase-adapter`; `src/proxy.ts` (Next 16 name for middleware) guards `/dashboard/*`
 - `firebase-admin` Firestore, **named database `"quikresume"`** (`src/lib/firestore.ts`)
 - `@myriaddreamin/typst.ts` 0.7.0 (+ `typst-ts-web-compiler`, `typst-ts-renderer`), wraps Typst 0.13
+- Resume import: Z.ai GLM-4.6V (vision) via plain `fetch` (`src/lib/glm/client.ts`), `pdfjs-dist` (browser PDF
+  rasterising), `mammoth` (DOCX text), `zod` (lenient output parsing)
 - No test framework, no CI. Lint is `eslint-config-next` (core-web-vitals + typescript).
 
 ## Commands
 
 ```bash
-npm install          # also runs postinstall: copies typst wasm into public/typst/wasm (gitignored)
+npm install          # also runs postinstall: copies typst wasm into public/typst/wasm and the pdf.js
+                     # worker into public/pdfjs (both gitignored)
 npm run dev          # http://localhost:3000
 npm run build
 npm run lint
@@ -34,21 +37,32 @@ typst compile --root public/typst --font-path public/typst/fonts --ignore-system
 ```
 
 Required env (`.env.local`): `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_TRUST_HOST`,
-`FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` (escaped `\n` newlines are unescaped in code).
+`FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` (escaped `\n` newlines are unescaped in code),
+`GLM_API_KEY` (resume import). Optional: `GLM_BASE_URL` (default `https://api.z.ai/api/paas/v4`),
+`GLM_MODEL` (default `glm-4.6v`).
 
 ## Layout
 
 ```
 src/
   auth.ts, proxy.ts, lib/firestore.ts        auth + db singletons
-  app/page.tsx, (auth)/login, (dashboard)/dashboard/page.tsx
+  app/page.tsx, (auth)/login, (dashboard)/dashboard/page.tsx, (dashboard)/dashboard/profile/page.tsx
+  app/api/import/route.ts                    POST upload -> GLM-4.6V -> ResumeData draft (see Resume import)
   app/actions/*-actions.ts                   "use server" CRUD per collection + resume-actions.ts (save)
-  components/dashboard-client.tsx            view switch: library | edit | preview; draft state
+                                             + user-actions.ts (profile read/save)
+  lib/db/user-collection.ts                  server-only Firestore helpers shared by the newer action files
+  components/site-header.tsx, site-footer.tsx, nav-link.tsx   signed-in chrome (dashboard + profile)
+  components/dashboard-client.tsx            view switch: library | edit | preview | import; draft state
   components/ui/resume-form.tsx              the Master Editor (controlled form)
+  components/ui/form-controls.tsx            Label / Input / Textarea / Button shared by the forms
+  components/ui/profile-form.tsx             Profile page form -> updateUserProfile
+  components/ui/resume-import.tsx            upload (PDF -> page images via pdf.js) + review step
   components/ui/selection-display.tsx        library cards (toggle / active / delete via server-action forms)
   components/ui/resume-preview.tsx           Typst preview + PDF download (client only)
   lib/dates.ts, lib/ids.ts                   date-string helpers, temp ids
-  lib/resume-mapper.ts                       Firestore rows -> ResumeData (server)
+  lib/resume-mapper.ts                       Firestore rows -> ResumeData (server); personalInfoToUserDoc
+  lib/glm/client.ts                          chatCompletion() for Z.ai (server-only)
+  lib/import/{prompt,dates,parsed-resume,merge,types}.ts   import prompt, date normaliser, zod parser, draft merge
   lib/typst/doc.ts                           ResumeData -> TypstResumeDoc (the JSON contract)
   lib/typst/client.ts                        browser singleton around typst.ts
   lib/typst/templates.ts                     template registry
@@ -60,12 +74,14 @@ public/typst/
   sample.json                                full sample doc for CLI iteration
   fonts/Inter-*.ttf (+ OFL.txt)              vendored fonts
   wasm/                                      gitignored, filled by scripts/copy-typst-wasm.mjs
+public/pdfjs/pdf.worker.min.mjs              gitignored, filled by scripts/copy-pdfjs-worker.mjs
 ```
 
 ## Data flow
 
 1. `dashboard/page.tsx` (RSC) fetches profile + `experience`, `education`, `skills`, `projects`,
-   `certifications` in parallel and builds `initialResumeData` with `toResumeData`.
+   `certifications`, `awards`, `volunteering`, `publications`, `languages` in parallel and builds
+   `initialResumeData` with `toResumeData`.
 2. `DashboardClient` holds `draft: ResumeData | null`. `resumeData = draft ?? initialResumeData`.
    Opening the editor copies server truth into the draft; Save calls `saveResumeData(draft)` then clears it;
    Discard just clears it. The draft is **never re-derived from props**, so `revalidatePath` refreshes
@@ -75,6 +91,32 @@ public/typst/
 4. `saveResumeData` writes personal info to `users/{uid}` and every list item into its subcollection
    (`isTempId` -> new doc, else merge by id), chunked under Firestore's 500-writes-per-batch limit.
 5. Library cards call `update*`/`delete*` actions via `<form action>`; each action revalidates `/dashboard`.
+6. The Profile page (`/dashboard/profile`) edits the same `users/{uid}` fields through `updateUserProfile`;
+   both it and `saveResumeData` go through `personalInfoToUserDoc` so the written shape stays identical.
+
+## Resume import
+
+```
+file --(browser)--> PDF? render pages to JPEG with pdf.js : send as-is
+     --POST /api/import (multipart)--> DOCX -> mammoth text | TXT -> text | images -> image_url parts
+     --> GLM-4.6V (SYSTEM_PROMPT in lib/import/prompt.ts) --> JSON text
+     --> parseModelOutput (lib/import/parsed-resume.ts) --> { data: ResumeData (tmp ids), warnings }
+     --> review step (resume-import.tsx) --> mergeImport into the editor draft --> user clicks Save & Exit
+```
+
+- Nothing is persisted by the import itself; the draft goes through the normal `saveResumeData` path.
+- It is a Route Handler, not a server action: server actions cap bodies at 1 MB and the route needs
+  `maxDuration = 120` (GLM calls take 10–60 s). It calls `auth()` itself (`proxy.ts` only guards `/dashboard`).
+- **GLM facts (verified live):** `glm-4.6v` accepts `text` and `image_url` parts (URL or data URI, ≤ 5 MB each).
+  `file` parts are rejected by every model, and `response_format: json_object` is text-model only, which is
+  why PDFs are rasterised in the browser and JSON is extracted from the reply with a balanced-brace scan.
+- Parsing is lenient on purpose: the envelope never fails, each item is validated on its own with zod, and
+  rejects go into `warnings` (shown in the review step). Dates like `2021`, `Jan 2021`, `03/2021`,
+  `Spring 2020`, `Present` are normalised in `lib/import/dates.ts`.
+- `mergeImport` appends items, skipping ones whose normalised key (`itemKey`) already exists in the draft;
+  personal info fills only empty fields unless the user ticks "Replace my existing details".
+- Prompt tuning lives in `lib/import/prompt.ts`; skill grouping (3–6 categories when the resume lists
+  skills flat) and section routing (Awards/Volunteering/Publications/Languages) are instructed there.
 
 ## Typst pipeline
 
@@ -109,7 +151,11 @@ ResumeData --toTypstDoc()--> TypstResumeDoc (JSON) --sys.inputs.resume--> main.t
 | `skills[]` | `{ label, value }` |
 | `projects[]` | `{ title, stack, date, link, bullets[] }` |
 | `experience[]` | `{ title, company, date, bullets[] }` |
+| `volunteering[]` | `{ title, organization, date, bullets[] }` |
+| `publications[]` | `{ title, venue, date, link, authors }` |
+| `awards[]` | `{ title, issuer, date, description }` |
 | `certifications[]` | `{ name, issuer, year }` |
+| `languages[]` | `{ language, proficiency }` |
 
 ## Data model (Firestore)
 
@@ -125,6 +171,10 @@ Subcollections, each doc has `isSelected`, `createdAt`, `updatedAt`:
 | `skills` | `category, items` |
 | `projects` | `title, stack, link, startDate, endDate, isActive, description: string[]` |
 | `certifications` | `name, issuer, year` |
+| `awards` | `title, issuer, date, description` |
+| `volunteering` | `role, organization, startDate, endDate, isActive, description: string[]` |
+| `publications` | `title, venue, date, link, authors` |
+| `languages` | `language, proficiency` |
 
 Dates are stored as Firestore `Timestamp` at **UTC midnight** (`toUtcDate`). In the editor model
 `startDate` is `"YYYY-MM-DD" | ""` and `endDate` is `"YYYY-MM-DD" | "Present" | ""`; `"Present"`
@@ -144,8 +194,9 @@ editor and `string[]` in Firestore.
 
 ## Gotchas
 
-- Firestore `orderBy(field)` silently drops documents missing that field. `experience`/`education`
-  order by `startDate`; `projects`/`certifications` order by `createdAt`. Always write the ordered field.
+- Firestore `orderBy(field)` silently drops documents missing that field. `experience`/`education`/`volunteering`
+  order by `startDate`; `projects`/`certifications`/`awards`/`publications`/`languages` order by `createdAt`.
+  Always write the ordered field.
 - Batch writes are capped at 500; `saveResumeData` chunks at 450.
 - The compiler wasm is ~27 MB (~7 MB over the wire). It loads only when the preview mounts.
   `public/typst/wasm` is gitignored; if it is missing, run `npm install` (postinstall) or the copy script.
@@ -153,3 +204,10 @@ editor and `string[]` in Firestore.
   `TypstSnippet.preloadFontAssets({ assets: ["cjk"] })` in `client.ts` if that is ever needed.
 - `sys.inputs` values are strings; `main.typ` falls back to `sample.json` only when no `resume` input is given.
 - `next/dynamic({ ssr: false })` is only allowed inside Client Components (as done in `dashboard-client.tsx`).
+- `"use server"` files may only export async functions, so shared Firestore boilerplate lives in
+  `src/lib/db/user-collection.ts` (plain `server-only` module); never build actions with a factory.
+- Route handler files may only export route fields (`GET`, `POST`, `runtime`, `maxDuration`, …); shared
+  constants/types for `/api/import` live in `src/lib/import/types.ts`.
+- ESLint ignores `public/pdfjs/**` and `public/typst/wasm/**` (vendored bundles).
+- No `typst` CLI locally: `pip install typst` in a venv gives `typst.compile(...)` with `sys_inputs`, which is
+  enough to check the templates against `sample.json`.
