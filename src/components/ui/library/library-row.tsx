@@ -1,9 +1,11 @@
 "use client";
 
-import React from "react";
+import React, { startTransition, useOptimistic } from "react";
 import { useFormStatus } from "react-dom";
 import { cn } from "@/lib/cn";
 import type { Tag } from "@/lib/tags/types";
+import { toggleHidden, type SubItem } from "@/lib/sub-items";
+import { SubItemList } from "@/components/ui/sub-item-toggles";
 import { expansion, useExpandedIds } from "@/lib/ui/expansion-store";
 import { ExpandableRow } from "@/components/ui/primitives/expandable-row";
 import { Switch } from "@/components/ui/primitives/switch";
@@ -27,6 +29,8 @@ export interface LibraryRowProps {
     subtitle?: string;
     /** Right-aligned meta (date range, year). */
     meta?: string;
+    /** Bullets / skills switched off individually (shown as a hint on the summary line). */
+    hiddenCount?: number;
     isSelected: boolean;
     /** Present only for dated sections. */
     active?: { isActive: boolean; type: ActiveType };
@@ -40,7 +44,7 @@ export interface LibraryRowProps {
 
 const MAX_SUMMARY_TAGS = 3;
 
-export function LibraryRow({ id, title, subtitle, meta, isSelected, active, tags = [], usedBy = [], onUpdate, onDelete, children }: LibraryRowProps) {
+export function LibraryRow({ id, title, subtitle, meta, hiddenCount = 0, isSelected, active, tags = [], usedBy = [], onUpdate, onDelete, children }: LibraryRowProps) {
     const open = useExpandedIds().has(id);
 
     const summary = (
@@ -60,6 +64,7 @@ export function LibraryRow({ id, title, subtitle, meta, isSelected, active, tags
                     {tags.length > MAX_SUMMARY_TAGS && <span className="text-xs text-fg-subtle">+{tags.length - MAX_SUMMARY_TAGS}</span>}
                 </div>
             )}
+            {hiddenCount > 0 && <span className="hidden shrink-0 text-xs text-fg-subtle sm:inline">{hiddenCount} hidden</span>}
             {meta && <span className="hidden w-32 shrink-0 text-right text-13 tabular-nums text-fg-subtle md:inline">{meta}</span>}
         </div>
     );
@@ -110,13 +115,22 @@ function PendingButton({ children, variant = "secondary", icon }: { children: Re
     return <Button type="submit" size="sm" variant={variant} icon={icon} loading={pending}>{children}</Button>;
 }
 
-export function Bullets({ items }: { items: string[] }) {
-    if (items.length === 0) return null;
-    return (
-        <ul className="list-disc space-y-1 pl-4 text-fg-muted marker:text-fg-subtle">
-            {items.map((line, i) => <li key={i} className="leading-relaxed">{line}</li>)}
-        </ul>
-    );
+/**
+ * Per-bullet / per-skill switches that save straight to Firestore. The list
+ * flips optimistically; revalidation brings the persisted `hidden` back.
+ */
+export function SubItemToggles({ id, entries, hidden, onUpdate, variant }: { id: string; entries: SubItem[]; hidden: string[]; onUpdate: ServerAction; variant: "bullets" | "chips" }) {
+    const [optimistic, setOptimistic] = useOptimistic(hidden);
+    const toggle = (key: string) => {
+        const next = toggleHidden(optimistic, key);
+        startTransition(async () => {
+            setOptimistic(next);
+            const fd = new FormData();
+            fd.set("hidden", JSON.stringify(next));
+            await onUpdate(id, fd);
+        });
+    };
+    return <SubItemList idPrefix={`lib-${id}`} entries={entries} hidden={optimistic} onToggle={toggle} variant={variant} />;
 }
 
 export function Detail({ label, value }: { label: string; value?: string | null }) {

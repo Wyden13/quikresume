@@ -7,11 +7,12 @@ import { useRouter } from "next/navigation";
 import type { ResumeData } from "@/types/schema";
 import { aggregateTags, kindTotals, type TagWeight } from "@/lib/tags/aggregate";
 import { staleCount } from "@/lib/tags/content";
-import { TAG_KINDS, kindMeta } from "@/lib/tags/types";
+import { TAG_KINDS, kindMeta, type TagKind } from "@/lib/tags/types";
+import { cn } from "@/lib/cn";
 import { SECTION_LABEL } from "@/lib/sections";
 import { Card, CardBody, CardHeader } from "@/components/ui/primitives/card";
 import { Segmented } from "@/components/ui/primitives/segmented";
-import { Button } from "@/components/ui/primitives/button";
+import { Button, FOCUS_RING } from "@/components/ui/primitives/button";
 import { Input } from "@/components/ui/primitives/field";
 import { Badge, KindDot } from "@/components/ui/primitives/badge";
 import { NoticeBanner } from "@/components/ui/primitives/notice-banner";
@@ -27,21 +28,17 @@ const Charts = dynamic(() => import("@/components/ui/tag-charts").then(m => ({ d
 type ChartModule = typeof import("@/components/ui/tag-charts");
 
 function ChartsBundle(m: ChartModule) {
-    return function InsightsCharts({ weights }: { weights: TagWeight[] }) {
+    return function InsightsCharts({ weights, kinds }: { weights: TagWeight[]; kinds: ReadonlySet<TagKind> }) {
         const totals = kindTotals(weights);
         return (
             <div className="grid gap-4 lg:grid-cols-2">
                 <Card>
                     <CardHeader title="Profile shape" hint="Relative weight per tag kind" />
-                    <CardBody><m.KindRadar series={[{ label: "You", totals, color: "#171717" }]} /></CardBody>
+                    <CardBody><m.KindRadar series={[{ label: "You", totals, color: "#171717" }]} activeKinds={kinds} /></CardBody>
                 </Card>
                 <Card>
                     <CardHeader title="Heaviest tags" hint="How many included items carry each tag" />
                     <CardBody><m.TopTagsBars weights={weights} limit={18} /></CardBody>
-                </Card>
-                <Card className="lg:col-span-2">
-                    <CardHeader title="Map" hint="Kinds → tags, sized by weight" />
-                    <CardBody><m.TagTreemap weights={weights} /></CardBody>
                 </Card>
             </div>
         );
@@ -56,16 +53,25 @@ export function InsightsView({ data }: InsightsViewProps) {
     const router = useRouter();
     const [scope, setScope] = useState<"selected" | "all">("selected");
     const [query, setQuery] = useState("");
+    // Empty set = every kind.
+    const [kinds, setKinds] = useState<ReadonlySet<TagKind>>(new Set());
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [done, setDone] = useState<string | null>(null);
 
     const weights = aggregateTags(data, { selectedOnly: scope === "selected" });
     const stale = staleCount(data);
+    const filtered = kinds.size === 0 ? weights : weights.filter(w => kinds.has(w.kind));
     const q = query.trim().toLowerCase();
     const rows = q
-        ? weights.filter(w => w.display.toLowerCase().includes(q) || w.items.some(i => i.label.toLowerCase().includes(q)))
-        : weights;
+        ? filtered.filter(w => w.display.toLowerCase().includes(q) || w.items.some(i => i.label.toLowerCase().includes(q)))
+        : filtered;
+
+    const toggleKind = (kind: TagKind) => setKinds(prev => {
+        const next = new Set(prev);
+        if (next.has(kind)) next.delete(kind); else next.add(kind);
+        return next;
+    });
 
     const runBackfill = async (force: boolean) => {
         setBusy(true);
@@ -111,14 +117,17 @@ export function InsightsView({ data }: InsightsViewProps) {
             {error && <NoticeBanner tone="danger" onDismiss={() => setError(null)}>{error}</NoticeBanner>}
             {done && <NoticeBanner tone="success" onDismiss={() => setDone(null)}>{done}</NoticeBanner>}
 
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by kind">
+                <FilterChip on={kinds.size === 0} onClick={() => setKinds(new Set())}>
+                    All <span className="tabular-nums opacity-60">{weights.length}</span>
+                </FilterChip>
                 {TAG_KINDS.map(k => {
                     const n = weights.filter(w => w.kind === k.id).length;
                     return (
-                        <Badge key={k.id} className="gap-1.5 pl-1">
+                        <FilterChip key={k.id} on={kinds.has(k.id)} onClick={() => toggleKind(k.id)} disabled={n === 0 && !kinds.has(k.id)}>
                             <KindDot color={k.color} />
-                            {k.label} <span className="text-fg-subtle tabular-nums">{n}</span>
-                        </Badge>
+                            {k.label} <span className="tabular-nums opacity-60">{n}</span>
+                        </FilterChip>
                     );
                 })}
             </div>
@@ -126,12 +135,12 @@ export function InsightsView({ data }: InsightsViewProps) {
             {weights.length === 0 ? (
                 <EmptyState icon={BarChart3} title="No tags yet" body="Save your library once (or press Analyse) and your skills chart will appear here." />
             ) : (
-                <Charts weights={weights} />
+                <Charts weights={filtered} kinds={kinds} />
             )}
 
             <Card>
                 <CardHeader
-                    title="All tags"
+                    title={kinds.size === 0 ? "All tags" : `Tags · ${[...kinds].map(k => kindMeta(k).label).join(", ")}`}
                     action={<Input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search tags or items…" className="h-8 w-full text-13 md:w-64" />}
                 />
                 <Table>
@@ -172,5 +181,23 @@ export function InsightsView({ data }: InsightsViewProps) {
                 </Table>
             </Card>
         </div>
+    );
+}
+
+function FilterChip({ on, onClick, disabled, children }: { on: boolean; onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
+    return (
+        <button
+            type="button"
+            aria-pressed={on}
+            onClick={onClick}
+            disabled={disabled}
+            className={cn(
+                "inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors disabled:opacity-40",
+                on ? "border-accent bg-accent text-accent-fg" : "border-border bg-surface text-fg-muted hover:border-border-strong hover:text-fg",
+                FOCUS_RING,
+            )}
+        >
+            {children}
+        </button>
     );
 }

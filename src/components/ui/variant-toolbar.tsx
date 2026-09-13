@@ -29,7 +29,7 @@ export function VariantToolbar({ variants, loadedVariantId, data, onNotice }: Va
     const [name, setName] = useState("");
     const [busy, setBusy] = useState<string | null>(null);
     const loaded = variants.find(v => v.id === loadedVariantId) ?? null;
-    const inSync = loaded ? selectionEquals(data, loaded.items) : false;
+    const inSync = loaded ? selectionEquals(data, loaded.items, loaded.hidden) : false;
 
     const run = async (key: string, fn: () => Promise<string>) => {
         setBusy(key);

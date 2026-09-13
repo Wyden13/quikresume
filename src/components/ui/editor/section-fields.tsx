@@ -18,6 +18,9 @@ import { deleteVolunteering } from "@/app/actions/volunteering-actions";
 import { deletePublication } from "@/app/actions/publication-actions";
 import { deleteLanguage } from "@/app/actions/language-actions";
 import { newTempId } from "@/lib/ids";
+import { toBullets } from "@/lib/typst/doc";
+import { bulletEntries, skillEntries, toggleHidden, type SubItem } from "@/lib/sub-items";
+import { SubItemList } from "@/components/ui/sub-item-toggles";
 import { Field, Input, Textarea } from "@/components/ui/primitives/field";
 import { DateRangeFields } from "./date-range-fields";
 
@@ -50,12 +53,29 @@ function Lines<K extends ResumeListKey>({ item, set, field, label, placeholder, 
     );
 }
 
+/** "Shown on résumé" switches for the bullets / skills parsed live from the draft text. */
+function ShownOnResume({ id, entries, hidden, onChange, variant }: { id: string; entries: SubItem[]; hidden: string[]; onChange: (hidden: string[]) => void; variant: "bullets" | "chips" }) {
+    // A single bullet is covered by the item's own switch.
+    if (entries.length < (variant === "bullets" ? 2 : 1)) return null;
+    return (
+        <div className="space-y-2 rounded-md border border-border bg-surface-muted/50 p-3">
+            <p className="text-13 font-medium text-fg-muted">Shown on résumé</p>
+            <SubItemList idPrefix={`ed-${id}`} entries={entries} hidden={hidden} onToggle={key => onChange(toggleHidden(hidden, key))} variant={variant} className="text-13" />
+        </div>
+    );
+}
+
+type WithBullets = WorkExperience | Project | Volunteering;
+const bulletToggles = <T extends WithBullets>(x: T, set: (patch: Partial<T>) => void) => (
+    <ShownOnResume id={x.id} entries={bulletEntries(toBullets(x.description))} hidden={x.hidden ?? []} onChange={hidden => set({ hidden } as Partial<T>)} variant="bullets" />
+);
+
 const two = "grid gap-4 md:grid-cols-2";
 
 export const SECTION_CONFIG: { [K in ResumeListKey]: SectionConfig<K> } = {
     workExperience: {
         addLabel: "Add role",
-        create: (): WorkExperience => ({ ...base(), title: "", company: "", startDate: "", endDate: "", description: "" }),
+        create: (): WorkExperience => ({ ...base(), hidden: [], title: "", company: "", startDate: "", endDate: "", description: "" }),
         remove: deleteExperience,
         fields: (x, set) => (
             <>
@@ -65,6 +85,7 @@ export const SECTION_CONFIG: { [K in ResumeListKey]: SectionConfig<K> } = {
                 </div>
                 <DateRangeFields idPrefix={x.id} startDate={x.startDate} endDate={x.endDate} currentLabel="I work here now" onChange={set} />
                 <Lines item={x} set={set} field="description" label="Responsibilities (one per line)" placeholder="Key achievements, one per line…" />
+                {bulletToggles(x, set)}
             </>
         ),
     },
@@ -89,18 +110,21 @@ export const SECTION_CONFIG: { [K in ResumeListKey]: SectionConfig<K> } = {
     },
     skills: {
         addLabel: "Add category",
-        create: (): SkillCategory => ({ ...base(), category: "", items: "" }),
+        create: (): SkillCategory => ({ ...base(), hidden: [], category: "", items: "" }),
         remove: deleteSkill,
         fields: (x, set) => (
-            <div className="grid gap-4 md:grid-cols-[1fr_2fr]">
-                <Text item={x} set={set} field="category" label="Category" placeholder="Languages" />
-                <Text item={x} set={set} field="items" label="Skills (comma separated)" placeholder="Python, Java, TypeScript, Go, SQL" />
-            </div>
+            <>
+                <div className="grid gap-4 md:grid-cols-[1fr_2fr]">
+                    <Text item={x} set={set} field="category" label="Category" placeholder="Languages" />
+                    <Text item={x} set={set} field="items" label="Skills (comma separated)" placeholder="Python, Java, TypeScript, Go, SQL" />
+                </div>
+                <ShownOnResume id={x.id} entries={skillEntries(x.items)} hidden={x.hidden ?? []} onChange={hidden => set({ hidden })} variant="chips" />
+            </>
         ),
     },
     projects: {
         addLabel: "Add project",
-        create: (): Project => ({ ...base(), title: "", stack: "", link: "", startDate: "", endDate: "", description: "" }),
+        create: (): Project => ({ ...base(), hidden: [], title: "", stack: "", link: "", startDate: "", endDate: "", description: "" }),
         remove: deleteProject,
         fields: (x, set) => (
             <>
@@ -111,6 +135,7 @@ export const SECTION_CONFIG: { [K in ResumeListKey]: SectionConfig<K> } = {
                 <Text item={x} set={set} field="stack" label="Tech stack" placeholder="PyTorch, FastAPI, Docker, AWS Lambda" />
                 <DateRangeFields idPrefix={x.id} startDate={x.startDate} endDate={x.endDate} currentLabel="Ongoing" onChange={set} />
                 <Lines item={x} set={set} field="description" label="Highlights (one per line)" placeholder="What you built, with a number. Impact or scale." />
+                {bulletToggles(x, set)}
             </>
         ),
     },
@@ -128,7 +153,7 @@ export const SECTION_CONFIG: { [K in ResumeListKey]: SectionConfig<K> } = {
     },
     volunteering: {
         addLabel: "Add activity",
-        create: (): Volunteering => ({ ...base(), role: "", organization: "", startDate: "", endDate: "", description: "" }),
+        create: (): Volunteering => ({ ...base(), hidden: [], role: "", organization: "", startDate: "", endDate: "", description: "" }),
         remove: deleteVolunteering,
         fields: (x, set) => (
             <>
@@ -138,6 +163,7 @@ export const SECTION_CONFIG: { [K in ResumeListKey]: SectionConfig<K> } = {
                 </div>
                 <DateRangeFields idPrefix={x.id} startDate={x.startDate} endDate={x.endDate} currentLabel="Still involved" onChange={set} />
                 <Lines item={x} set={set} field="description" label="Highlights (one per line)" placeholder="What you did and the impact, one per line…" rows={3} />
+                {bulletToggles(x, set)}
             </>
         ),
     },

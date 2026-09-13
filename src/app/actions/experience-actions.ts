@@ -3,7 +3,7 @@
 import { auth } from "@/auth"
 import { db } from "@/lib/firestore"
 import { revalidatePath } from "next/cache"
-import { tagFieldsOf } from "@/lib/db/user-collection";
+import { formStrArray, strArray, tagFieldsOf } from "@/lib/db/user-collection";
 import { Timestamp } from "firebase-admin/firestore";
 import { toUtcDate } from "@/lib/dates";
 import type { ExperienceItem } from "@/types/db";
@@ -17,6 +17,7 @@ interface UpdateExperienceData {
     startDate?: Timestamp;
     endDate?: Timestamp | null;
     description?: string[];
+    hidden?: string[];
     updatedAt: Timestamp;
 }
 
@@ -49,6 +50,7 @@ export async function getExperiences(): Promise<ExperienceItem[]> {
             startDate: data.startDate?.toDate().toISOString() ?? null,
             endDate: data.endDate?.toDate().toISOString() ?? null,
             description: Array.isArray(data.description) ? data.description : [],
+            hidden: strArray(data.hidden),
             createdAt: data.createdAt?.toDate().toISOString() ?? null,
             updatedAt: data.updatedAt?.toDate().toISOString() ?? null,
         };
@@ -76,6 +78,7 @@ export async function updateExperience(experienceId: string, formData: FormData)
     if (formData.has("isActive")) {
         updateData.isActive = formData.get("isActive") === "on" || formData.get("isActive") === "true";
     }
+    if (formData.has("hidden")) updateData.hidden = formStrArray(formData, "hidden");
     if (formData.has("isSelected")) {
         updateData.isSelected = formData.get("isSelected") === "on" || formData.get("isSelected") === "true";
     }

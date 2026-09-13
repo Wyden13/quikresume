@@ -7,7 +7,7 @@
 import React from "react";
 import {
     Bar, BarChart, Cell, PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, ResponsiveContainer,
-    Tooltip, Treemap, XAxis, YAxis, Legend,
+    Tooltip, XAxis, YAxis, Legend,
 } from "recharts";
 import { TAG_KINDS, kindMeta, type TagKind } from "@/lib/tags/types";
 import type { KindTotals, TagWeight } from "@/lib/tags/aggregate";
@@ -23,7 +23,7 @@ export interface RadarSeries {
 }
 
 /** One axis per tag kind. Each series is normalised to its own max (0–100) so shapes compare. */
-export function KindRadar({ series, height = 280 }: { series: RadarSeries[]; height?: number }) {
+export function KindRadar({ series, height = 280, activeKinds }: { series: RadarSeries[]; height?: number; activeKinds?: ReadonlySet<TagKind> }) {
     const maxes = series.map(s => Math.max(1, ...TAG_KINDS.map(k => s.totals[k.id])));
     const data = TAG_KINDS.map(k => {
         const row: Record<string, string | number> = { kind: k.short };
@@ -34,7 +34,7 @@ export function KindRadar({ series, height = 280 }: { series: RadarSeries[]; hei
         <ResponsiveContainer width="100%" height={height}>
             <RadarChart data={data} outerRadius="72%">
                 <PolarGrid stroke={GRID} />
-                <PolarAngleAxis dataKey="kind" tick={{ fontSize: 11, fontWeight: 500, fill: TICK }} />
+                <PolarAngleAxis dataKey="kind" tick={activeKinds && activeKinds.size > 0 ? <KindTick active={activeKinds} /> : { fontSize: 11, fontWeight: 500, fill: TICK }} />
                 <PolarRadiusAxis tick={false} axisLine={false} domain={[0, 100]} />
                 {series.map(s => (
                     <Radar key={s.label} name={s.label} dataKey={s.label} stroke={s.color} fill={s.color} fillOpacity={0.15} strokeWidth={1.5} />
@@ -43,6 +43,18 @@ export function KindRadar({ series, height = 280 }: { series: RadarSeries[]; hei
                 {series.length > 1 && <Legend wrapperStyle={{ fontSize: 11 }} />}
             </RadarChart>
         </ResponsiveContainer>
+    );
+}
+
+/** Axis label that fades kinds outside the active filter. */
+function KindTick(props: Record<string, unknown> & { active: ReadonlySet<TagKind> }) {
+    const { x, y, textAnchor, payload, active } = props as { x: number; y: number; textAnchor: "start" | "middle" | "end"; payload: { value: string; index: number }; active: ReadonlySet<TagKind> };
+    const kind = TAG_KINDS[payload.index]?.id;
+    const on = kind ? active.has(kind) : true;
+    return (
+        <text x={x} y={y} textAnchor={textAnchor} dominantBaseline="central" fontSize={11} fontWeight={on ? 600 : 500} fill={on ? "var(--fg)" : "var(--fg-subtle)"}>
+            {payload.value}
+        </text>
     );
 }
 
@@ -62,54 +74,6 @@ export function TopTagsBars({ weights, limit = 20, height }: { weights: TagWeigh
                 </Bar>
             </BarChart>
         </ResponsiveContainer>
-    );
-}
-
-/** Kind -> tags, sized by weight. */
-export function TagTreemap({ weights, height = 320 }: { weights: TagWeight[]; height?: number }) {
-    const data = TAG_KINDS
-        .map(k => ({
-            name: k.label,
-            kind: k.id,
-            children: weights.filter(w => w.kind === k.id).map(w => ({ name: w.display, size: w.weight, kind: k.id })),
-        }))
-        .filter(g => g.children.length > 0);
-    if (data.length === 0) return <EmptyChart />;
-    return (
-        <ResponsiveContainer width="100%" height={height}>
-            <Treemap data={data} dataKey="size" nameKey="name" stroke="#fff" isAnimationActive={false} content={<TreemapCell />} />
-        </ResponsiveContainer>
-    );
-}
-
-function TreemapCell(props: Record<string, unknown>) {
-    const x = Number(props.x), y = Number(props.y), width = Number(props.width), height = Number(props.height);
-    const depth = Number(props.depth);
-    const name = String(props.name ?? "");
-    const kind = props.kind as TagKind | undefined;
-    const color = kind ? kindMeta(kind).color : "#999";
-    if (depth === 1) {
-        return (
-            <g>
-                <rect x={x} y={y} width={width} height={height} fill={color} fillOpacity={0.08} stroke="#fff" strokeWidth={3} />
-                {width > 60 && height > 18 && (
-                    <text x={x + 6} y={y + 14} fontSize={11} fontWeight={600} fill={color}>
-                        {name}
-                    </text>
-                )}
-            </g>
-        );
-    }
-    const label = width > 44 && height > 16 ? name.slice(0, Math.max(3, Math.floor(width / 7))) : "";
-    return (
-        <g>
-            <rect x={x} y={y} width={width} height={height} fill={color} fillOpacity={0.7} stroke="#fff" strokeWidth={1.5} rx={3} />
-            {label && (
-                <text x={x + width / 2} y={y + height / 2 + 4} textAnchor="middle" fontSize={11} fontWeight={500} fill="#fff">
-                    {label}
-                </text>
-            )}
-        </g>
     );
 }
 

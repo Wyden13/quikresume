@@ -4,7 +4,7 @@
 // modules so client code and pure mappers can import the types freely.
 
 import type { Tag } from "@/lib/tags/types";
-import type { VariantItems } from "@/lib/variants";
+import type { VariantHidden, VariantItems } from "@/lib/variants";
 
 /** Smart-tag fields present on every library item row. */
 export interface TagFields {
@@ -38,6 +38,7 @@ export interface ExperienceItem extends TagFields {
     position: string;
     company: string;
     isActive: boolean;
+    hidden: string[];
     isSelected: boolean;
     startDate: string | null;
     endDate: string | null;
@@ -69,6 +70,7 @@ export interface SkillCategoryItem extends TagFields {
     id: string;
     category: string;
     items: string;
+    hidden: string[];
     isSelected: boolean;
     createdAt?: string | null;
     updatedAt?: string | null;
@@ -83,6 +85,7 @@ export interface ProjectItem extends TagFields {
     endDate: string | null;
     isActive: boolean;
     description: string[];
+    hidden: string[];
     isSelected: boolean;
     createdAt: string | null;
     updatedAt?: string | null;
@@ -117,6 +120,7 @@ export interface VolunteeringItem extends TagFields {
     endDate: string | null;
     isActive: boolean;
     description: string[];
+    hidden: string[];
     isSelected: boolean;
     createdAt: string | null;
     updatedAt?: string | null;
@@ -151,6 +155,8 @@ export interface ResumeVariant {
     labels: string[];
     /** Firestore collection name -> item ids included in this variant. */
     items: VariantItems;
+    /** Hidden bullet / skill keys per selected item; null for variants saved before per-bullet selection. */
+    hidden: VariantHidden | null;
     templateId: string;
     createdAt: string | null;
     updatedAt: string | null;

@@ -3,8 +3,7 @@
 import { auth } from "@/auth"
 import { db } from "@/lib/firestore"
 import { revalidatePath } from "next/cache"
-import { tagFieldsOf } from "@/lib/db/user-collection";
-import { Timestamp } from "firebase-admin/firestore";
+import { formBool, formStrArray, strArray, tagFieldsOf, updateUserDoc } from "@/lib/db/user-collection";
 import type { SkillCategoryItem } from "@/types/db";
 
 
@@ -24,6 +23,7 @@ export async function getSkills(): Promise<SkillCategoryItem[]> {
             id: doc.id,
             category: data.category ?? "",
             items: data.items ?? "",
+            hidden: strArray(data.hidden),
             isSelected: Boolean(data.isSelected),
             ...tagFieldsOf(data),
             updatedAt: data.updatedAt?.toDate().toISOString() ?? null,
@@ -46,21 +46,15 @@ export async function deleteSkill(skillId: string) {
     revalidatePath("/dashboard")
 }
 
+// --- UPDATE (partial: only fields present in the FormData are written) ---
 export async function updateSkill(skillId: string, formData: FormData) {
     const session = await auth()
     if (!session?.user?.id) throw new Error("Unauthorized")
 
-    const isSelected = formData.get("isSelected") === "true"
+    const patch: Record<string, unknown> = {};
+    if (formData.has("isSelected")) patch.isSelected = formBool(formData, "isSelected");
+    if (formData.has("hidden")) patch.hidden = formStrArray(formData, "hidden");
 
-    await db
-        .collection("users")
-        .doc(session.user.id)
-        .collection("skills")
-        .doc(skillId)
-        .update({
-            isSelected,
-            updatedAt: Timestamp.now()
-        })
-
+    if (Object.keys(patch).length > 0) await updateUserDoc(session.user.id, "skills", skillId, patch);
     revalidatePath("/dashboard")
 }

@@ -8,6 +8,7 @@
 // filtering or date logic of their own; they are pure styling.
 
 import { formatDateRange, formatMonthYear } from "@/lib/dates";
+import { bulletEntries, skillEntries, visible } from "@/lib/sub-items";
 import type { PersonalInfo, ResumeData } from "@/types/schema";
 
 export interface TypstHeader {
@@ -107,6 +108,10 @@ export function toBullets(text: string | null | undefined): string[] {
         .filter(line => line !== "");
 }
 
+/** Bullets minus the ones switched off individually. */
+const shownBullets = (text: string, hidden: readonly string[] | undefined) =>
+    visible(bulletEntries(toBullets(text)), hidden).map(e => e.label);
+
 export function toTypstDoc(data: ResumeData): TypstResumeDoc {
     const p = data.personalInfo;
     return {
@@ -133,7 +138,12 @@ export function toTypstDoc(data: ResumeData): TypstResumeDoc {
             })),
         skills: data.skills
             .filter(k => k.isSelected)
-            .map(k => ({ label: s(k.category), value: s(k.items) })),
+            .flatMap(k => {
+                const all = skillEntries(k.items);
+                const shown = visible(all, k.hidden);
+                // A category whose skills are all switched off disappears.
+                return all.length > 0 && shown.length === 0 ? [] : [{ label: s(k.category), value: shown.map(e => e.label).join(", ") }];
+            }),
         projects: data.projects
             .filter(pr => pr.isSelected)
             .map(pr => ({
@@ -141,7 +151,7 @@ export function toTypstDoc(data: ResumeData): TypstResumeDoc {
                 stack: s(pr.stack),
                 date: formatDateRange(pr.startDate, pr.endDate),
                 link: s(pr.link),
-                bullets: toBullets(pr.description),
+                bullets: shownBullets(pr.description, pr.hidden),
             })),
         experience: data.workExperience
             .filter(x => x.isSelected)
@@ -149,7 +159,7 @@ export function toTypstDoc(data: ResumeData): TypstResumeDoc {
                 title: s(x.title),
                 company: s(x.company),
                 date: formatDateRange(x.startDate, x.endDate),
-                bullets: toBullets(x.description),
+                bullets: shownBullets(x.description, x.hidden),
             })),
         volunteering: data.volunteering
             .filter(v => v.isSelected)
@@ -157,7 +167,7 @@ export function toTypstDoc(data: ResumeData): TypstResumeDoc {
                 title: s(v.role),
                 organization: s(v.organization),
                 date: formatDateRange(v.startDate, v.endDate),
-                bullets: toBullets(v.description),
+                bullets: shownBullets(v.description, v.hidden),
             })),
         publications: data.publications
             .filter(pub => pub.isSelected)

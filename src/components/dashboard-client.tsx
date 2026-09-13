@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useEffect, useState } from "react";
+import React, { Suspense, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import type { ResumeData, ResumeListKey } from "@/types/schema";
@@ -23,7 +23,8 @@ import { NoticeBanner } from "@/components/ui/primitives/notice-banner";
 import { PanelRight, PenLine, Upload } from "@/components/ui/primitives/icons";
 import { useDashboardView, VIEW_TITLE } from "@/lib/ui/use-dashboard-view";
 import { useMediaQuery, XL } from "@/lib/ui/use-media-query";
-import { setPreviewPane, togglePreviewPane, usePreviewPane } from "@/lib/ui/preview-pane-store";
+import { PANE_MIN, setPreviewPane, togglePreviewPane, usePreviewPane, usePreviewPaneWidth } from "@/lib/ui/preview-pane-store";
+import { PaneResizeHandle } from "@/components/ui/pane-resize-handle";
 import { saveResumeData } from "@/app/actions/resume-actions";
 import { updateExperience } from "@/app/actions/experience-actions";
 import { updateEducation } from "@/app/actions/education-actions";
@@ -105,6 +106,10 @@ function DashboardClientInner({
     const wide = useMediaQuery(XL);
     const paneWanted = usePreviewPane();
     const paneOpen = wide && paneWanted && view !== "preview";
+    const storedPaneWidth = usePreviewPaneWidth();
+    const [dragWidth, setDragWidth] = useState<number | null>(null);
+    const paneWidth = dragWidth ?? storedPaneWidth;
+    const gridRef = useRef<HTMLDivElement>(null);
 
     const [libraryTab, setLibraryTab] = useState<SectionTab>("all");
     const [editorTab, setEditorTab] = useState<SectionTab>("all");
@@ -383,9 +388,15 @@ function DashboardClientInner({
                 ) : undefined}
             />
 
-            <div className={cn("flex-1", paneOpen && "xl:grid xl:grid-cols-[minmax(0,1fr)_440px]")}>
+            <div
+                ref={gridRef}
+                className={cn("flex-1", paneOpen && "xl:grid")}
+                // clamp(): the 50% cap follows window resizes without JS.
+                style={paneOpen ? { gridTemplateColumns: `minmax(0,1fr) clamp(${PANE_MIN}px, ${paneWidth}px, 50%)` } : undefined}
+            >
                 <main className="min-w-0 p-4 pb-16 md:p-6">
-                    <div className="mx-auto max-w-5xl space-y-4">
+                    {/* Job Match is a two-column workspace: let it use the full width left of the pane. */}
+                    <div className={cn("mx-auto space-y-4", view === "jobs" ? "max-w-[1600px]" : "max-w-5xl")}>
                         {saveError && <NoticeBanner tone="danger" onDismiss={() => setSaveError(null)}>{saveError}</NoticeBanner>}
                         {notice && (view === "editor" || view === "library") && (
                             <NoticeBanner tone={notice.tone === "ok" ? "success" : "warning"} onDismiss={() => setNotice(null)}>{notice.text}</NoticeBanner>
@@ -395,6 +406,7 @@ function DashboardClientInner({
                 </main>
                 {paneOpen && (
                     <aside className="hidden xl:block sticky top-14 h-[calc(100dvh-3.5rem)] border-l border-border bg-surface-muted/60" aria-label="Résumé preview">
+                        <PaneResizeHandle containerRef={gridRef} width={paneWidth} onDrag={setDragWidth} />
                         <ResumePreview resumeData={resumeData} compact onClose={() => setPreviewPane(false)} />
                     </aside>
                 )}

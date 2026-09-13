@@ -45,10 +45,10 @@ export async function getLoadedVariantId(): Promise<string | null> {
 export async function createVariant(input: { name: string; labels?: string[] }): Promise<{ id: string }> {
     const uid = await requireUid();
     const name = cleanName(input.name) || "Untitled resume";
-    const items = await snapshotSelection(uid);
+    const { items, hidden } = await snapshotSelection(uid);
     const now = Timestamp.now();
     const ref = await userCol(uid, "variants").add({
-        name, labels: cleanLabels(input.labels ?? []), items, templateId: DEFAULT_TEMPLATE, createdAt: now, updatedAt: now,
+        name, labels: cleanLabels(input.labels ?? []), items, hidden, templateId: DEFAULT_TEMPLATE, createdAt: now, updatedAt: now,
     });
     await db.collection("users").doc(uid).set({ loadedVariantId: ref.id, updatedAt: now }, { merge: true });
     revalidate();
@@ -64,12 +64,12 @@ export async function updateVariant(id: string, patch: { name?: string; labels?:
     revalidate();
 }
 
-/** Replaces the variant's pointers with the current working selection. */
+/** Replaces the variant's pointers (and hidden sub-items) with the current working selection. */
 export async function resnapshotVariant(id: string) {
     const uid = await requireUid();
-    const items = await snapshotSelection(uid);
+    const { items, hidden } = await snapshotSelection(uid);
     const now = Timestamp.now();
-    await userCol(uid, "variants").doc(id).update({ items, updatedAt: now });
+    await userCol(uid, "variants").doc(id).update({ items, hidden, updatedAt: now });
     await db.collection("users").doc(uid).set({ loadedVariantId: id, updatedAt: now }, { merge: true });
     revalidate();
 }
@@ -80,7 +80,7 @@ export async function duplicateVariant(id: string): Promise<{ id: string }> {
     if (!src) throw new Error("Variant not found");
     const now = Timestamp.now();
     const ref = await userCol(uid, "variants").add({
-        name: cleanName(`${src.name} (copy)`), labels: src.labels, items: src.items, templateId: src.templateId, createdAt: now, updatedAt: now,
+        name: cleanName(`${src.name} (copy)`), labels: src.labels, items: src.items, hidden: src.hidden, templateId: src.templateId, createdAt: now, updatedAt: now,
     });
     revalidate();
     return { id: ref.id };
@@ -100,7 +100,7 @@ export async function loadVariant(id: string): Promise<{ missing: number }> {
     const uid = await requireUid();
     const v = await readVariant(uid, id);
     if (!v) throw new Error("Variant not found");
-    const { applied, missing } = await applyVariantSelection(uid, v.items);
+    const { applied, missing } = await applyVariantSelection(uid, v.items, v.hidden);
     const now = Timestamp.now();
     if (missing > 0) await userCol(uid, "variants").doc(id).update({ items: applied, updatedAt: now });
     await db.collection("users").doc(uid).set({ loadedVariantId: id, updatedAt: now }, { merge: true });

@@ -124,7 +124,7 @@ export function parseModelOutput(text: string): ParsedImport {
         key: K,
         schema: S,
         reject: (x: z.infer<S>) => string | null,
-        map: (x: z.infer<S>) => Omit<ResumeData[K][number], "id" | "isSelected" | "tags" | "tagsHash">,
+        map: (x: z.infer<S>) => Omit<ResumeData[K][number], "id" | "isSelected" | "tags" | "tagsHash" | "hidden">,
     ) {
         (env[key] as unknown[]).forEach((item, i) => {
             const r = schema.safeParse(item);
@@ -138,7 +138,7 @@ export function parseModelOutput(text: string): ParsedImport {
                 warnings.push(`Skipped ${LABELS[key]} #${i + 1}${name ? ` (${name})` : ""}: ${reason}.`);
                 return;
             }
-            (data[key] as unknown[]).push({ id: newTempId(), isSelected: true, tags: [], tagsHash: null, ...map(r.data) });
+            (data[key] as unknown[]).push({ id: newTempId(), isSelected: true, tags: [], tagsHash: null, hidden: [], ...map(r.data) });
         });
     }
 

@@ -77,9 +77,11 @@ src/
   components/ui/resume-import.tsx            multi-file upload (PDF -> page images) + combined review step
   components/ui/variant-toolbar.tsx          Save as / Load / Update variant on the library view
   components/ui/variants-page.tsx            /dashboard/variants: search, labels, rename, duplicate, delete, load
-  components/ui/insights-view.tsx, tag-charts.tsx   tag charts (recharts radar / bars / treemap) + tag table
+  components/ui/insights-view.tsx, tag-charts.tsx   tag charts (recharts radar / bars) + tag table, filterable by kind
   components/ui/job-match-view.tsx, proposal-cards.tsx, use-page-count.ts   Job Match
   components/ui/resume-preview.tsx           Typst preview + PDF download (client only; `compact` for the side pane)
+  components/ui/pane-resize-handle.tsx       drag / keyboard splitter for the preview pane (width in preview-pane-store)
+  components/ui/sub-item-toggles.tsx         per-bullet checkboxes / per-skill chips (Library: SubItemToggles in library-row, Editor)
   lib/ui/{use-dashboard-view,use-media-query,persisted-store,preview-pane-store,expansion-store}.ts
                                              URL view state, matchMedia hook, useSyncExternalStore stores (pane open in
                                              localStorage, expanded row ids in sessionStorage)
@@ -90,7 +92,8 @@ src/
   lib/import/{prompt,dates,parsed-resume,merge,types}.ts   import prompt, date normaliser, zod parser, union merge
   lib/import/pdf-pages.ts (browser), document-text.ts (server)   upload -> GLM parts, shared with /api/jobs/analyze
   lib/tags/{types,content,normalize,prompt,extract,aggregate}.ts   smart tags (see Smart tags)
-  lib/variants.ts                            pure variant helpers (selectedIds, applyVariant, variantUsage)
+  lib/variants.ts                            pure variant helpers (selectedIds, selectedHidden, applyVariant, variantUsage)
+  lib/sub-items.ts                           per-bullet / per-skill selection keys (see Sub-item selection)
   lib/match/{types,text,score,coverage,recommend,proposals,prompt,resume-body}.ts   Job Match scoring, coverage, set cover, proposals (pure)
   lib/match/reconcile.ts                     server-only "broader context" pass: LLM reconciles requirements vs the whole library
   lib/typst/doc.ts                           ResumeData -> TypstResumeDoc (the JSON contract)
@@ -128,6 +131,21 @@ public/pdfjs/pdf.worker.min.mjs              gitignored, filled by scripts/copy-
 7. `isSelected` is the **working selection**. A variant (`/dashboard/variants`) is a snapshot of the selected
    ids; loading one rewrites `isSelected` on every item. Editing an item used by variants shows a badge and a
    confirm dialog on Save & Exit (variants are pointers, so the edit shows up in all of them).
+
+## Sub-item selection
+
+Experience, projects, volunteering and skill categories carry `hidden: string[]`: keys of bullets
+(`bulletKey`, whitespace-squashed text) or skills (`skillKey`, lowercased) switched off individually.
+
+- Keys come from the text, so reordering is safe and rewording a hidden line brings it back. `saveResumeData` stores
+  `pruneHidden(...)` so keys whose text is gone are dropped.
+- `toTypstDoc` filters them (a skill category with every skill hidden is omitted). Page count, the ATS literal check
+  and the PDF follow; tag coverage in Job Match is per item and still counts a hidden bullet's tags.
+- `hidden` is not in `contentFields`: toggling never stales tags.
+- Library toggles save instantly through the section's `update*` action (`hidden` = JSON array in the FormData,
+  `useOptimistic` in `SubItemToggles`); the Editor edits the draft.
+- Variants store `hidden: Record<itemId, string[]>` for selected items. Loading writes it back onto those items;
+  variants saved before this (`hidden` missing -> `null`) leave `hidden` untouched.
 
 ## Smart tags
 
@@ -222,7 +240,7 @@ ResumeData --toTypstDoc()--> TypstResumeDoc (JSON) --sys.inputs.resume--> main.t
 ```
 
 - `toTypstDoc` (`src/lib/typst/doc.ts`) is the **only** place data is shaped for Typst: it filters
-  `isSelected`, formats date ranges, splits bullets, and guarantees every field is a string or array
+  `isSelected` and `hidden` sub-items, formats date ranges, splits bullets, and guarantees every field is a string or array
   (never null). Templates are pure styling: they do no filtering or date logic and never receive markup.
   User text is displayed as plain strings, so `# * _ $ [ \` etc. need no escaping.
 - `src/lib/typst/client.ts` lazily inits typst.ts once (wasm via URL from `/typst/wasm`, default remote
@@ -264,16 +282,16 @@ Subcollections, each item doc has `isSelected`, `tags`, `contentHash`, `tagsHash
 
 | collection | fields |
 |---|---|
-| `experience` | `position, company, startDate, endDate, isActive, description: string[]` |
+| `experience` | `position, company, startDate, endDate, isActive, description: string[], hidden: string[]` |
 | `education` | `schoolName, programName, startDate, endDate, isActive, gpa, minorName, details, locationCity?, locationProvince?, locationCountry?, doubleMajor?` |
-| `skills` | `category, items` |
-| `projects` | `title, stack, link, startDate, endDate, isActive, description: string[]` |
+| `skills` | `category, items, hidden: string[]` |
+| `projects` | `title, stack, link, startDate, endDate, isActive, description: string[], hidden: string[]` |
 | `certifications` | `name, issuer, year` |
 | `awards` | `title, issuer, date, description` |
-| `volunteering` | `role, organization, startDate, endDate, isActive, description: string[]` |
+| `volunteering` | `role, organization, startDate, endDate, isActive, description: string[], hidden: string[]` |
 | `publications` | `title, venue, date, link, authors` |
 | `languages` | `language, proficiency` |
-| `variants` | `name, labels: string[], items: {experience: string[], …}, templateId` (pointers only) |
+| `variants` | `name, labels: string[], items: {experience: string[], …}, hidden: {itemId: string[]}, templateId` (pointers only) |
 | `jobs` | `title, company, source, jdText, summary, requirements[] ({name, display, kind, importance, yearsMin, satisfiedBy[], evidence[], reason}), proposals[], proposalsAt, lastScore` |
 | `meta/tags` | `aliases: Record<alias, canonical>` |
 | `meta/preferences` | `mutedProposals: {kind, tag?, itemId?}[], caps: Record<ResumeListKey, number \| null>` |
@@ -312,7 +330,9 @@ editor and `string[]` in Firestore.
 - `next/dynamic({ ssr: false })` is only allowed inside Client Components (as done in `dashboard-client.tsx`).
 - `useSearchParams` needs a `<Suspense>` boundary: `DashboardClient` and `SidebarNav` wrap themselves.
 - The preview side pane (≥1280px, `PanelRight` toggle / sidebar "Preview") is rendered by `DashboardClient`, not the layout,
-  because only it has `resumeData`. Below 1280px "Preview" navigates to `?view=preview`.
+  because only it has `resumeData`. Below 1280px "Preview" navigates to `?view=preview`. Its width is resizable
+  (`clamp(360px, stored, 50%)` as the grid column, stored in localStorage); views that lay out columns inside the
+  remaining space (Job Match) use Tailwind container queries (`@container`, `@4xl:`), not viewport breakpoints.
 - `"use server"` files may only export async functions, so shared Firestore boilerplate lives in
   `src/lib/db/user-collection.ts` (plain `server-only` module); never build actions with a factory.
 - Route handler files may only export route fields (`GET`, `POST`, `runtime`, `maxDuration`, …); shared

@@ -181,7 +181,7 @@ function VariantRow({ variant: v, data, loaded, busy, onLoad, onUpdateSelection,
     const [draft, setDraft] = useState("");
     const total = countItems(v.items);
     const missing = missingCount(v.items, data);
-    const inSync = selectionEquals(data, v.items);
+    const inSync = selectionEquals(data, v.items, v.hidden);
     const isBusy = busy !== null && busy.endsWith(v.id);
 
     const commit = () => {

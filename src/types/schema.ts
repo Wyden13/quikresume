@@ -6,6 +6,7 @@
 //   startDate: "YYYY-MM-DD" | ""
 //   endDate:   "YYYY-MM-DD" | "Present" | ""
 //   description: newline-separated bullet points
+//   hidden:      keys of bullets / skills switched off individually
 //
 // Every list item also carries smart tags (see src/lib/tags): `tags` are the
 // last extracted tags and `tagsHash` the content hash they were extracted
@@ -34,6 +35,8 @@ export interface WorkExperience {
     startDate: string;
     endDate: string;
     description: string;
+    /** Keys of switched-off bullets (see src/lib/sub-items.ts). */
+    hidden: string[];
     isSelected: boolean;
     tags: Tag[];
     tagsHash: string | null;
@@ -58,6 +61,8 @@ export interface SkillCategory {
     id: string;
     category: string;
     items: string;
+    /** Keys of switched-off skills (see src/lib/sub-items.ts). */
+    hidden: string[];
     isSelected: boolean;
     tags: Tag[];
     tagsHash: string | null;
@@ -72,6 +77,8 @@ export interface Project {
     startDate: string;
     endDate: string;
     description: string;
+    /** Keys of switched-off bullets (see src/lib/sub-items.ts). */
+    hidden: string[];
     isSelected: boolean;
     tags: Tag[];
     tagsHash: string | null;
@@ -106,6 +113,8 @@ export interface Volunteering {
     startDate: string;
     endDate: string;
     description: string;
+    /** Keys of switched-off bullets (see src/lib/sub-items.ts). */
+    hidden: string[];
     isSelected: boolean;
     tags: Tag[];
     tagsHash: string | null;

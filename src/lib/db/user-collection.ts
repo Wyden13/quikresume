@@ -44,6 +44,15 @@ export const formBool = (fd: FormData, key: string): boolean => {
     return v === "on" || v === "true";
 };
 
+/** JSON string-array field from FormData (e.g. `hidden`); anything malformed -> []. */
+export const formStrArray = (fd: FormData, key: string): string[] => {
+    try {
+        return strArray(JSON.parse(String(fd.get(key) ?? "[]")));
+    } catch {
+        return [];
+    }
+};
+
 /** Optional string field from FormData: "" -> null. */
 export const formStrOrNull = (fd: FormData, key: string): string | null => (fd.get(key) as string) || null;
 

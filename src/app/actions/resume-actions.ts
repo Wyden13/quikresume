@@ -8,6 +8,7 @@ import type { ResumeData } from "@/types/schema"
 import { PRESENT, toUtcDate } from "@/lib/dates";
 import { isTempId } from "@/lib/ids";
 import { toBullets } from "@/lib/typst/doc";
+import { bulletEntries, pruneHidden, skillEntries } from "@/lib/sub-items";
 import { personalInfoToUserDoc } from "@/lib/resume-mapper";
 import { contentHashOf, PROFILE_ID, profileHashOf, staleInputs, tagContext } from "@/lib/tags/content";
 import { extractTags, TagError } from "@/lib/tags/extract";
@@ -108,6 +109,7 @@ export async function saveResumeData(data: ResumeData): Promise<SaveResult> {
             isActive: exp.endDate === PRESENT,
             isSelected: exp.isSelected ?? true,
             description: toBullets(exp.description),
+            hidden: pruneHidden(exp.hidden, bulletEntries(toBullets(exp.description))),
         }), { merge: true }));
     }
 
@@ -133,6 +135,7 @@ export async function saveResumeData(data: ResumeData): Promise<SaveResult> {
             ...tagFields("skills", skill),
             category: skill.category.trim() || "General",
             items: skill.items.trim(),
+            hidden: pruneHidden(skill.hidden, skillEntries(skill.items)),
             isSelected: skill.isSelected ?? true,
         }), { merge: true }));
     }
@@ -149,6 +152,7 @@ export async function saveResumeData(data: ResumeData): Promise<SaveResult> {
             isActive: project.endDate === PRESENT,
             isSelected: project.isSelected ?? true,
             description: toBullets(project.description),
+            hidden: pruneHidden(project.hidden, bulletEntries(toBullets(project.description))),
         }), { merge: true }));
     }
 
@@ -186,6 +190,7 @@ export async function saveResumeData(data: ResumeData): Promise<SaveResult> {
             isActive: vol.endDate === PRESENT,
             isSelected: vol.isSelected ?? true,
             description: toBullets(vol.description),
+            hidden: pruneHidden(vol.hidden, bulletEntries(toBullets(vol.description))),
         }), { merge: true }));
     }
 

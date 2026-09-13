@@ -51,7 +51,7 @@ function ChartsBundle(m: ChartModule) {
         const you = kindTotals(aggregateTags(resume, { selectedOnly: true }));
         const jobWeights = job.requirements.map(r => ({ ...r, weight: r.importance === "must" ? 2 : 1, items: [] }));
         return (
-            <div className="grid gap-6 md:grid-cols-2">
+            <div className="grid gap-6 @2xl:grid-cols-2">
                 <div>
                     <p className="mb-1 text-13 font-medium text-fg-muted">Shape: job vs you</p>
                     <m.KindRadar series={[{ label: "Job", totals: jobTotals, color: "#a3a3a3" }, { label: "You", totals: you, color: "#171717" }]} height={240} />
@@ -96,80 +96,83 @@ export function JobMatchView(props: JobMatchViewProps) {
     const selected = jobs.find(j => j.id === selectedJobId) ?? null;
 
     return (
-        <div className="grid gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
-            <aside className="space-y-4">
-                <AnalyzeForm resumeData={props.resumeData} onAnalyzed={(job) => { onSelectJob(job.id); router.refresh(); }} onError={setError} />
-                {jobs.length > 0 && (
-                    <>
-                        <div className="lg:hidden">
-                            <Select value={selectedJobId ?? ""} onChange={e => onSelectJob(e.target.value || null)} aria-label="Analysed jobs">
-                                <option value="">Pick an analysed job…</option>
-                                {jobs.map(j => <option key={j.id} value={j.id}>{j.title}{j.company ? ` · ${j.company}` : ""}</option>)}
-                            </Select>
-                        </div>
-                        <div className="hidden lg:block">
-                            <p className="mb-2 px-1 text-13 font-medium text-fg-muted">Analysed jobs</p>
-                            <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface">
-                                {jobs.map(j => {
-                                    const active = j.id === selectedJobId;
-                                    return (
-                                        <li key={j.id}>
-                                            <button
-                                                type="button"
-                                                onClick={() => onSelectJob(j.id)}
-                                                aria-current={active || undefined}
-                                                className={cn("flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-surface-hover", active && "bg-surface-muted")}
-                                            >
-                                                <span className={cn("h-8 w-0.5 shrink-0 rounded-full", active ? "bg-accent" : "bg-transparent")} aria-hidden />
-                                                <span className="min-w-0 flex-1">
-                                                    <span className="block truncate text-sm font-medium text-fg">{j.title}</span>
-                                                    <span className="block truncate text-xs text-fg-muted">{j.company || "Unknown company"}{props.activeJobId === j.id ? " · tailoring" : ""}</span>
-                                                </span>
-                                                {j.lastScore !== null && <span className="text-13 tabular-nums text-fg-muted">{j.lastScore}</span>}
-                                            </button>
-                                        </li>
-                                    );
-                                })}
-                            </ul>
-                        </div>
-                    </>
-                )}
-            </aside>
+        // Container queries, not viewport breakpoints: the width left over depends on the sidebar and the resizable preview pane.
+        <div className="@container">
+            <div className="grid gap-6 @4xl:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]">
+                <aside className="min-w-0 space-y-4">
+                    <AnalyzeForm resumeData={props.resumeData} onAnalyzed={(job) => { onSelectJob(job.id); router.refresh(); }} onError={setError} />
+                    {jobs.length > 0 && (
+                        <>
+                            <div className="@4xl:hidden">
+                                <Select value={selectedJobId ?? ""} onChange={e => onSelectJob(e.target.value || null)} aria-label="Analysed jobs">
+                                    <option value="">Pick an analysed job…</option>
+                                    {jobs.map(j => <option key={j.id} value={j.id}>{j.title}{j.company ? ` · ${j.company}` : ""}</option>)}
+                                </Select>
+                            </div>
+                            <div className="hidden @4xl:block">
+                                <p className="mb-2 px-1 text-13 font-medium text-fg-muted">Analysed jobs</p>
+                                <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface">
+                                    {jobs.map(j => {
+                                        const active = j.id === selectedJobId;
+                                        return (
+                                            <li key={j.id}>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => onSelectJob(j.id)}
+                                                    aria-current={active || undefined}
+                                                    className={cn("flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-surface-hover", active && "bg-surface-muted")}
+                                                >
+                                                    <span className={cn("h-8 w-0.5 shrink-0 rounded-full", active ? "bg-accent" : "bg-transparent")} aria-hidden />
+                                                    <span className="min-w-0 flex-1">
+                                                        <span className="block truncate text-sm font-medium text-fg">{j.title}</span>
+                                                        <span className="block truncate text-xs text-fg-muted">{j.company || "Unknown company"}{props.activeJobId === j.id ? " · tailoring" : ""}</span>
+                                                    </span>
+                                                    {j.lastScore !== null && <span className="text-13 tabular-nums text-fg-muted">{j.lastScore}</span>}
+                                                </button>
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                            </div>
+                        </>
+                    )}
+                </aside>
 
-            <section className="min-w-0 space-y-4">
-                {error && <NoticeBanner tone="danger" onDismiss={() => setError(null)}>{error}</NoticeBanner>}
-                {selected ? (
-                    <JobDetail key={selected.id} job={selected} {...props} onDelete={() => setPendingDelete(selected)} onError={setError} />
-                ) : (
-                    <EmptyState icon={Target} title="Pick a job or analyse a new one" body="Paste a job description on the left. We extract its requirements and score your résumé against them." />
-                )}
-            </section>
+                <section className="@container min-w-0 space-y-4">
+                    {error && <NoticeBanner tone="danger" onDismiss={() => setError(null)}>{error}</NoticeBanner>}
+                    {selected ? (
+                        <JobDetail key={selected.id} job={selected} {...props} onDelete={() => setPendingDelete(selected)} onError={setError} />
+                    ) : (
+                        <EmptyState icon={Target} title="Pick a job or analyse a new one" body="Paste a job description on the left. We extract its requirements and score your résumé against them." />
+                    )}
+                </section>
 
-            <ConfirmDialog
-                open={pendingDelete !== null}
-                title={`Delete "${pendingDelete?.title}"?`}
-                confirmLabel="Delete"
-                danger
-                busy={deleting}
-                onCancel={() => setPendingDelete(null)}
-                onConfirm={async () => {
-                    if (!pendingDelete) return;
-                    setDeleting(true);
-                    try {
-                        await deleteJob(pendingDelete.id);
-                        if (props.activeJobId === pendingDelete.id) props.onTailor(null);
-                        if (selectedJobId === pendingDelete.id) onSelectJob(null);
-                        setPendingDelete(null);
-                        router.refresh();
-                    } catch (err) {
-                        setError(err instanceof Error ? err.message : "Could not delete the job.");
-                    } finally {
-                        setDeleting(false);
-                    }
-                }}
-            >
-                <p>The analysis and its suggestions are removed. Your library is not affected.</p>
-            </ConfirmDialog>
+                <ConfirmDialog
+                    open={pendingDelete !== null}
+                    title={`Delete "${pendingDelete?.title}"?`}
+                    confirmLabel="Delete"
+                    danger
+                    busy={deleting}
+                    onCancel={() => setPendingDelete(null)}
+                    onConfirm={async () => {
+                        if (!pendingDelete) return;
+                        setDeleting(true);
+                        try {
+                            await deleteJob(pendingDelete.id);
+                            if (props.activeJobId === pendingDelete.id) props.onTailor(null);
+                            if (selectedJobId === pendingDelete.id) onSelectJob(null);
+                            setPendingDelete(null);
+                            router.refresh();
+                        } catch (err) {
+                            setError(err instanceof Error ? err.message : "Could not delete the job.");
+                        } finally {
+                            setDeleting(false);
+                        }
+                    }}
+                >
+                    <p>The analysis and its suggestions are removed. Your library is not affected.</p>
+                </ConfirmDialog>
+            </div>
         </div>
     );
 }
@@ -262,7 +265,7 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, activeJobI
     const variant = source.kind === "variant" ? variants.find(v => v.id === source.variantId) ?? null : null;
     const resume: ResumeData =
         source.kind === "upload" && externalResume ? externalResume.data
-        : variant ? applyVariant(resumeData, variant.items)
+        : variant ? applyVariant(resumeData, variant.items, variant.hidden)
         : resumeData;
     const match = scoreJob(job.requirements, resume, aliases);
     const pages = useResumePageCount(resume);
@@ -394,7 +397,7 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, activeJobI
             {/* Source + score */}
             <Card>
                 <CardBody className="space-y-5 pt-4">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="flex flex-col gap-3 @2xl:flex-row @2xl:items-center @2xl:justify-between">
                         <Segmented
                             value={source.kind}
                             onChange={(k) => {
@@ -406,7 +409,7 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, activeJobI
                             options={[{ value: "selection", label: "Working selection" }, { value: "variant", label: "Variant" }, { value: "upload", label: "Uploaded résumé" }]}
                         />
                         {source.kind === "variant" && (
-                            <Select value={source.variantId} onChange={e => setSource({ kind: "variant", variantId: e.target.value })} className="md:w-56" aria-label="Variant">
+                            <Select value={source.variantId} onChange={e => setSource({ kind: "variant", variantId: e.target.value })} className="@2xl:w-56" aria-label="Variant">
                                 {variants.length === 0 && <option value="">No variants saved yet</option>}
                                 {variants.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
                             </Select>
@@ -426,7 +429,7 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, activeJobI
                         <p className="text-13 text-fg-muted">Upload a résumé to score it against this job. It is not saved unless you import it.</p>
                     ) : (
                         <>
-                            <div className="flex flex-col gap-5 md:flex-row md:items-center">
+                            <div className="flex flex-col gap-5 @2xl:flex-row @2xl:items-center">
                                 <ScoreRing score={match.score} size={80} />
                                 <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 text-13">
                                     <dt className="text-fg-subtle">Must-haves</dt><dd className="tabular-nums">{match.must.hit}/{match.must.total} covered</dd>
@@ -434,7 +437,7 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, activeJobI
                                     <dt className="text-fg-subtle">Length</dt>
                                     <dd className={cn("tabular-nums", pages !== null && pages > 1 && "text-warning")}>{pages === null ? "…" : `${pages} ${pages === 1 ? "page" : "pages"}${pages > 1 ? " · over one page" : ""}`}</dd>
                                 </dl>
-                                <div className="space-y-2 text-13 md:ml-auto md:text-right">
+                                <div className="min-w-0 space-y-2 text-13 @2xl:ml-auto @2xl:max-w-[50%] @2xl:text-right">
                                     {match.missingMust.length > 0 && (
                                         <div>
                                             <p className="text-xs text-fg-subtle">Missing must-haves</p>
@@ -472,7 +475,7 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, activeJobI
                                 <Th>Priority</Th>
                                 <Th>In your tags</Th>
                                 <Th>Printed on résumé</Th>
-                                <Th>Where</Th>
+                                <Th className="min-w-56">Where</Th>
                             </tr>
                         </thead>
                         <tbody>
@@ -489,7 +492,7 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, activeJobI
                                         {r.via.length === 0 && r.reason && <span className="block text-xs text-fg-muted">inferred from your items</span>}
                                     </Td>
                                     <Td>{r.literalHit ? <span className="font-medium text-success">Yes</span> : <span className={r.tagHit ? "font-medium text-warning" : "text-fg-subtle"}>{r.tagHit ? "Not literally" : "No"}</span>}</Td>
-                                    <Td className="text-xs text-fg-muted">{r.items.map(i => i.label).slice(0, 3).join(" · ")}{r.items.length > 3 ? ` +${r.items.length - 3}` : ""}</Td>
+                                    <Td className="min-w-56 text-xs leading-relaxed text-fg-muted">{r.items.map(i => i.label).slice(0, 3).join(" · ")}{r.items.length > 3 ? ` +${r.items.length - 3}` : ""}</Td>
                                 </tr>
                             ))}
                         </tbody>
@@ -538,7 +541,7 @@ function CapsEditor({ caps, onChange, onSave }: { caps: Preferences["caps"]; onC
     return (
         <div className="space-y-3 rounded-md border border-border bg-surface-muted/50 p-3">
             <p className="text-13 text-fg-muted">Maximum items per section in a recommended selection. Leave empty for no limit.</p>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+            <div className="grid grid-cols-2 gap-3 @2xl:grid-cols-3">
                 {RESUME_LIST_KEYS.map(key => (
                     <label key={key} className="text-xs text-fg-muted">
                         {SECTION_LABEL[key]}

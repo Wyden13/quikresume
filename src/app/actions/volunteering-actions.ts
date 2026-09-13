@@ -4,7 +4,7 @@ import { auth } from "@/auth"
 import { revalidatePath } from "next/cache"
 import type { VolunteeringItem } from "@/types/db";
 import {
-    tagFieldsOf, deleteUserDoc, formBool, isoOf, readCol, strArray, strOf, toTimestamp, updateUserDoc,
+    tagFieldsOf, deleteUserDoc, formBool, formStrArray, isoOf, readCol, strArray, strOf, toTimestamp, updateUserDoc,
 } from "@/lib/db/user-collection";
 
 const COL = "volunteering";
@@ -21,6 +21,7 @@ export async function getVolunteering(): Promise<VolunteeringItem[]> {
         endDate: isoOf(d.endDate),
         isActive: Boolean(d.isActive),
         description: strArray(d.description),
+        hidden: strArray(d.hidden),
         isSelected: Boolean(d.isSelected),
         ...tagFieldsOf(d),
         createdAt: isoOf(d.createdAt),
@@ -47,6 +48,7 @@ export async function updateVolunteering(volunteeringId: string, formData: FormD
     if (formData.has("endDate")) patch.endDate = toTimestamp(formData.get("endDate") as string);
     if (formData.has("isActive")) patch.isActive = formBool(formData, "isActive");
     if (formData.has("isSelected")) patch.isSelected = formBool(formData, "isSelected");
+    if (formData.has("hidden")) patch.hidden = formStrArray(formData, "hidden");
 
     if (Object.keys(patch).length > 0) await updateUserDoc(session.user.id, COL, volunteeringId, patch);
     revalidatePath("/dashboard")
