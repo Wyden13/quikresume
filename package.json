@@ -6,13 +6,16 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "postinstall": "node scripts/copy-typst-wasm.mjs",
+    "typst:sample": "typst compile --root public/typst --font-path public/typst/fonts --ignore-system-fonts public/typst/main.typ .typst-out/sample.pdf"
   },
   "dependencies": {
     "@auth/firebase-adapter": "^2.11.1",
+    "@myriaddreamin/typst-ts-renderer": "0.7.0",
+    "@myriaddreamin/typst-ts-web-compiler": "0.7.0",
+    "@myriaddreamin/typst.ts": "0.7.0",
     "firebase-admin": "^13.7.0",
-    "html-to-image": "^1.11.13",
-    "jspdf": "^4.2.0",
     "next": "16.1.6",
     "next-auth": "^5.0.0-beta.30",
     "react": "19.2.3",

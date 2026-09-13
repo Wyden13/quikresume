@@ -1,16 +1,24 @@
 // src/types/schema.ts
+// The editor / preview model. This is what ResumeForm edits, what
+// saveResumeData receives, and what toTypstDoc turns into a Typst document.
+//
+// Date conventions:
+//   startDate: "YYYY-MM-DD" | ""
+//   endDate:   "YYYY-MM-DD" | "Present" | ""
+//   description: newline-separated bullet points
 
 export interface PersonalInfo {
     firstName: string;
-    middleName?: string;
     lastName: string;
-    linkedIn?: string;
+    /** One-line tagline under the name, e.g. "B.S. Computer Science, Class of 2026". */
+    headline: string;
     email: string;
-    phoneNumber: string;
-    location?: string;
-    bio?: string;
-    overview?: string;
-    availability?: string;
+    phone: string;
+    location: string;
+    github: string;
+    linkedin: string;
+    website: string;
+    summary: string;
 }
 
 export interface WorkExperience {
@@ -27,7 +35,11 @@ export interface Education {
     id: string;
     degree: string;
     institution: string;
-    year: string;
+    startDate: string;
+    endDate: string;
+    gpa: string;
+    minor: string;
+    /** Coursework, honors, dean's list, etc. */
     details: string;
     isSelected: boolean;
 }
@@ -37,19 +49,59 @@ export interface SkillCategory {
     category: string;
     items: string;
     isSelected: boolean;
-    updatedAt?: string | null;
-    createdAt?: string | null;
+}
+
+export interface Project {
+    id: string;
+    title: string;
+    /** Tech stack / meta line, e.g. "PyTorch, FastAPI, Docker". */
+    stack: string;
+    link: string;
+    startDate: string;
+    endDate: string;
+    description: string;
+    isSelected: boolean;
+}
+
+export interface Certification {
+    id: string;
+    name: string;
+    issuer: string;
+    year: string;
+    isSelected: boolean;
 }
 
 export interface ResumeData {
-    personalInfo: {
-        fullName: string;
-        email: string;
-        phone: string;
-        location: string;
-        summary: string;
-    };
+    personalInfo: PersonalInfo;
     workExperience: WorkExperience[];
     education: Education[];
     skills: SkillCategory[];
+    projects: Project[];
+    certifications: Certification[];
+}
+
+export function emptyPersonalInfo(): PersonalInfo {
+    return {
+        firstName: "",
+        lastName: "",
+        headline: "",
+        email: "",
+        phone: "",
+        location: "",
+        github: "",
+        linkedin: "",
+        website: "",
+        summary: "",
+    };
+}
+
+export function emptyResumeData(): ResumeData {
+    return {
+        personalInfo: emptyPersonalInfo(),
+        workExperience: [],
+        education: [],
+        skills: [],
+        projects: [],
+        certifications: [],
+    };
 }

@@ -81,4 +81,8 @@ Desktop.ini
 next-env.d.ts
 # Turbo cache
 .turbo/
-GEMINI.md
+
+# Typst wasm binaries are copied from node_modules by scripts/copy-typst-wasm.mjs
+public/typst/wasm/
+# Local typst CLI output
+.typst-out/

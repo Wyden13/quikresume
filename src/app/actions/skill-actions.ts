@@ -2,19 +2,12 @@
 
 import { auth } from "@/auth"
 import { db } from "@/lib/firestore"
-import { SkillCategory } from "@/types/schema"
-import {revalidatePath} from "next/cache";
+import { revalidatePath } from "next/cache";
+import { Timestamp } from "firebase-admin/firestore";
+import type { SkillCategoryItem } from "@/types/db";
 
-export interface SkillItem {
-    id: string;
-    category: string;
-    items: string;
-    isSelected: boolean;
-    createdAt?: string | null;
-    updatedAt?: string | null;
-}
 
-export async function getSkills() {
+export async function getSkills(): Promise<SkillCategoryItem[]> {
     const session = await auth()
     if (!session?.user?.id) return []
 
@@ -28,11 +21,13 @@ export async function getSkills() {
         const data = doc.data();
         return {
             id: doc.id,
-            ...data,
-            updatedAt: data.updatedAt?.toDate().toISOString() || null,
-            createdAt: data.createdAt?.toDate().toISOString() || null,
+            category: data.category ?? "",
+            items: data.items ?? "",
+            isSelected: Boolean(data.isSelected),
+            updatedAt: data.updatedAt?.toDate().toISOString() ?? null,
+            createdAt: data.createdAt?.toDate().toISOString() ?? null,
         };
-    }) as SkillCategory[];
+    });
 }
 
 export async function deleteSkill(skillId: string) {
@@ -62,7 +57,7 @@ export async function updateSkill(skillId: string, formData: FormData) {
         .doc(skillId)
         .update({
             isSelected,
-            updatedAt: new Date()
+            updatedAt: Timestamp.now()
         })
 
     revalidatePath("/dashboard")

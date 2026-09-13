@@ -1,8 +1,12 @@
 // src/app/(dashboard)/dashboard/page.tsx
-import { auth, signIn, signOut } from "@/auth"
+import { auth, signOut } from "@/auth"
 import { getExperiences } from "@/app/actions/experience-actions"
 import { getEducations } from "@/app/actions/education-actions"
 import { getSkills } from "@/app/actions/skill-actions"
+import { getProjects } from "@/app/actions/project-actions"
+import { getCertifications } from "@/app/actions/certification-actions"
+import { getUserProfile } from "@/app/actions/user-actions"
+import { toResumeData } from "@/lib/resume-mapper"
 import DashboardClient from "@/components/dashboard-client"
 import Link from "next/link"
 import Image from "next/image"
@@ -15,9 +19,26 @@ export default async function DashboardPage() {
         redirect("/login");
     }
 
-    const experiences = await getExperiences();
-    const educations = await getEducations();
-    const skills = await getSkills();
+    const [profile, experiences, educations, skills, projects, certifications] = await Promise.all([
+        getUserProfile(),
+        getExperiences(),
+        getEducations(),
+        getSkills(),
+        getProjects(),
+        getCertifications(),
+    ]);
+
+    // Build the complete editor model on the server so the preview has
+    // personal info without the client having to fetch anything.
+    const initialResumeData = toResumeData({
+        profile,
+        fallbackName: session.user.name,
+        experiences,
+        educations,
+        skills,
+        projects,
+        certifications,
+    });
 
     return (
         <div className="min-h-screen flex flex-col bg-white text-black font-sans">
@@ -62,10 +83,13 @@ export default async function DashboardPage() {
             {/* Main Content */}
             <main className="flex-grow">
                 <DashboardClient
-                    initialExperiences={experiences}
-                    initialEducations={educations}
-                    initialSkills={skills}
-                    userName={session?.user?.name?.split(" ")[0] || "User"}
+                    initialResumeData={initialResumeData}
+                    experiences={experiences}
+                    educations={educations}
+                    skills={skills}
+                    projects={projects}
+                    certifications={certifications}
+                    userName={initialResumeData.personalInfo.firstName || session.user.name?.split(" ")[0] || "there"}
                 />
             </main>
 

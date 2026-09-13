@@ -1,0 +1,81 @@
+{
+  "header": {
+    "name": "Alex Morgan",
+    "tagline": "B.S. Computer Science, Class of 2026 · Software · AI/ML · Cloud · Data",
+    "location": "Seattle, WA",
+    "phone": "(206) 555-0142",
+    "email": "alex.morgan@email.com",
+    "github": "github.com/alexmorgan",
+    "linkedin": "linkedin.com/in/alexmorgan",
+    "website": ""
+  },
+  "summary": "",
+  "education": [
+    {
+      "title": "B.S. in Computer Science",
+      "institution": "State University",
+      "date": "Sep 2022 – May 2026",
+      "gpa": "3.8 / 4.0",
+      "minor": "Statistics",
+      "details": "Dean's List (6 semesters). Coursework: Distributed Systems, Machine Learning, Databases, Cloud Computing, Algorithms, Software Testing"
+    }
+  ],
+  "skills": [
+    { "label": "Languages", "value": "Python, Java, TypeScript, Go, SQL, Bash" },
+    { "label": "AI / ML", "value": "PyTorch, scikit-learn, Hugging Face, LangChain, pandas, NumPy, MLflow" },
+    { "label": "Cloud & DevOps", "value": "AWS (EC2, S3, Lambda, IAM), Docker, Kubernetes, Terraform, GitHub Actions, Jenkins, Linux" },
+    { "label": "Data & Analytics", "value": "PostgreSQL, Spark, dbt, Airflow, Tableau, Power BI, Excel" },
+    { "label": "Testing & QA", "value": "pytest, JUnit, Selenium, Playwright, Postman, TDD" },
+    { "label": "Web & Tools", "value": "React, Node.js, FastAPI, REST, Git, Jira, Agile/Scrum" }
+  ],
+  "projects": [
+    {
+      "title": "Support Ticket Classifier",
+      "stack": "PyTorch, Hugging Face, FastAPI, Docker, AWS Lambda",
+      "date": "Jan 2026 – Apr 2026",
+      "link": "github.com/alexmorgan/ticket-classifier",
+      "bullets": [
+        "Fine-tuned a DistilBERT model to route 12k support tickets into 8 categories, reaching 91% macro-F1 (+14 pts over TF-IDF baseline).",
+        "Served the model behind a FastAPI endpoint on Lambda with p95 latency under 180 ms; tracked experiments in MLflow.",
+        "Wrote 60+ pytest cases and a GitHub Actions pipeline that lints, tests and publishes the container on every merge."
+      ]
+    },
+    {
+      "title": "Cloud Cost Dashboard",
+      "stack": "Terraform, AWS, Airflow, PostgreSQL, Tableau",
+      "date": "Sep 2025 – Dec 2025",
+      "link": "",
+      "bullets": [
+        "Provisioned a three-environment AWS setup (dev/stage/prod) with Terraform modules; reduced manual setup from 2 days to 20 minutes.",
+        "Built nightly Airflow DAGs that ingest Cost Explorer data into PostgreSQL and power a Tableau dashboard used by 3 student teams.",
+        "Flagged idle EC2 instances automatically, cutting the club's monthly cloud bill by 32%."
+      ]
+    },
+    {
+      "title": "Markup Torture Test",
+      "stack": "Typst escaping check: # * _ $ [ ] \\ @ < > ` ~ = + / -",
+      "date": "Fall 2024",
+      "link": "",
+      "bullets": [
+        "Text with Typst-special characters must render literally: #import, *bold*, _under_, $x^2$, [bracket], back\\slash, @ref, <label>, `code`, 100% done.",
+        "Unicode: naïve café — “quotes” ‘single’ … ©"
+      ]
+    }
+  ],
+  "experience": [
+    {
+      "title": "Software Engineering Intern",
+      "company": "Northwind Cloud",
+      "date": "Jun 2025 – Aug 2025",
+      "bullets": [
+        "Built an internal CLI in Go that migrated 40 services to a new secrets manager with zero downtime.",
+        "Cut CI time 35% by caching Docker layers and parallelising the test matrix."
+      ]
+    }
+  ],
+  "certifications": [
+    { "name": "AWS Certified Cloud Practitioner", "issuer": "Amazon Web Services", "year": "2025" },
+    { "name": "Google Data Analytics Professional Certificate", "issuer": "", "year": "2025" },
+    { "name": "ISTQB Certified Tester — Foundation Level", "issuer": "", "year": "2024" }
+  ]
+}
