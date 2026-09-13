@@ -9,10 +9,19 @@ import { aggregateTags, kindTotals, type TagWeight } from "@/lib/tags/aggregate"
 import { staleCount } from "@/lib/tags/content";
 import { TAG_KINDS, kindMeta } from "@/lib/tags/types";
 import { SECTION_LABEL } from "@/lib/sections";
+import { Card, CardBody, CardHeader } from "@/components/ui/primitives/card";
+import { Segmented } from "@/components/ui/primitives/segmented";
+import { Button } from "@/components/ui/primitives/button";
+import { Input } from "@/components/ui/primitives/field";
+import { Badge, KindDot } from "@/components/ui/primitives/badge";
+import { NoticeBanner } from "@/components/ui/primitives/notice-banner";
+import { Table, Td, Th } from "@/components/ui/primitives/table";
+import { EmptyState } from "@/components/ui/primitives/empty-state";
+import { BarChart3 } from "@/components/ui/primitives/icons";
 
 const Charts = dynamic(() => import("@/components/ui/tag-charts").then(m => ({ default: ChartsBundle(m) })), {
     ssr: false,
-    loading: () => <div className="h-64 flex items-center justify-center text-black/30 text-xs font-black uppercase tracking-widest">Loading charts…</div>,
+    loading: () => <div className="flex h-64 items-center justify-center text-13 text-fg-subtle">Loading charts…</div>,
 });
 
 type ChartModule = typeof import("@/components/ui/tag-charts");
@@ -21,18 +30,19 @@ function ChartsBundle(m: ChartModule) {
     return function InsightsCharts({ weights }: { weights: TagWeight[] }) {
         const totals = kindTotals(weights);
         return (
-            <div className="grid gap-8 lg:grid-cols-2">
-                <Panel title="Profile shape" hint="Relative weight per tag kind">
-                    <m.KindRadar series={[{ label: "You", totals, color: "#5d5294" }]} />
-                </Panel>
-                <Panel title="Heaviest tags" hint="How many included items carry each tag">
-                    <m.TopTagsBars weights={weights} limit={18} />
-                </Panel>
-                <div className="lg:col-span-2">
-                    <Panel title="Map" hint="Kinds → tags, sized by weight">
-                        <m.TagTreemap weights={weights} />
-                    </Panel>
-                </div>
+            <div className="grid gap-4 lg:grid-cols-2">
+                <Card>
+                    <CardHeader title="Profile shape" hint="Relative weight per tag kind" />
+                    <CardBody><m.KindRadar series={[{ label: "You", totals, color: "#171717" }]} /></CardBody>
+                </Card>
+                <Card>
+                    <CardHeader title="Heaviest tags" hint="How many included items carry each tag" />
+                    <CardBody><m.TopTagsBars weights={weights} limit={18} /></CardBody>
+                </Card>
+                <Card className="lg:col-span-2">
+                    <CardHeader title="Map" hint="Kinds → tags, sized by weight" />
+                    <CardBody><m.TagTreemap weights={weights} /></CardBody>
+                </Card>
             </div>
         );
     };
@@ -75,135 +85,92 @@ export function InsightsView({ data }: InsightsViewProps) {
     };
 
     return (
-        <div className="space-y-10">
-            <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 px-4">
-                <div className="flex flex-col gap-1">
-                    <h2 className="font-black text-gray-900 uppercase text-[11px] tracking-[0.3em] opacity-30">Insights</h2>
-                    <p className="text-sm text-black/55 font-medium italic">Skills and keywords extracted from your library. The more included items carry a tag, the heavier it weighs.</p>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
+        <div className="space-y-6">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <p className="text-13 text-fg-muted">Skills and keywords extracted from your library. The more included items carry a tag, the heavier it weighs.</p>
+                <div className="flex flex-wrap items-center gap-2">
                     <Segmented
                         value={scope}
                         onChange={setScope}
                         options={[{ value: "selected", label: "Included items" }, { value: "all", label: "Whole library" }]}
                     />
-                    <button
-                        type="button"
+                    <Button
+                        size="sm"
                         onClick={() => runBackfill(stale === 0)}
-                        disabled={busy}
-                        className="px-4 py-2.5 rounded-xl bg-white border-2 border-black/10 hover:border-black text-[11px] font-black uppercase tracking-widest transition-all disabled:opacity-50"
+                        loading={busy}
                         title={stale === 0 ? "Re-run the analysis for every item" : `${stale} items have changed since they were analysed`}
                     >
-                        {busy ? "Analysing…" : stale > 0 ? `Analyse ${stale} changed` : "Re-analyse all"}
-                    </button>
+                        {stale > 0 ? `Analyse ${stale} changed` : "Re-analyse all"}
+                    </Button>
                 </div>
             </div>
 
             {stale > 0 && !busy && (
-                <div role="status" className="mx-4 border-2 border-amber-200 bg-amber-50 rounded-2xl p-4 text-amber-900 text-sm font-bold">
-                    {stale} {stale === 1 ? "item has" : "items have"} no up-to-date tags yet. Charts below only reflect analysed items.
-                </div>
+                <NoticeBanner tone="warning">{stale} {stale === 1 ? "item has" : "items have"} no up-to-date tags yet. Charts below only reflect analysed items.</NoticeBanner>
             )}
-            {error && <div role="alert" className="mx-4 border-2 border-red-200 bg-red-50 rounded-2xl p-4 text-red-800 text-sm font-bold">{error}</div>}
-            {done && <div role="status" className="mx-4 border-2 border-emerald-200 bg-emerald-50 rounded-2xl p-4 text-emerald-900 text-sm font-bold">{done}</div>}
+            {error && <NoticeBanner tone="danger" onDismiss={() => setError(null)}>{error}</NoticeBanner>}
+            {done && <NoticeBanner tone="success" onDismiss={() => setDone(null)}>{done}</NoticeBanner>}
 
-            <div className="flex flex-wrap gap-2 px-4">
+            <div className="flex flex-wrap gap-1.5">
                 {TAG_KINDS.map(k => {
                     const n = weights.filter(w => w.kind === k.id).length;
                     return (
-                        <span key={k.id} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-black/10 text-[11px] font-bold text-black/70">
-                            <span className="w-2.5 h-2.5 rounded-full" style={{ background: k.color }} />
-                            {k.label} <span className="text-black/40">{n}</span>
-                        </span>
+                        <Badge key={k.id} className="gap-1.5 pl-1">
+                            <KindDot color={k.color} />
+                            {k.label} <span className="text-fg-subtle tabular-nums">{n}</span>
+                        </Badge>
                     );
                 })}
             </div>
 
             {weights.length === 0 ? (
-                <div className="mx-4 p-12 border-2 border-dashed border-black/5 rounded-[2.5rem] text-center bg-gray-50/50">
-                    <p className="text-black/40 font-bold text-lg">No tags yet.</p>
-                    <p className="text-black/30 text-sm mt-1">Save your library once (or press Analyse) and your skills chart will appear here.</p>
-                </div>
+                <EmptyState icon={BarChart3} title="No tags yet" body="Save your library once (or press Analyse) and your skills chart will appear here." />
             ) : (
                 <Charts weights={weights} />
             )}
 
-            <div className="space-y-4">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 px-4">
-                    <h3 className="font-black text-gray-900 uppercase text-[11px] tracking-[0.3em] opacity-30">All tags</h3>
-                    <input
-                        value={query}
-                        onChange={e => setQuery(e.target.value)}
-                        placeholder="Search tags or items…"
-                        className="px-4 py-2.5 rounded-xl border-2 border-black/10 focus:border-black outline-none text-sm font-medium w-full md:w-72"
-                    />
-                </div>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                        <thead>
-                            <tr className="text-left text-[10px] font-black uppercase tracking-widest text-black/40 border-b border-black/5">
-                                <th className="px-4 py-3">Tag</th>
-                                <th className="px-4 py-3">Kind</th>
-                                <th className="px-4 py-3">Weight</th>
-                                <th className="px-4 py-3">Carried by</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {rows.map(w => (
-                                <tr key={w.name} className="border-b border-black/5 align-top">
-                                    <td className="px-4 py-3 font-bold text-gray-900 whitespace-nowrap">{w.display}</td>
-                                    <td className="px-4 py-3 whitespace-nowrap">
-                                        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold" style={{ color: kindMeta(w.kind).color }}>
-                                            <span className="w-2 h-2 rounded-full" style={{ background: kindMeta(w.kind).color }} />
-                                            {kindMeta(w.kind).label}
-                                        </span>
-                                    </td>
-                                    <td className="px-4 py-3 font-black">{w.weight}</td>
-                                    <td className="px-4 py-3 text-black/60">
+            <Card>
+                <CardHeader
+                    title="All tags"
+                    action={<Input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search tags or items…" className="h-8 w-full text-13 md:w-64" />}
+                />
+                <Table>
+                    <thead>
+                        <tr>
+                            <Th>Tag</Th>
+                            <Th>Kind</Th>
+                            <Th className="text-right">Weight</Th>
+                            <Th>Carried by</Th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows.map(w => (
+                            <tr key={w.name}>
+                                <Td className="whitespace-nowrap font-medium text-fg">{w.display}</Td>
+                                <Td className="whitespace-nowrap">
+                                    <span className="inline-flex items-center gap-1.5 text-fg-muted">
+                                        <KindDot color={kindMeta(w.kind).color} />
+                                        {kindMeta(w.kind).label}
+                                    </span>
+                                </Td>
+                                <Td className="text-right tabular-nums">{w.weight}</Td>
+                                <Td>
+                                    <div className="flex flex-wrap gap-1">
                                         {w.items.map(i => (
-                                            <span key={`${i.section}-${i.id}`} className="inline-block mr-2 mb-1 px-2 py-0.5 rounded-md bg-gray-100 text-[11px] font-semibold">
-                                                <span className="text-black/35">{i.section === "profile" ? "Profile" : SECTION_LABEL[i.section]}:</span> {i.label}
-                                            </span>
+                                            <Badge key={`${i.section}-${i.id}`}>
+                                                <span className="mr-1 text-fg-subtle">{i.section === "profile" ? "Profile" : SECTION_LABEL[i.section]}:</span> {i.label}
+                                            </Badge>
                                         ))}
-                                    </td>
-                                </tr>
-                            ))}
-                            {rows.length === 0 && (
-                                <tr><td colSpan={4} className="px-4 py-8 text-center text-black/30 font-bold">Nothing matches.</td></tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-function Panel({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
-    return (
-        <section className="bg-white border-2 border-black/5 rounded-[2rem] p-6 shadow-sm">
-            <div className="mb-3">
-                <h3 className="font-black text-gray-900 uppercase text-[11px] tracking-[0.3em] opacity-40">{title}</h3>
-                {hint && <p className="text-xs text-black/40 font-medium">{hint}</p>}
-            </div>
-            {children}
-        </section>
-    );
-}
-
-export function Segmented<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: { value: T; label: string }[] }) {
-    return (
-        <div className="inline-flex rounded-xl border-2 border-black/10 p-1 bg-white">
-            {options.map(o => (
-                <button
-                    key={o.value}
-                    type="button"
-                    onClick={() => onChange(o.value)}
-                    className={`px-3 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-widest transition-all ${value === o.value ? "bg-black text-white" : "text-black/50 hover:text-black"}`}
-                >
-                    {o.label}
-                </button>
-            ))}
+                                    </div>
+                                </Td>
+                            </tr>
+                        ))}
+                        {rows.length === 0 && (
+                            <tr><Td colSpan={4} className="py-8 text-center text-fg-subtle">Nothing matches.</Td></tr>
+                        )}
+                    </tbody>
+                </Table>
+            </Card>
         </div>
     );
 }

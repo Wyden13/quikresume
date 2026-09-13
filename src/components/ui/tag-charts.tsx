@@ -12,6 +12,10 @@ import {
 import { TAG_KINDS, kindMeta, type TagKind } from "@/lib/tags/types";
 import type { KindTotals, TagWeight } from "@/lib/tags/aggregate";
 
+const GRID = "var(--border)";
+const TICK = "var(--fg-muted)";
+const TOOLTIP_STYLE = { borderRadius: 6, border: "1px solid var(--border)", boxShadow: "0 1px 2px rgb(0 0 0 / 0.05)", fontSize: 12, padding: "6px 10px" };
+
 export interface RadarSeries {
     label: string;
     totals: KindTotals;
@@ -29,14 +33,14 @@ export function KindRadar({ series, height = 280 }: { series: RadarSeries[]; hei
     return (
         <ResponsiveContainer width="100%" height={height}>
             <RadarChart data={data} outerRadius="72%">
-                <PolarGrid stroke="#00000014" />
-                <PolarAngleAxis dataKey="kind" tick={{ fontSize: 11, fontWeight: 700, fill: "#00000099" }} />
+                <PolarGrid stroke={GRID} />
+                <PolarAngleAxis dataKey="kind" tick={{ fontSize: 11, fontWeight: 500, fill: TICK }} />
                 <PolarRadiusAxis tick={false} axisLine={false} domain={[0, 100]} />
                 {series.map(s => (
-                    <Radar key={s.label} name={s.label} dataKey={s.label} stroke={s.color} fill={s.color} fillOpacity={0.25} strokeWidth={2} />
+                    <Radar key={s.label} name={s.label} dataKey={s.label} stroke={s.color} fill={s.color} fillOpacity={0.15} strokeWidth={1.5} />
                 ))}
-                <Tooltip formatter={(value, name, entry) => [`${entry.payload[`${name}__raw`]} tags`, String(name)]} />
-                {series.length > 1 && <Legend wrapperStyle={{ fontSize: 11, fontWeight: 700 }} />}
+                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(value, name, entry) => [`${entry.payload[`${name}__raw`]} tags`, String(name)]} />
+                {series.length > 1 && <Legend wrapperStyle={{ fontSize: 11 }} />}
             </RadarChart>
         </ResponsiveContainer>
     );
@@ -45,16 +49,16 @@ export function KindRadar({ series, height = 280 }: { series: RadarSeries[]; hei
 /** Horizontal bars for the heaviest tags, coloured by kind. */
 export function TopTagsBars({ weights, limit = 20, height }: { weights: TagWeight[]; limit?: number; height?: number }) {
     const rows = weights.slice(0, limit).map(w => ({ name: w.display, weight: w.weight, kind: w.kind }));
-    const h = height ?? Math.max(160, rows.length * 26 + 20);
+    const h = height ?? Math.max(160, rows.length * 24 + 20);
     if (rows.length === 0) return <EmptyChart />;
     return (
         <ResponsiveContainer width="100%" height={h}>
-            <BarChart data={rows} layout="vertical" margin={{ left: 8, right: 24, top: 4, bottom: 4 }}>
-                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 11, fontWeight: 600, fill: "#000000b3" }} axisLine={false} tickLine={false} />
-                <Tooltip formatter={(value, _n, entry) => [`${value} ${Number(value) === 1 ? "item" : "items"}`, kindMeta(entry.payload.kind as TagKind).label]} cursor={{ fill: "#00000008" }} />
-                <Bar dataKey="weight" radius={[0, 6, 6, 0]} maxBarSize={18}>
-                    {rows.map(r => <Cell key={r.name} fill={kindMeta(r.kind).color} />)}
+            <BarChart data={rows} layout="vertical" margin={{ left: 4, right: 24, top: 4, bottom: 4 }}>
+                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: TICK }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 11, fill: TICK }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(value, _n, entry) => [`${value} ${Number(value) === 1 ? "item" : "items"}`, kindMeta(entry.payload.kind as TagKind).label]} cursor={{ fill: "var(--surface-muted)" }} />
+                <Bar dataKey="weight" radius={[0, 4, 4, 0]} maxBarSize={14}>
+                    {rows.map(r => <Cell key={r.name} fill={kindMeta(r.kind).color} fillOpacity={0.85} />)}
                 </Bar>
             </BarChart>
         </ResponsiveContainer>
@@ -87,9 +91,9 @@ function TreemapCell(props: Record<string, unknown>) {
     if (depth === 1) {
         return (
             <g>
-                <rect x={x} y={y} width={width} height={height} fill={color} fillOpacity={0.12} stroke="#fff" strokeWidth={3} />
+                <rect x={x} y={y} width={width} height={height} fill={color} fillOpacity={0.08} stroke="#fff" strokeWidth={3} />
                 {width > 60 && height > 18 && (
-                    <text x={x + 6} y={y + 14} fontSize={10} fontWeight={800} fill={color} style={{ textTransform: "uppercase", letterSpacing: "0.1em" }}>
+                    <text x={x + 6} y={y + 14} fontSize={11} fontWeight={600} fill={color}>
                         {name}
                     </text>
                 )}
@@ -99,9 +103,9 @@ function TreemapCell(props: Record<string, unknown>) {
     const label = width > 44 && height > 16 ? name.slice(0, Math.max(3, Math.floor(width / 7))) : "";
     return (
         <g>
-            <rect x={x} y={y} width={width} height={height} fill={color} fillOpacity={0.75} stroke="#fff" strokeWidth={1.5} rx={3} />
+            <rect x={x} y={y} width={width} height={height} fill={color} fillOpacity={0.7} stroke="#fff" strokeWidth={1.5} rx={3} />
             {label && (
-                <text x={x + width / 2} y={y + height / 2 + 4} textAnchor="middle" fontSize={11} fontWeight={600} fill="#fff">
+                <text x={x + width / 2} y={y + height / 2 + 4} textAnchor="middle" fontSize={11} fontWeight={500} fill="#fff">
                     {label}
                 </text>
             )}
@@ -111,7 +115,7 @@ function TreemapCell(props: Record<string, unknown>) {
 
 function EmptyChart() {
     return (
-        <div className="h-40 flex items-center justify-center text-black/30 text-xs font-black uppercase tracking-widest">
+        <div className="flex h-40 items-center justify-center text-13 text-fg-subtle">
             No tags yet
         </div>
     );

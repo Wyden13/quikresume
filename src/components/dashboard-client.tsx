@@ -1,24 +1,29 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import type { ResumeData, ResumeListKey } from "@/types/schema";
 import { RESUME_LIST_KEYS } from "@/types/schema";
-import type {
-    AwardItem, CertificationItem, EducationItem, ExperienceItem, LanguageItem, ProjectItem, PublicationItem,
-    ResumeVariant, SkillCategoryItem, VolunteeringItem,
-} from "@/types/db";
+import type { ResumeVariant } from "@/types/db";
 import type { JobRecord, Preferences, Proposal } from "@/lib/match/types";
 import type { AliasMap } from "@/lib/tags/normalize";
-import { ResumeForm } from "@/components/ui/resume-form";
-import SelectionDisplay from "@/components/ui/selection-display";
+import { ResumeForm } from "@/components/ui/editor/resume-form";
+import { LibraryView, libraryCounts, type LibraryLists } from "@/components/ui/library/library-view";
 import { ResumeImport } from "@/components/ui/resume-import";
 import { InsightsView } from "@/components/ui/insights-view";
 import { JobMatchView, type ExternalResume } from "@/components/ui/job-match-view";
-import { JobContextPanel } from "@/components/ui/job-context-panel";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { JobContextStrip } from "@/components/ui/job-context-strip";
 import { VariantToolbar } from "@/components/ui/variant-toolbar";
+import { SectionTabs, type SectionTab } from "@/components/ui/section-tabs";
+import { TopBar } from "@/components/ui/primitives/top-bar";
+import { Button, IconButton } from "@/components/ui/primitives/button";
+import { ConfirmDialog } from "@/components/ui/primitives/dialog";
+import { NoticeBanner } from "@/components/ui/primitives/notice-banner";
+import { PanelRight, PenLine, Upload } from "@/components/ui/primitives/icons";
+import { useDashboardView, VIEW_TITLE } from "@/lib/ui/use-dashboard-view";
+import { useMediaQuery, XL } from "@/lib/ui/use-media-query";
+import { setPreviewPane, togglePreviewPane, usePreviewPane } from "@/lib/ui/preview-pane-store";
 import { saveResumeData } from "@/app/actions/resume-actions";
 import { updateExperience } from "@/app/actions/experience-actions";
 import { updateEducation } from "@/app/actions/education-actions";
@@ -33,6 +38,7 @@ import { mergeImport, type ImportSelection } from "@/lib/import/merge";
 import { applyTags, contentHashOf, staleInputs, tagContext } from "@/lib/tags/content";
 import { applyProposal } from "@/lib/match/proposals";
 import { itemTitle } from "@/lib/sections";
+import { cn } from "@/lib/cn";
 
 // The preview compiles Typst in the browser (wasm), so it must never render on the server.
 const ResumePreview = dynamic(
@@ -40,8 +46,8 @@ const ResumePreview = dynamic(
     {
         ssr: false,
         loading: () => (
-            <div className="aspect-[210/297] w-full max-w-[210mm] mx-auto bg-white shadow-2xl flex items-center justify-center">
-                <span className="text-black/30 font-bold uppercase tracking-widest text-xs">Loading preview…</span>
+            <div className="mx-auto flex aspect-[210/297] w-full max-w-[210mm] items-center justify-center border border-border bg-white">
+                <span className="text-13 text-fg-subtle">Loading preview…</span>
             </div>
         ),
     },
@@ -59,18 +65,9 @@ const UPDATE_ACTION: Record<ResumeListKey, (id: string, fd: FormData) => Promise
     languages: updateLanguage,
 };
 
-interface DashboardClientProps {
+interface DashboardClientProps extends LibraryLists {
     /** Complete editor model built on the server (profile + all subcollections). */
     initialResumeData: ResumeData;
-    experiences: ExperienceItem[];
-    educations: EducationItem[];
-    skills: SkillCategoryItem[];
-    projects: ProjectItem[];
-    certifications: CertificationItem[];
-    awards: AwardItem[];
-    volunteering: VolunteeringItem[];
-    publications: PublicationItem[];
-    languages: LanguageItem[];
     variants: ResumeVariant[];
     variantUsage: Record<string, string[]>;
     loadedVariantId: string | null;
@@ -80,32 +77,37 @@ interface DashboardClientProps {
     userName: string;
 }
 
-type View = "library" | "edit" | "preview" | "import" | "insights" | "jobs";
 type Notice = { tone: "ok" | "warn"; text: string };
 
 const TAILOR_KEY = "quikresume.activeJobId";
 
-export default function DashboardClient({
+export default function DashboardClient(props: DashboardClientProps) {
+    // useSearchParams (inside useDashboardView) needs a Suspense boundary.
+    return (
+        <Suspense fallback={null}>
+            <DashboardClientInner {...props} />
+        </Suspense>
+    );
+}
+
+function DashboardClientInner({
     initialResumeData,
-    experiences,
-    educations,
-    skills,
-    projects,
-    certifications,
-    awards,
-    volunteering,
-    publications,
-    languages,
+    experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages,
     variants,
     variantUsage,
     loadedVariantId,
     jobs,
     preferences,
     tagAliases,
-    userName,
 }: DashboardClientProps) {
     const router = useRouter();
-    const [view, setView] = useState<View>("library");
+    const [view, setView] = useDashboardView();
+    const wide = useMediaQuery(XL);
+    const paneWanted = usePreviewPane();
+    const paneOpen = wide && paneWanted && view !== "preview";
+
+    const [libraryTab, setLibraryTab] = useState<SectionTab>("all");
+    const [editorTab, setEditorTab] = useState<SectionTab>("all");
     const [isSaving, setIsSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
     const [notice, setNotice] = useState<Notice | null>(null);
@@ -124,6 +126,10 @@ export default function DashboardClient({
     // props, a revalidation can't clobber unsaved edits.
     const [draft, setDraft] = useState<ResumeData | null>(null);
     const resumeData = draft ?? initialResumeData;
+    const dirty = draft !== null && JSON.stringify(draft) !== JSON.stringify(initialResumeData);
+
+    // Deep-linking straight into ?view=editor must still open a draft.
+    const editorDraft = view === "editor" ? (draft ?? initialResumeData) : resumeData;
 
     // Tailoring mode survives a reload (browser-only state, read once after mount).
     useEffect(() => {
@@ -146,11 +152,12 @@ export default function DashboardClient({
         setDraft(prev => updater(prev ?? initialResumeData));
     };
 
-    const openEditor = () => {
+    const openEditor = (tab?: SectionTab) => {
         // Keep an in-progress draft (e.g. one seeded by an import) if there is one.
         setDraft(prev => prev ?? initialResumeData);
         setSaveError(null);
-        setView("edit");
+        if (tab) setEditorTab(tab);
+        setView("editor");
     };
 
     const doDiscard = () => {
@@ -158,10 +165,9 @@ export default function DashboardClient({
         setDraft(null);
         setSaveError(null);
         setNotice(null);
-        setView("library");
+        setView("library", { replace: true });
     };
     const discardDraft = () => {
-        const dirty = draft !== null && JSON.stringify(draft) !== JSON.stringify(initialResumeData);
         if (dirty) setConfirmDiscard(true);
         else doDiscard();
     };
@@ -194,7 +200,7 @@ export default function DashboardClient({
                     : result.tagged > 0
                         ? { tone: "ok", text: `Saved. Analysed skills for ${result.tagged} ${result.tagged === 1 ? "item" : "items"}.` }
                         : null);
-                setView("library");
+                setView("library", { replace: true });
             }
         } catch (error) {
             console.error("Failed to save:", error);
@@ -205,7 +211,7 @@ export default function DashboardClient({
     };
 
     const handleSaveAndExit = () => {
-        if (!draft) { setView("library"); return; }
+        if (!draft) { setView("library", { replace: true }); return; }
         const affected = [...new Set(changedItemIds().flatMap(id => variantUsage[id] ?? []))];
         if (affected.length > 0) { setConfirmVariants(affected); return; }
         void doSave();
@@ -221,7 +227,8 @@ export default function DashboardClient({
         parts.push("Review below, then Save & Exit to keep them.");
         setNotice({ tone: "ok", text: parts.join(" ") });
         setSaveError(null);
-        setView("edit");
+        setEditorTab("all");
+        setView("editor");
     };
 
     /** Tags stale draft items in place (nothing saved) or, with no draft open, backfills the library. */
@@ -265,164 +272,133 @@ export default function DashboardClient({
         const item = (next[p.section] as ResumeData[ResumeListKey][number][]).find(it => it.id === p.itemId);
         setNotice({ tone: "ok", text: `Applied the suggestion to ${item ? itemTitle(p.section, item) : "an item"} for ${job.title}. Review it below, then Save & Exit.` });
         setTailoring(job.id);
-        setView("edit");
+        setEditorTab(p.section);
+        setView("editor");
     };
 
-    const pill = (active: boolean) =>
-        `px-6 md:px-8 py-4 rounded-[2rem] font-black text-sm uppercase tracking-widest transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
-            active
-                ? "bg-black text-white shadow-xl shadow-black/20"
-                : "bg-white text-black border-2 border-black/10 hover:border-black shadow-sm"
-        }`;
+    const lists: LibraryLists = { experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages };
+    const counts = libraryCounts(lists);
+    const draftCounts = Object.fromEntries(RESUME_LIST_KEYS.map(k => [k, editorDraft[k].length])) as Record<ResumeListKey, number>;
 
-    const showPanel = activeJob !== null && (view === "library" || view === "edit");
+    const showStrip = activeJob !== null && (view === "library" || view === "editor");
+
+    const previewToggle = wide
+        ? <IconButton icon={PanelRight} aria-label={paneWanted ? "Hide preview pane" : "Show preview pane"} aria-pressed={paneWanted} variant={paneWanted ? "secondary" : "ghost"} size="md" onClick={togglePreviewPane} />
+        : <Button variant="ghost" onClick={() => setView("preview")}>Preview</Button>;
+
+    const actions =
+        view === "editor" ? (
+            <>
+                <span className={cn("hidden items-center gap-1.5 text-13 sm:flex", dirty ? "text-fg-muted" : "text-fg-subtle")} aria-live="polite">
+                    <span className={cn("size-1.5 rounded-full", dirty ? "bg-warning" : "bg-border-strong")} aria-hidden />
+                    {dirty ? "Unsaved changes" : "No changes"}
+                </span>
+                <Button variant="ghost" onClick={discardDraft} disabled={isSaving}>Discard</Button>
+                <Button variant="primary" onClick={handleSaveAndExit} loading={isSaving}>
+                    {isSaving ? (staleInputs(resumeData).length > 0 ? "Analysing & saving…" : "Saving…") : "Save & Exit"}
+                </Button>
+            </>
+        ) : view === "library" ? (
+            <>
+                <Button variant="ghost" icon={Upload} onClick={() => setView("import")} className="hidden sm:inline-flex">Import</Button>
+                <Button variant="primary" icon={PenLine} onClick={() => openEditor(libraryTab)}>Edit</Button>
+                {previewToggle}
+            </>
+        ) : view === "preview" ? (
+            wide ? <Button variant="secondary" onClick={() => { setPreviewPane(true); setView("library", { replace: true }); }}>Dock as side pane</Button> : null
+        ) : (
+            <Button variant="ghost" onClick={() => setView("library")}>Back to library</Button>
+        );
+
+    const tabs =
+        view === "library" ? <SectionTabs counts={counts} value={libraryTab} onChange={setLibraryTab} />
+        : view === "editor" ? <SectionTabs counts={draftCounts} value={editorTab} onChange={setEditorTab} showEmpty withProfile />
+        : undefined;
+
+    const body =
+        view === "editor" ? (
+            <ResumeForm
+                resumeData={editorDraft}
+                onChange={updateDraft}
+                variantUsage={variantUsage}
+                tab={editorTab}
+            />
+        ) : view === "preview" ? (
+            <ResumePreview resumeData={resumeData} />
+        ) : view === "import" ? (
+            <ResumeImport current={resumeData} onImport={handleImport} onCancel={() => setView("library")} />
+        ) : view === "insights" ? (
+            <InsightsView data={resumeData} />
+        ) : view === "jobs" ? (
+            <JobMatchView
+                jobs={jobs}
+                preferences={preferences}
+                aliases={tagAliases}
+                variants={variants}
+                resumeData={resumeData}
+                activeJobId={activeJobId}
+                selectedJobId={selectedJobId ?? activeJobId ?? jobs[0]?.id ?? null}
+                onSelectJob={setSelectedJobId}
+                onTailor={(id) => { setTailoring(id); if (id) setView("library"); }}
+                onApplyProposal={handleApplyProposal}
+                onImportExternal={(r) => {
+                    const items: ImportSelection["items"] = {};
+                    for (const key of RESUME_LIST_KEYS) if (r.data[key].length) (items[key] as unknown[]) = r.data[key];
+                    handleImport({ personalInfo: r.data.personalInfo, replacePersonal: false, items }, { fileNames: [r.fileName] });
+                }}
+                externalResume={externalResume}
+                onExternalResume={setExternalResume}
+            />
+        ) : (
+            <div className="space-y-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-13 text-fg-muted">Toggle items to include them on your résumé. Click a row for details.</p>
+                    <VariantToolbar
+                        variants={variants}
+                        loadedVariantId={loadedVariantId}
+                        data={initialResumeData}
+                        onNotice={(text, tone = "ok") => setNotice({ tone, text })}
+                    />
+                </div>
+                <LibraryView {...lists} tab={libraryTab} variantUsage={variantUsage} onImport={() => setView("import")} onEdit={() => openEditor()} />
+            </div>
+        );
 
     return (
-        <div className="max-w-[1280px] mx-auto p-6 md:p-12 space-y-12">
-            {/* Top Bar */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b border-black/5 pb-12">
-                <div className="space-y-2">
-                    <h1 className="text-4xl font-black tracking-tight text-gray-900 leading-none">
-                        Welcome, {userName}!
-                    </h1>
-                    <p className="text-lg text-black/40 font-bold">
-                        Manage your professional library and tailor your resume.
-                    </p>
-                </div>
-                <div className="flex flex-wrap gap-3">
-                    {view === "edit" ? (
-                        <>
-                            <button onClick={discardDraft} disabled={isSaving} className={pill(false)}>
-                                Discard
-                            </button>
-                            <button onClick={handleSaveAndExit} disabled={isSaving} className={pill(true)}>
-                                {isSaving ? (staleInputs(resumeData).length > 0 ? "Analysing skills & saving…" : "Saving…") : "Save & Exit"}
-                            </button>
-                        </>
-                    ) : view !== "library" && view !== "preview" ? (
-                        <button onClick={() => setView("library")} className={pill(false)}>
-                            Back to Library
-                        </button>
-                    ) : (
-                        <>
-                            <button onClick={() => setView("import")} className={pill(false)}>
-                                Import Resume
-                            </button>
-                            <button onClick={openEditor} className={pill(false)}>
-                                Master Editor
-                            </button>
-                            <button onClick={() => setView("insights")} className={pill(false)}>
-                                Insights
-                            </button>
-                            <button onClick={() => setView("jobs")} className={pill(false)}>
-                                Job Match
-                            </button>
-                            <button
-                                onClick={() => setView(view === "preview" ? "library" : "preview")}
-                                className={pill(view === "preview")}
-                            >
-                                {view === "preview" ? "Exit Preview" : "Generate Resume"}
-                            </button>
-                        </>
-                    )}
-                </div>
-            </div>
-
-            {saveError && (
-                <div role="alert" className="border-2 border-red-200 bg-red-50 rounded-2xl p-5 text-red-800 text-sm font-bold">
-                    {saveError}
-                </div>
-            )}
-            {notice && (view === "edit" || view === "library") && (
-                <div role="status" className={`border-2 rounded-2xl p-5 text-sm font-bold flex items-start justify-between gap-4 ${notice.tone === "ok" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
-                    <span>{notice.text}</span>
-                    <button type="button" onClick={() => setNotice(null)} className="opacity-50 hover:opacity-100 font-black uppercase text-[10px] tracking-widest shrink-0">
-                        Dismiss
-                    </button>
-                </div>
-            )}
-
-            {view === "edit" ? (
-                <div className="bg-white border-2 border-black/5 rounded-[3rem] overflow-hidden shadow-2xl shadow-black/5">
-                    <ResumeForm
-                        resumeData={resumeData}
-                        onChange={updateDraft}
-                        onSaveAndExit={handleSaveAndExit}
-                        isSaving={isSaving}
-                        variantUsage={variantUsage}
+        <>
+            <TopBar
+                title={VIEW_TITLE[view]}
+                actions={actions}
+                tabs={tabs}
+                banner={showStrip && activeJob ? (
+                    <JobContextStrip
+                        job={activeJob}
+                        data={resumeData}
+                        aliases={tagAliases}
+                        reanalyzing={reanalyzing}
+                        onReanalyze={reanalyze}
+                        onSuggestions={() => { setSelectedJobId(activeJob.id); setView("jobs"); }}
+                        onExit={() => setTailoring(null)}
                     />
-                </div>
-            ) : view === "preview" ? (
-                <div className="bg-gray-100 p-6 md:p-10 rounded-[3rem] shadow-2xl">
-                    <ResumePreview resumeData={resumeData} />
-                </div>
-            ) : view === "import" ? (
-                <ResumeImport current={resumeData} onImport={handleImport} onCancel={() => setView("library")} />
-            ) : view === "insights" ? (
-                <InsightsView data={resumeData} />
-            ) : view === "jobs" ? (
-                <JobMatchView
-                    jobs={jobs}
-                    preferences={preferences}
-                    aliases={tagAliases}
-                    variants={variants}
-                    resumeData={resumeData}
-                    activeJobId={activeJobId}
-                    selectedJobId={selectedJobId ?? activeJobId ?? jobs[0]?.id ?? null}
-                    onSelectJob={setSelectedJobId}
-                    onTailor={(id) => { setTailoring(id); if (id) setView("library"); }}
-                    onApplyProposal={handleApplyProposal}
-                    onImportExternal={(r) => {
-                        const items: ImportSelection["items"] = {};
-                        for (const key of RESUME_LIST_KEYS) if (r.data[key].length) (items[key] as unknown[]) = r.data[key];
-                        handleImport({ personalInfo: r.data.personalInfo, replacePersonal: false, items }, { fileNames: [r.fileName] });
-                    }}
-                    externalResume={externalResume}
-                    onExternalResume={setExternalResume}
-                />
-            ) : (
-                <div className="space-y-12">
-                    <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 px-4">
-                        <div className="flex flex-col gap-1">
-                            <h2 className="font-black text-gray-900 uppercase text-[11px] tracking-[0.3em] opacity-30">Master Library</h2>
-                            <p className="text-sm text-black/55 font-medium italic">Toggle items to include them in your next generated resume.</p>
-                        </div>
-                        <VariantToolbar
-                            variants={variants}
-                            loadedVariantId={loadedVariantId}
-                            data={initialResumeData}
-                            onNotice={(text, tone = "ok") => setNotice({ tone, text })}
-                        />
+                ) : undefined}
+            />
+
+            <div className={cn("flex-1", paneOpen && "xl:grid xl:grid-cols-[minmax(0,1fr)_440px]")}>
+                <main className="min-w-0 p-4 pb-16 md:p-6">
+                    <div className="mx-auto max-w-5xl space-y-4">
+                        {saveError && <NoticeBanner tone="danger" onDismiss={() => setSaveError(null)}>{saveError}</NoticeBanner>}
+                        {notice && (view === "editor" || view === "library") && (
+                            <NoticeBanner tone={notice.tone === "ok" ? "success" : "warning"} onDismiss={() => setNotice(null)}>{notice.text}</NoticeBanner>
+                        )}
+                        {body}
                     </div>
-
-                    <SelectionDisplay
-                        experiences={experiences}
-                        educations={educations}
-                        skills={skills}
-                        projects={projects}
-                        certifications={certifications}
-                        awards={awards}
-                        volunteering={volunteering}
-                        publications={publications}
-                        languages={languages}
-                        onImport={() => setView("import")}
-                        onEdit={openEditor}
-                        variantUsage={variantUsage}
-                    />
-                </div>
-            )}
-
-            {showPanel && activeJob && (
-                <JobContextPanel
-                    job={activeJob}
-                    data={resumeData}
-                    aliases={tagAliases}
-                    reanalyzing={reanalyzing}
-                    onReanalyze={reanalyze}
-                    onSuggestions={() => { setSelectedJobId(activeJob.id); setView("jobs"); }}
-                    onExit={() => setTailoring(null)}
-                />
-            )}
+                </main>
+                {paneOpen && (
+                    <aside className="hidden xl:block sticky top-14 h-[calc(100dvh-3.5rem)] border-l border-border bg-surface-muted/60" aria-label="Résumé preview">
+                        <ResumePreview resumeData={resumeData} compact onClose={() => setPreviewPane(false)} />
+                    </aside>
+                )}
+            </div>
 
             <ConfirmDialog
                 open={confirmVariants !== null}
@@ -433,7 +409,7 @@ export default function DashboardClient({
                 onConfirm={() => void doSave()}
             >
                 <p>Variants only point at library items, so the changed text will show up in every variant that includes those items:</p>
-                <ul className="list-disc ml-5 font-bold">{confirmVariants?.map(v => <li key={v}>{v}</li>)}</ul>
+                <ul className="ml-5 list-disc font-medium text-fg">{confirmVariants?.map(v => <li key={v}>{v}</li>)}</ul>
             </ConfirmDialog>
 
             <ConfirmDialog
@@ -446,6 +422,6 @@ export default function DashboardClient({
             >
                 <p>Edits and imported items that have not been saved will be lost.</p>
             </ConfirmDialog>
-        </div>
+        </>
     );
 }

@@ -6,17 +6,24 @@ import type { ResumeData } from "@/types/schema";
 import { pdfFileName, toTypstDoc, type TypstResumeDoc } from "@/lib/typst/doc";
 import { compilePdf, compileSvg, ensureTypst, formatTypstError } from "@/lib/typst/client";
 import { DEFAULT_TEMPLATE, type TemplateId } from "@/lib/typst/templates";
+import { cn } from "@/lib/cn";
+import { Button, IconButton } from "@/components/ui/primitives/button";
+import { Badge } from "@/components/ui/primitives/badge";
+import { Download, X } from "@/components/ui/primitives/icons";
 
 interface ResumePreviewProps {
     resumeData: ResumeData;
     template?: TemplateId;
+    /** Pane mode: tighter toolbar with a close button. */
+    compact?: boolean;
+    onClose?: () => void;
 }
 
 type Status = "loading-engine" | "compiling" | "ready" | "error";
 
 const DEBOUNCE_MS = 300;
 
-export function ResumePreview({ resumeData, template = DEFAULT_TEMPLATE }: ResumePreviewProps) {
+export function ResumePreview({ resumeData, template = DEFAULT_TEMPLATE, compact = false, onClose }: ResumePreviewProps) {
     // Key the effect on the serialized document so object identity churn never
     // triggers a recompile; only real content changes do.
     const docJson = JSON.stringify(toTypstDoc(resumeData));
@@ -77,67 +84,44 @@ export function ResumePreview({ resumeData, template = DEFAULT_TEMPLATE }: Resum
     };
 
     const statusLabel: Record<Status, string> = {
-        "loading-engine": "Loading Typst engine…",
+        "loading-engine": "Loading engine…",
         compiling: "Compiling…",
         ready: "Up to date",
         error: "Compile error",
     };
 
     return (
-        <div className="flex flex-col gap-6">
-            {/* Toolbar */}
-            <div className="flex flex-wrap items-center justify-between gap-4">
-                <div className="flex flex-wrap items-center gap-3 text-[11px] font-black uppercase tracking-widest">
-                    <span
-                        className={`px-3 py-1.5 rounded-full border-2 ${
-                            status === "error"
-                                ? "border-red-500 text-red-600"
-                                : status === "ready"
-                                    ? "border-black/10 text-black/50"
-                                    : "border-black/10 text-black/30 animate-pulse"
-                        }`}
-                    >
-                        {statusLabel[status]}
-                    </span>
-                    {pageCount > 0 && (
-                        <span className={`px-3 py-1.5 rounded-full border-2 ${pageCount > 1 ? "border-amber-400 text-amber-600" : "border-black/10 text-black/50"}`}>
-                            {pageCount} {pageCount === 1 ? "page" : "pages"}
-                        </span>
-                    )}
+        <div className={cn("flex flex-col", compact ? "h-full" : "gap-4")}>
+            <div className={cn("flex items-center gap-2", compact ? "h-12 shrink-0 border-b border-border px-3" : "flex-wrap")}>
+                {compact && <span className="text-13 font-medium">Preview</span>}
+                <span className={cn("text-xs", status === "error" ? "text-danger" : "text-fg-subtle", status !== "ready" && status !== "error" && "animate-pulse")}>{statusLabel[status]}</span>
+                {pageCount > 0 && <Badge tone={pageCount > 1 ? "warning" : "neutral"}>{pageCount} {pageCount === 1 ? "page" : "pages"}</Badge>}
+                <div className="ml-auto flex items-center gap-1">
+                    <Button size="sm" variant={compact ? "secondary" : "primary"} icon={Download} onClick={handleDownload} loading={downloading} disabled={status === "loading-engine"}>
+                        {downloading ? "Preparing…" : compact ? "PDF" : "Download PDF"}
+                    </Button>
+                    {compact && onClose && <IconButton icon={X} aria-label="Close preview" onClick={onClose} />}
                 </div>
-                <button
-                    onClick={handleDownload}
-                    disabled={downloading || status === "loading-engine"}
-                    className="bg-black text-white px-6 py-3 rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg hover:bg-black/80 transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100 flex items-center gap-3"
-                >
-                    <DownloadIcon className="w-4 h-4" />
-                    {downloading ? "Preparing…" : "Download PDF"}
-                </button>
             </div>
 
-            {downloadError && (
-                <ErrorPanel title="PDF export failed" message={downloadError} />
-            )}
-            {status === "error" && error && (
-                <ErrorPanel title="Typst compile error" message={error} />
-            )}
-
-            {/* Document */}
-            <div className="mx-auto w-full max-w-[210mm] overflow-hidden">
-                {svg ? (
-                    <div
-                        className={`bg-white shadow-2xl transition-opacity [&>svg]:block [&>svg]:w-full [&>svg]:h-auto ${
-                            status === "compiling" || status === "error" ? "opacity-60" : "opacity-100"
-                        }`}
-                        dangerouslySetInnerHTML={{ __html: svg }}
-                    />
-                ) : (
-                    <div className="aspect-[210/297] w-full bg-white shadow-2xl flex items-center justify-center">
-                        <span className="text-black/30 font-bold uppercase tracking-widest text-xs">
-                            {status === "error" ? "Nothing rendered yet" : statusLabel[status]}
-                        </span>
-                    </div>
-                )}
+            <div className={cn(compact && "min-h-0 flex-1 overflow-y-auto p-4")}>
+                {downloadError && <ErrorPanel title="PDF export failed" message={downloadError} />}
+                {status === "error" && error && <ErrorPanel title="Typst compile error" message={error} />}
+                <div className={cn("mx-auto w-full overflow-hidden", compact ? "" : "max-w-[210mm]")}>
+                    {svg ? (
+                        <div
+                            className={cn(
+                                "border border-border bg-white shadow-sm transition-opacity [&>svg]:block [&>svg]:h-auto [&>svg]:w-full",
+                                status === "compiling" || status === "error" ? "opacity-60" : "opacity-100",
+                            )}
+                            dangerouslySetInnerHTML={{ __html: svg }}
+                        />
+                    ) : (
+                        <div className="flex aspect-[210/297] w-full items-center justify-center border border-border bg-white">
+                            <span className="text-13 text-fg-subtle">{status === "error" ? "Nothing rendered yet" : statusLabel[status]}</span>
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );
@@ -145,19 +129,9 @@ export function ResumePreview({ resumeData, template = DEFAULT_TEMPLATE }: Resum
 
 function ErrorPanel({ title, message }: { title: string; message: string }) {
     return (
-        <div className="border-2 border-red-200 bg-red-50 rounded-2xl p-5 text-red-800">
-            <div className="text-[11px] font-black uppercase tracking-widest mb-2">{title}</div>
-            <pre className="text-xs whitespace-pre-wrap break-words font-mono">{message}</pre>
+        <div className="mb-4 rounded-md border border-danger-border bg-danger-bg p-3 text-danger">
+            <div className="mb-1 text-13 font-medium">{title}</div>
+            <pre className="whitespace-pre-wrap break-words font-mono text-xs">{message}</pre>
         </div>
-    );
-}
-
-function DownloadIcon({ className }: { className?: string }) {
-    return (
-        <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" y1="15" x2="12" y2="3"></line>
-        </svg>
     );
 }

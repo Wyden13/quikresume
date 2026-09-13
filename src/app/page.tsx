@@ -1,176 +1,62 @@
-import React from 'react';
-import Link from 'next/link';
+import React from "react";
+import Link from "next/link";
 import { auth } from "@/auth";
-import Image from 'next/image';
+import { MarketingFooter, MarketingHeader } from "@/components/marketing-header";
+
+const PRIMARY = "inline-flex h-10 items-center justify-center rounded-md bg-accent px-4 text-sm font-medium text-accent-fg transition-colors hover:bg-accent-hover";
+const SECONDARY = "inline-flex h-10 items-center justify-center rounded-md border border-border bg-surface px-4 text-sm font-medium text-fg transition-colors hover:bg-surface-hover";
+
+const FEATURES = [
+    { title: "One library, many résumés", body: "Keep every role, project and skill in one place. Toggle what each application should show; nothing is retyped." },
+    { title: "Real PDF, compiled in your browser", body: "Typst renders a crisp, ATS-readable PDF on the fly. Live preview as you edit, one page or two, your call." },
+    { title: "Job Match", body: "Paste a job description. See which must-haves you cover, which keywords are missing, and get concrete rewrite suggestions." },
+    { title: "Import in seconds", body: "Drop in an old PDF or Word résumé and it is read straight into your library, duplicates merged." },
+];
 
 export default async function Home() {
-  const session = await auth();
+    const session = await auth();
+    const cta = session ? "/dashboard" : "/login";
 
-  return (
-      <div className="min-h-screen bg-white text-black font-sans">
-        {/* Header */}
-        <header className="flex flex-row justify-between items-center px-6 py-6 md:px-16 md:py-6 w-full max-w-[1280px] mx-auto">
-          <div className="flex flex-row items-center gap-2">
-            {/* Logo Image */}
-            <Image
-                src="/icons/quik-resume.svg"
-                alt="quikResume Logo"
-                width={40}
-                height={40}
-                className="w-7 h-7 md:w-10 md:h-10"
-            />
-            <span className="font-semibold text-lg md:text-2xl tracking-tight">quikResume</span>
-          </div>
-          <div className="flex flex-row items-center gap-6">
-            {session ? (
-                <Link href="/dashboard" className="flex justify-center items-center px-4 py-3 bg-black text-white rounded-xl font-medium text-base">
-                  Dashboard
-                </Link>
-            ) : (
-                <>
-                  <Link href="/login" className="hidden md:flex font-medium text-base hover:text-black/70 transition-colors">
-                    Login
-                  </Link>
-                  <Link href="/login" className="flex justify-center items-center px-4 py-3 bg-black text-white rounded-xl font-medium text-base hover:bg-black/80 transition-colors">
-                    Sign Up
-                  </Link>
-                </>
-            )}
-          </div>
-        </header>
+    return (
+        <div className="min-h-dvh bg-bg text-fg">
+            <MarketingHeader session={session} />
 
-        {/* Hero Section */}
-        <section className="flex flex-col md:flex-row justify-center items-start md:items-center w-full max-w-[1280px] mx-auto md:h-[540px]">
-          {/* Mobile Image */}
-          <div className="w-full h-[298px] bg-gray-100 md:hidden"></div>
+            <section className="mx-auto w-full max-w-6xl px-6 py-20 md:py-28">
+                <div className="max-w-2xl">
+                    <h1 className="text-4xl font-semibold leading-[1.08] tracking-tight md:text-5xl">
+                        A résumé for every application, from one library.
+                    </h1>
+                    <p className="mt-5 max-w-xl text-base text-fg-muted md:text-lg">
+                        Keep your whole professional history in one place, switch items on and off per job, and download a real PDF in a click.
+                    </p>
+                    <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+                        <Link href={cta} className={PRIMARY}>{session ? "Go to dashboard" : "Get started"}</Link>
+                        {!session && <Link href="/login" className={SECONDARY}>Log in</Link>}
+                    </div>
+                </div>
+                <div className="mt-14 aspect-[16/8] w-full rounded-lg border border-border bg-surface" aria-hidden />
+            </section>
 
-          <div className="flex flex-col justify-center items-start px-6 py-14 md:px-16 md:py-[120px] gap-8 md:w-1/2">
-            <div className="flex flex-col gap-4 md:gap-6">
-              <h1 className="font-bold text-[40px] leading-[110%] md:text-[56px] tracking-tight text-center md:text-left">
-                Streamline your<br />Job Applications!
-              </h1>
-              <p className="font-medium text-lg md:text-2xl leading-[145%] text-black/55 text-center md:text-left">
-                Create Resumes, Cover Letters and Apply with just click of a button!
-              </p>
-            </div>
-            <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
-              {session ? (
-                  <Link href="/dashboard" className="w-full md:w-auto flex justify-center items-center px-6 py-3 bg-black text-white rounded-xl font-medium text-lg hover:bg-black/80 transition-colors">
-                    Go to Dashboard
-                  </Link>
-              ) : (
-                  <>
-                    <Link href="/login" className="w-full md:w-auto flex justify-center items-center px-6 py-3 bg-black text-white rounded-xl font-medium text-lg hover:bg-black/80 transition-colors">
-                      Join Now!
-                    </Link>
-                    <Link href="/login" className="w-full md:w-auto flex justify-center items-center px-6 py-3 border-2 border-black/15 text-black rounded-xl font-medium text-lg hover:bg-black/5 transition-colors">
-                      Login
-                    </Link>
-                  </>
-              )}
-            </div>
-          </div>
+            <section id="features" className="border-t border-border bg-surface">
+                <div className="mx-auto grid w-full max-w-6xl gap-x-12 gap-y-10 px-6 py-16 md:grid-cols-2 md:py-20">
+                    {FEATURES.map(f => (
+                        <div key={f.title} className="border-t border-border pt-5">
+                            <h2 className="text-lg font-semibold tracking-tight">{f.title}</h2>
+                            <p className="mt-2 text-sm text-fg-muted md:text-base">{f.body}</p>
+                        </div>
+                    ))}
+                </div>
+            </section>
 
-          {/* Desktop Image */}
-          <div className="hidden md:block w-1/2 h-full bg-gray-100 rounded-l-2xl"></div>
-        </section>
+            <section className="mx-auto flex w-full max-w-6xl flex-col items-start gap-5 px-6 py-16 md:flex-row md:items-center md:justify-between">
+                <div>
+                    <h2 className="text-2xl font-semibold tracking-tight">Ready when you are.</h2>
+                    <p className="mt-1 text-fg-muted">Sign in with Google. Nothing to install.</p>
+                </div>
+                <Link href={cta} className={PRIMARY}>{session ? "Open dashboard" : "Create your library"}</Link>
+            </section>
 
-        {/* Features Section */}
-        <section className="flex flex-col items-center w-full max-w-[1280px] mx-auto">
-          {/* Row 1 */}
-          <div className="flex flex-col md:flex-row justify-center items-center px-6 py-10 md:px-16 md:py-20 gap-8 md:gap-16 w-full">
-            <div className="w-full md:w-[544px] h-[243px] md:h-[432px] bg-pink-100 rounded-2xl order-1 md:order-2 md:hidden"></div>
-            <div className="flex flex-col justify-center items-start gap-10 md:gap-12 w-full md:w-1/2 order-2 md:order-1">
-              <div className="flex flex-col gap-4 md:gap-6 w-full">
-                <h2 className="font-bold text-[24px] md:text-[36px] leading-[120%] tracking-tight">
-                  Tailor your resume in seconds!
-                </h2>
-                <p className="font-medium text-[16px] md:text-[18px] leading-[145%] text-black/55">
-                  With our powerful resume generation engine, tailor your resume for each job you&apos;ll be applying - no more PDF hassles!
-                </p>
-              </div>
-              <Link href={session ? "/dashboard" : "/login"} className="w-full md:w-auto flex justify-center items-center px-4 py-3 bg-black text-white rounded-xl font-medium text-[16px] md:text-[18px] hover:bg-black/80 transition-colors">
-                Try Now!
-              </Link>
-            </div>
-            <div className="hidden md:block w-[544px] h-[432px] bg-pink-100 rounded-2xl order-2"></div>
-          </div>
-
-          {/* Row 2 */}
-          <div className="flex flex-col md:flex-row justify-center items-center px-6 py-8 md:px-16 md:py-10 gap-8 md:gap-16 w-full">
-            <div className="w-full md:w-[544px] h-[243px] md:h-[432px] bg-purple-200 rounded-2xl order-1"></div>
-            <div className="flex flex-col justify-center items-start gap-10 md:gap-12 w-full md:w-1/2 order-2">
-              <div className="flex flex-col gap-4 md:gap-6 w-full">
-                <h2 className="font-bold text-[24px] md:text-[36px] leading-[120%] tracking-tight">
-                  Generate Cover Letters and Apply!
-                </h2>
-                <p className="font-medium text-[16px] md:text-[18px] leading-[145%] text-black/55">
-                  Generate your CV for every job, reducing the time it takes to complete your application process.
-                </p>
-              </div>
-              <Link href={session ? "/dashboard" : "/login"} className="w-full md:w-auto flex justify-center items-center px-4 py-3 bg-black text-white rounded-xl font-medium text-[16px] md:text-[18px] hover:bg-black/80 transition-colors">
-                Try Now!
-              </Link>
-            </div>
-          </div>
-        </section>
-
-        {/* Info Row */}
-        <section className="bg-black/5 w-full">
-          <div className="flex flex-col md:flex-row items-start px-6 py-10 md:px-16 md:py-[120px] gap-12 max-w-[1280px] mx-auto">
-            <div className="flex flex-col items-start pt-6 gap-3 md:gap-4 border-t border-black/15 flex-1 w-full">
-              <h3 className="font-bold text-[18px] md:text-[24px] leading-none tracking-tight">
-                Use Our Web- Extension
-              </h3>
-              <p className="font-medium text-[16px] leading-[145%] text-black/55">
-                Our web extension allows you to auto fill the details from your resume to every application site!
-              </p>
-            </div>
-            <div className="flex flex-col items-start pt-6 gap-3 md:gap-4 border-t border-black/15 flex-1 w-full">
-              <h3 className="font-bold text-[18px] md:text-[24px] leading-none tracking-tight">
-                Hassle Free Handling
-              </h3>
-              <p className="font-medium text-[16px] leading-[145%] text-black/55">
-                We will save all your resumes and track which jobs you applied for.
-              </p>
-            </div>
-            <div className="flex flex-col items-start pt-6 gap-3 md:gap-4 border-t border-black/15 flex-1 w-full">
-              <h3 className="font-bold text-[18px] md:text-[24px] leading-none tracking-tight">
-                Powerful AI tools
-              </h3>
-              <p className="font-medium text-[16px] leading-[145%] text-black/55">
-                Our AI tools allow you to tailor your resume perfectly for every kind of job!
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* Footer */}
-        <footer className="w-full max-w-[1280px] mx-auto border-t border-black/10">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center px-6 py-16 md:p-16 gap-14 md:gap-[120px]">
-            <div className="flex flex-col md:flex-row items-start md:items-center gap-6 md:gap-8">
-              <div className="flex flex-row items-center gap-2">
-                {/* Footer Logo Image */}
-                <Image
-                    src="/icons/quik-resume.svg"
-                    alt="quikResume Logo"
-                    width={32}
-                    height={32}
-                    className="w-8 h-8"
-                />
-                <span className="font-semibold text-[18px] md:text-[20px] tracking-tight">quikResume</span>
-              </div>
-              <nav className="flex flex-col md:flex-row items-start gap-4 md:gap-8">
-                <Link href="#" className="font-medium text-[16px] text-black/55 hover:text-black transition-colors">Features</Link>
-                <Link href="#" className="font-medium text-[16px] text-black/55 hover:text-black transition-colors">Learn more</Link>
-                <Link href="#" className="font-medium text-[16px] text-black/55 hover:text-black transition-colors">Support</Link>
-              </nav>
-            </div>
-            <p className="text-[12px] text-black/30 font-bold uppercase tracking-widest">
-              &copy; {new Date().getFullYear()} quikResume
-            </p>
-          </div>
-        </footer>
-      </div>
-  );
+            <MarketingFooter />
+        </div>
+    );
 }

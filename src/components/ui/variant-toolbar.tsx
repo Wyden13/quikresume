@@ -11,6 +11,9 @@ import type { ResumeData } from "@/types/schema";
 import type { ResumeVariant } from "@/types/db";
 import { createVariant, loadVariant, resnapshotVariant } from "@/app/actions/variant-actions";
 import { selectionEquals } from "@/lib/variants";
+import { Button } from "@/components/ui/primitives/button";
+import { Input, Select } from "@/components/ui/primitives/field";
+import { Badge } from "@/components/ui/primitives/badge";
 
 interface VariantToolbarProps {
     variants: ResumeVariant[];
@@ -40,19 +43,17 @@ export function VariantToolbar({ variants, loadedVariantId, data, onNotice }: Va
         }
     };
 
-    const btn = "px-4 py-2.5 rounded-xl bg-white border-2 border-black/10 hover:border-black text-[11px] font-black uppercase tracking-widest transition-all disabled:opacity-50";
-
     return (
         <div className="flex flex-wrap items-center gap-2">
             {loaded && (
-                <span className="px-3 py-2 rounded-xl bg-black text-white text-[11px] font-black uppercase tracking-widest" title={loaded.labels.join(", ")}>
+                <Badge tone="strong" title={loaded.labels.join(", ")}>
                     {loaded.name}{inSync ? "" : " · modified"}
-                </span>
+                </Badge>
             )}
             {loaded && !inSync && (
-                <button type="button" className={btn} disabled={busy !== null} onClick={() => run("update", async () => { await resnapshotVariant(loaded.id); return `"${loaded.name}" updated to the current selection.`; })}>
-                    {busy === "update" ? "Updating…" : `Update ${loaded.name}`}
-                </button>
+                <Button size="sm" disabled={busy !== null} loading={busy === "update"} onClick={() => run("update", async () => { await resnapshotVariant(loaded.id); return `"${loaded.name}" updated to the current selection.`; })}>
+                    Update {loaded.name}
+                </Button>
             )}
             {naming ? (
                 <form
@@ -63,17 +64,19 @@ export function VariantToolbar({ variants, loadedVariantId, data, onNotice }: Va
                         run("create", async () => { await createVariant({ name }); setNaming(false); setName(""); return `Saved the current selection as "${name.trim()}".`; });
                     }}
                 >
-                    <input autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="Variant name" className="px-3 py-2 rounded-xl border-2 border-black outline-none text-sm font-bold w-44" />
-                    <button type="submit" className={`${btn} !bg-black !text-white !border-black`} disabled={busy !== null || !name.trim()}>{busy === "create" ? "Saving…" : "Save"}</button>
-                    <button type="button" className={btn} onClick={() => { setNaming(false); setName(""); }}>Cancel</button>
+                    <Input autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="Variant name" className="h-8 w-44 text-13" />
+                    <Button size="sm" variant="primary" type="submit" disabled={busy !== null || !name.trim()} loading={busy === "create"}>Save</Button>
+                    <Button size="sm" variant="ghost" onClick={() => { setNaming(false); setName(""); }}>Cancel</Button>
                 </form>
             ) : (
-                <button type="button" className={btn} disabled={busy !== null} onClick={() => setNaming(true)}>Save as variant</button>
+                <Button size="sm" disabled={busy !== null} onClick={() => setNaming(true)}>Save as variant</Button>
             )}
             {variants.length > 0 && (
-                <select
+                <Select
                     value=""
                     disabled={busy !== null}
+                    aria-label="Load a variant"
+                    className="w-40"
                     onChange={e => {
                         const id = e.target.value;
                         const v = variants.find(x => x.id === id);
@@ -83,13 +86,12 @@ export function VariantToolbar({ variants, loadedVariantId, data, onNotice }: Va
                             return r.missing > 0 ? `Loaded "${v.name}". ${r.missing} missing ${r.missing === 1 ? "item was" : "items were"} dropped.` : `Loaded "${v.name}".`;
                         });
                     }}
-                    className="px-3 py-2.5 rounded-xl border-2 border-black/10 focus:border-black outline-none text-[11px] font-black uppercase tracking-widest bg-white disabled:opacity-50"
                 >
                     <option value="">{busy === "load" ? "Loading…" : "Load variant…"}</option>
                     {variants.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                </select>
+                </Select>
             )}
-            <Link href="/dashboard/variants" className="text-[11px] font-black uppercase tracking-widest text-black/40 hover:text-black px-2">Manage</Link>
+            <Link href="/dashboard/variants" className="text-13 text-fg-muted hover:text-fg px-1">Manage</Link>
         </div>
     );
 }

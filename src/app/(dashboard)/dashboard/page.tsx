@@ -17,8 +17,6 @@ import { getTagAliases } from "@/app/actions/tag-actions"
 import { DEFAULT_CAPS } from "@/lib/match/types"
 import { toResumeData } from "@/lib/resume-mapper"
 import DashboardClient from "@/components/dashboard-client"
-import { SiteHeader } from "@/components/site-header"
-import { SiteFooter } from "@/components/site-footer"
 import { redirect } from "next/navigation";
 
 // Save & Exit runs the smart-tag extractor (GLM) inside the server action;
@@ -68,30 +66,24 @@ export default async function DashboardPage() {
     });
 
     return (
-        <div className="min-h-screen flex flex-col bg-white text-black font-sans">
-            <SiteHeader session={session} />
-            <main className="flex-grow">
-                <DashboardClient
-                    initialResumeData={initialResumeData}
-                    experiences={experiences}
-                    educations={educations}
-                    skills={skills}
-                    projects={projects}
-                    certifications={certifications}
-                    awards={awards}
-                    volunteering={volunteering}
-                    publications={publications}
-                    languages={languages}
-                    variants={variants}
-                    variantUsage={variantUsage(variants)}
-                    loadedVariantId={loadedVariantId}
-                    jobs={jobs}
-                    preferences={preferences ?? { mutedProposals: [], caps: DEFAULT_CAPS }}
-                    tagAliases={tagAliases}
-                    userName={initialResumeData.personalInfo.firstName || session.user.name?.split(" ")[0] || "there"}
-                />
-            </main>
-            <SiteFooter />
-        </div>
+        <DashboardClient
+            initialResumeData={initialResumeData}
+            experiences={experiences}
+            educations={educations}
+            skills={skills}
+            projects={projects}
+            certifications={certifications}
+            awards={awards}
+            volunteering={volunteering}
+            publications={publications}
+            languages={languages}
+            variants={variants}
+            variantUsage={variantUsage(variants)}
+            loadedVariantId={loadedVariantId}
+            jobs={jobs}
+            preferences={preferences ?? { mutedProposals: [], caps: DEFAULT_CAPS }}
+            tagAliases={tagAliases}
+            userName={initialResumeData.personalInfo.firstName || session.user.name?.split(" ")[0] || "there"}
+        />
     )
 }

@@ -7,7 +7,10 @@ Resume builder. Users keep their full professional history in a **Master Library
 ## Stack
 
 - Next.js 16.1.6, App Router, Turbopack, React 19 + React Compiler (`reactCompiler: true`), TypeScript strict
-- Tailwind CSS v4 (CSS-first: `@import "tailwindcss"` + `@theme` in `src/app/globals.css`; no tailwind.config)
+- Tailwind CSS v4 (CSS-first: `@import "tailwindcss"` + `@theme` in `src/app/globals.css`; no tailwind.config).
+  Design tokens live there as CSS variables (`--bg`, `--surface`, `--border`, `--fg-muted`, `--accent`, `--danger`, …)
+  mapped to utilities (`bg-surface`, `border-border`, `text-fg-muted`, `text-13`, …). Font: Montserrat 400/500/600
+  via `next/font` (`--font-montserrat`); Geist Mono only for Typst diagnostics. Icons: `lucide-react`.
 - NextAuth v5 beta: Google provider, JWT sessions, `@auth/firebase-adapter`; `src/proxy.ts` (Next 16 name for middleware) guards `/dashboard/*`
 - `firebase-admin` Firestore, **named database `"quikresume"`** (`src/lib/firestore.ts`)
 - `@myriaddreamin/typst.ts` 0.7.0 (+ `typst-ts-web-compiler`, `typst-ts-renderer`), wraps Typst 0.13
@@ -47,27 +50,39 @@ Required env (`.env.local`): `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRE
 ```
 src/
   auth.ts, proxy.ts, lib/firestore.ts        auth + db singletons
-  app/page.tsx, (auth)/login, (dashboard)/dashboard/{page,profile/page,variants/page}.tsx
+  app/page.tsx, (auth)/login                 public pages (MarketingHeader/Footer in components/marketing-header.tsx)
+  app/(dashboard)/layout.tsx                 signed-in shell: auth() -> <AppShell> (sidebar + drawer); pages render <TopBar>
+  app/(dashboard)/dashboard/{page,profile/page,variants/page}.tsx
   app/api/import/route.ts                    POST upload -> GLM-4.6V -> ResumeData draft (see Resume import)
   app/api/tags/{analyze,backfill}/route.ts   tag unsaved draft items (nothing persisted) / re-tag stale library items
   app/api/jobs/{analyze,proposals,reconcile}/route.ts   JD -> requirements (+ reconcile when the form carries `resume`) /
                                              gap -> proposals (re-reconciles first) / re-run the reconcile pass for a saved job
   app/actions/*-actions.ts                   "use server" CRUD per collection + resume-actions.ts (save + tagging)
-                                             + user-actions.ts (profile), variant-actions.ts, job-actions.ts, tag-actions.ts
+                                             + user-actions.ts (profile), variant-actions.ts, job-actions.ts, tag-actions.ts,
+                                             auth-actions.ts (signOutAction, passed to the client sidebar)
   lib/db/{user-collection,meta,variants,jobs,load-resume}.ts   server-only Firestore helpers
-  components/site-header.tsx, site-footer.tsx, nav-link.tsx   signed-in chrome (Dashboard / Variants / Profile)
-  components/dashboard-client.tsx            view switch: library | edit | preview | import | insights | jobs; draft state
-  components/ui/resume-form.tsx              the Master Editor (controlled form; "Used in N variants" / "Not analysed" badges)
-  components/ui/form-controls.tsx            Label / Input / Textarea / Button shared by the forms
-  components/ui/confirm-dialog.tsx           modal confirm (discard, delete, save-affects-variants)
+  components/shell/{app-shell,sidebar-nav,shell-context}.tsx   240px sidebar (>=lg) / drawer (<lg); ShellContext.openDrawer
+  components/ui/primitives/*                 the UI kit: Button/IconButton, Field (Label/Input/Textarea/Select/Checkbox),
+                                             Switch, Badge/TagChip, Tabs, Segmented, Card/SectionHeader, Table, ExpandableRow,
+                                             TopBar (sticky; rows: title+actions / tabs / banner), Dialog+ConfirmDialog
+                                             (native <dialog>), Drawer, EmptyState, ScoreRing, NoticeBanner, icons.ts
+  components/dashboard-client.tsx            view from `?view=` (lib/ui/use-dashboard-view.ts); TopBar per view; draft state;
+                                             preview pane grid; JobContextStrip
+  components/ui/section-tabs.tsx             "All | Profile | <sections with counts>" filter strip (Library + Editor)
+  components/ui/library/{library-view,library-section,library-row}.tsx   dense expandable rows; server-action forms
+  components/ui/editor/{resume-form,editor-section,editor-item-row,section-fields,personal-info-section,date-range-fields}.tsx
+                                             the Master Editor: collapsible item rows, per-section field config
+  components/ui/job-context-strip.tsx        slim sticky strip under the TopBar while tailoring for a job
   components/ui/profile-form.tsx             Profile page form -> updateUserProfile
   components/ui/resume-import.tsx            multi-file upload (PDF -> page images) + combined review step
-  components/ui/selection-display.tsx        library cards (toggle / active / delete via server-action forms; tag chips)
   components/ui/variant-toolbar.tsx          Save as / Load / Update variant on the library view
   components/ui/variants-page.tsx            /dashboard/variants: search, labels, rename, duplicate, delete, load
   components/ui/insights-view.tsx, tag-charts.tsx   tag charts (recharts radar / bars / treemap) + tag table
-  components/ui/job-match-view.tsx, proposal-cards.tsx, job-context-panel.tsx, use-page-count.ts   Job Match
-  components/ui/resume-preview.tsx           Typst preview + PDF download (client only)
+  components/ui/job-match-view.tsx, proposal-cards.tsx, use-page-count.ts   Job Match
+  components/ui/resume-preview.tsx           Typst preview + PDF download (client only; `compact` for the side pane)
+  lib/ui/{use-dashboard-view,use-media-query,persisted-store,preview-pane-store,expansion-store}.ts
+                                             URL view state, matchMedia hook, useSyncExternalStore stores (pane open in
+                                             localStorage, expanded row ids in sessionStorage)
   lib/dates.ts, lib/ids.ts, lib/hash.ts      date-string helpers, temp ids, stableHash (content hashes)
   lib/sections.ts                            ResumeListKey <-> Firestore collection names, item labels
   lib/resume-mapper.ts                       Firestore rows -> ResumeData (server); personalInfoToUserDoc
@@ -97,7 +112,9 @@ public/pdfjs/pdf.worker.min.mjs              gitignored, filled by scripts/copy-
 1. `dashboard/page.tsx` (RSC) fetches profile + `experience`, `education`, `skills`, `projects`,
    `certifications`, `awards`, `volunteering`, `publications`, `languages` in parallel and builds
    `initialResumeData` with `toResumeData`.
-2. `DashboardClient` holds `draft: ResumeData | null`. `resumeData = draft ?? initialResumeData`.
+2. `DashboardClient` reads the view from `?view=editor|preview|import|insights|jobs` (no param = library) and
+   navigates with `router.push` so Back works; the page never unmounts, so `draft` survives view switches.
+   It holds `draft: ResumeData | null`. `resumeData = draft ?? initialResumeData`.
    Opening the editor copies server truth into the draft; Save calls `saveResumeData(draft)` then clears it;
    Discard just clears it. The draft is **never re-derived from props**, so `revalidatePath` refreshes
    after server actions cannot clobber unsaved edits.
@@ -275,7 +292,11 @@ editor and `string[]` in Firestore.
 - No `setState` from props inside effects; key effects on primitive strings; no manual `useMemo`/`useCallback`
   (React Compiler handles it).
 - Optional strings are stored as `null`, not `""`. Mappers default missing fields to `""`.
-- UI is light-only; no `dark:` variants.
+- UI is light-only; no `dark:` variants. Colours go through the tokens in `globals.css` (`bg-surface`, `text-fg-muted`,
+  `border-border`, `text-danger`…), never raw palette classes; no `font-black`, no uppercase micro-labels, radii ≤ `rounded-lg`,
+  shadows ≤ `shadow-sm`. New UI is built from `components/ui/primitives`.
+- Browser-persisted UI state (preview pane, expanded rows) uses the `createPersistedStore` + `useSyncExternalStore` pattern
+  in `lib/ui/persisted-store.ts` (server snapshot = initial) rather than reading storage in effects.
 
 ## Gotchas
 
@@ -289,6 +310,9 @@ editor and `string[]` in Firestore.
   `TypstSnippet.preloadFontAssets({ assets: ["cjk"] })` in `client.ts` if that is ever needed.
 - `sys.inputs` values are strings; `main.typ` falls back to `sample.json` only when no `resume` input is given.
 - `next/dynamic({ ssr: false })` is only allowed inside Client Components (as done in `dashboard-client.tsx`).
+- `useSearchParams` needs a `<Suspense>` boundary: `DashboardClient` and `SidebarNav` wrap themselves.
+- The preview side pane (≥1280px, `PanelRight` toggle / sidebar "Preview") is rendered by `DashboardClient`, not the layout,
+  because only it has `resumeData`. Below 1280px "Preview" navigates to `?view=preview`.
 - `"use server"` files may only export async functions, so shared Firestore boilerplate lives in
   `src/lib/db/user-collection.ts` (plain `server-only` module); never build actions with a factory.
 - Route handler files may only export route fields (`GET`, `POST`, `runtime`, `maxDuration`, …); shared

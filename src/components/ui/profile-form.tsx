@@ -3,10 +3,13 @@
 
 import React, { useState } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import type { PersonalInfo } from "@/types/schema";
 import { updateUserProfile } from "@/app/actions/user-actions";
-import { Button, Input, Label, Textarea } from "@/components/ui/form-controls";
+import { cn } from "@/lib/cn";
+import { Button } from "@/components/ui/primitives/button";
+import { Field, Input, Textarea } from "@/components/ui/primitives/field";
+import { Card, CardBody, CardHeader } from "@/components/ui/primitives/card";
+import { NoticeBanner } from "@/components/ui/primitives/notice-banner";
 
 interface ProfileFormProps {
     initial: PersonalInfo;
@@ -40,85 +43,61 @@ export function ProfileForm({ initial, account }: ProfileFormProps) {
 
     const dirty = JSON.stringify(info) !== JSON.stringify(initial);
 
+    const f = (field: keyof PersonalInfo, label: string, placeholder: string, extra?: React.ComponentProps<typeof Input>, className?: string) => (
+        <Field label={label} htmlFor={`profile-${field}`} className={className}>
+            <Input id={`profile-${field}`} value={info[field]} onChange={set(field)} placeholder={placeholder} {...extra} />
+        </Field>
+    );
+
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-8 items-start">
-            {/* Account card */}
-            <aside className="bg-gray-50/60 border-2 border-black/5 rounded-[2rem] p-8 space-y-6">
-                <div className="flex items-center gap-4">
-                    {account.image ? (
-                        <Image src={account.image} alt="" width={56} height={56} className="rounded-full border-2 border-white shadow" />
-                    ) : (
-                        <div className="w-14 h-14 rounded-full bg-black/10" />
-                    )}
-                    <div className="min-w-0">
-                        <p className="font-black text-lg leading-tight truncate">{account.name || "Google account"}</p>
-                        <p className="text-sm text-black/50 font-medium truncate">{account.email}</p>
+        <div className="grid items-start gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+            <Card as="aside">
+                <CardBody className="space-y-4 pt-4">
+                    <div className="flex items-center gap-3">
+                        {account.image ? (
+                            <Image src={account.image} alt="" width={40} height={40} className="size-10 rounded-full" />
+                        ) : (
+                            <div className="size-10 rounded-full bg-surface-muted" />
+                        )}
+                        <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-fg">{account.name || "Google account"}</p>
+                            <p className="truncate text-13 text-fg-muted">{account.email}</p>
+                        </div>
                     </div>
-                </div>
-                <p className="text-xs text-black/40 font-bold uppercase tracking-widest">Signed in with Google</p>
-                <p className="text-sm text-black/55 leading-relaxed">
-                    Your sign-in email stays private. The professional email below is the one printed on your resume.
-                </p>
-                <Link href="/dashboard" className="inline-flex text-sm font-bold underline underline-offset-4">Back to dashboard</Link>
-            </aside>
+                    <p className="text-13 text-fg-muted">
+                        Signed in with Google. Your sign-in email stays private; the professional email on the right is the one printed on your résumé.
+                    </p>
+                </CardBody>
+            </Card>
 
-            {/* Form */}
-            <section className="bg-white border-2 border-black/5 rounded-[2rem] p-6 md:p-8 space-y-8 shadow-2xl shadow-black/5">
-                {error && (
-                    <div role="alert" className="border-2 border-red-200 bg-red-50 rounded-2xl p-5 text-red-800 text-sm font-bold">{error}</div>
-                )}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                        <Label htmlFor="firstName">First Name</Label>
-                        <Input id="firstName" value={info.firstName} onChange={set("firstName")} placeholder="Alex" autoComplete="given-name" />
+            <Card>
+                <CardHeader title="Résumé header" hint="These fields appear at the top of every résumé you generate." />
+                <CardBody className="space-y-4">
+                    {error && <NoticeBanner tone="danger" onDismiss={() => setError(null)}>{error}</NoticeBanner>}
+                    <div className="grid gap-4 md:grid-cols-2">
+                        {f("firstName", "First name", "Alex", { autoComplete: "given-name" })}
+                        {f("lastName", "Last name", "Morgan", { autoComplete: "family-name" })}
+                        {f("headline", "Headline", "B.S. Computer Science, Class of 2026 · Software · AI/ML", undefined, "md:col-span-2")}
+                        {f("email", "Professional email", "alex@example.com", { type: "email", autoComplete: "email" })}
+                        {f("phone", "Phone", "(123) 456-7890", { type: "tel", autoComplete: "tel" })}
+                        {f("location", "Location", "Seattle, WA")}
+                        {f("website", "Website", "alexmorgan.dev")}
+                        {f("github", "GitHub", "github.com/alexmorgan")}
+                        {f("linkedin", "LinkedIn", "linkedin.com/in/alexmorgan")}
+                        <Field label="Professional summary" htmlFor="profile-summary" className="md:col-span-2">
+                            <Textarea id="profile-summary" value={info.summary} onChange={set("summary")} placeholder="Brief overview of your professional background and goals…" rows={4} />
+                        </Field>
                     </div>
-                    <div>
-                        <Label htmlFor="lastName">Last Name</Label>
-                        <Input id="lastName" value={info.lastName} onChange={set("lastName")} placeholder="Morgan" autoComplete="family-name" />
+                    <div className="flex flex-col-reverse gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-end">
+                        <span className={cn("text-13", status === "saved" ? "text-success" : "text-fg-subtle")} aria-live="polite">
+                            {status === "saved" ? "Saved" : dirty ? "Unsaved changes" : ""}
+                        </span>
+                        <Button variant="primary" onClick={handleSave} loading={status === "saving"} disabled={!dirty && status !== "error"}>
+                            Save profile
+                        </Button>
                     </div>
-                    <div className="col-span-full">
-                        <Label htmlFor="headline">Headline</Label>
-                        <Input id="headline" value={info.headline} onChange={set("headline")} placeholder="B.S. Computer Science, Class of 2026 · Software · AI/ML" />
-                    </div>
-                    <div>
-                        <Label htmlFor="email">Professional Email</Label>
-                        <Input id="email" type="email" value={info.email} onChange={set("email")} placeholder="alex@example.com" autoComplete="email" />
-                    </div>
-                    <div>
-                        <Label htmlFor="phone">Phone Number</Label>
-                        <Input id="phone" type="tel" value={info.phone} onChange={set("phone")} placeholder="(123) 456-7890" autoComplete="tel" />
-                    </div>
-                    <div className="col-span-full">
-                        <Label htmlFor="location">Location</Label>
-                        <Input id="location" value={info.location} onChange={set("location")} placeholder="Seattle, WA" />
-                    </div>
-                    <div>
-                        <Label htmlFor="github">GitHub</Label>
-                        <Input id="github" value={info.github} onChange={set("github")} placeholder="github.com/alexmorgan" />
-                    </div>
-                    <div>
-                        <Label htmlFor="linkedin">LinkedIn</Label>
-                        <Input id="linkedin" value={info.linkedin} onChange={set("linkedin")} placeholder="linkedin.com/in/alexmorgan" />
-                    </div>
-                    <div className="col-span-full">
-                        <Label htmlFor="website">Website</Label>
-                        <Input id="website" value={info.website} onChange={set("website")} placeholder="alexmorgan.dev" />
-                    </div>
-                    <div className="col-span-full">
-                        <Label htmlFor="summary">Professional Summary</Label>
-                        <Textarea id="summary" value={info.summary} onChange={set("summary")} placeholder="Brief overview of your professional background and goals..." rows={5} />
-                    </div>
-                </div>
-
-                <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-4 pt-6 border-t border-black/5">
-                    <span className="text-xs font-black uppercase tracking-widest text-black/40" aria-live="polite">
-                        {status === "saved" ? "Saved" : dirty ? "Unsaved changes" : ""}
-                    </span>
-                    <Button variant="primary" size="lg" onClick={handleSave} loading={status === "saving"} disabled={!dirty && status !== "error"}>
-                        Save Profile
-                    </Button>
-                </div>
-            </section>
+                </CardBody>
+            </Card>
         </div>
     );
 }
