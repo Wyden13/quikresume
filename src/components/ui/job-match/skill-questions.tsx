@@ -1,13 +1,16 @@
 "use client";
 
-// Auto-tailor step 1: "Do you have X?" for the job's soft requirements that
-// nothing in the library covers. Yes -> printed "Soft skills" category (+ an
-// optional example worded into a bullet); No -> remembered and warned about on
-// later jobs until answered Yes. Saved through /api/jobs/soft-skills.
+// Tailor window step 1: "Do you have X?" for the job's requirements that nothing
+// in the library covers, hard ones first. Yes on a soft requirement -> printed
+// "Soft skills" category; Yes on a hard requirement -> the skill category picked
+// here (or by the AI). An optional example is worded into a bullet. No ->
+// remembered and warned about on later jobs until answered Yes. Saved through
+// /api/jobs/skill-answers.
 
 import React, { useState } from "react";
 import type { ResumeData } from "@/types/schema";
 import type { DeclinedSkill, Requirement } from "@/lib/match/types";
+import { requirementTier } from "@/lib/match/score";
 import { itemTitle, SECTION_LABEL } from "@/lib/sections";
 import { cn } from "@/lib/cn";
 import { Button, FOCUS_RING } from "@/components/ui/primitives/button";
@@ -16,20 +19,20 @@ import { Badge } from "@/components/ui/primitives/badge";
 import { NoticeBanner } from "@/components/ui/primitives/notice-banner";
 
 type Choice = "yes" | "no" | "skip";
-interface Answer { choice: Choice; example: string; itemId: string }
+interface Answer { choice: Choice; example: string; itemId: string; categoryId: string }
 
-export interface SoftSkillsSaved {
+export interface SkillsSaved {
     resume: ResumeData;
     declined: DeclinedSkill[];
     warning?: string;
 }
 
-interface SoftSkillQuestionsProps {
-    /** Uncovered soft requirements of the job (keywordGaps on the whole library). */
+interface SkillQuestionsProps {
+    /** Requirements of the job no library item covers (hard and soft). */
     gaps: Requirement[];
     declined: DeclinedSkill[];
     library: ResumeData;
-    onSaved: (result: SoftSkillsSaved) => void;
+    onSaved: (result: SkillsSaved) => void;
     /** Continue without saving anything. */
     onSkip?: () => void;
     skipLabel?: string;
@@ -37,11 +40,13 @@ interface SoftSkillQuestionsProps {
 }
 
 const EVIDENCE_SECTIONS = ["workExperience", "projects", "volunteering"] as const;
+const SOFT_CATEGORY = "soft skills";
 
-export function SoftSkillQuestions({ gaps, declined, library, onSaved, onSkip, skipLabel = "Skip questions", saveLabel = "Save answers" }: SoftSkillQuestionsProps) {
+export function SkillQuestions({ gaps, declined, library, onSaved, onSkip, skipLabel = "Skip questions", saveLabel = "Save answers" }: SkillQuestionsProps) {
     const declinedNames = new Set(declined.map(d => d.name));
-    const toAsk = gaps.filter(r => !declinedNames.has(r.name));
-    const previouslyDeclined = gaps.filter(r => declinedNames.has(r.name));
+    const byTier = (a: Requirement, b: Requirement) => (requirementTier(a) === requirementTier(b) ? 0 : requirementTier(a) === "hard" ? -1 : 1);
+    const toAsk = gaps.filter(r => !declinedNames.has(r.name)).sort(byTier);
+    const previouslyDeclined = gaps.filter(r => declinedNames.has(r.name)).sort(byTier);
 
     const [answers, setAnswers] = useState<Record<string, Answer>>({});
     const [reopened, setReopened] = useState<Set<string>>(new Set());
@@ -49,11 +54,13 @@ export function SoftSkillQuestions({ gaps, declined, library, onSaved, onSkip, s
     const [error, setError] = useState<string | null>(null);
 
     const evidenceItems = EVIDENCE_SECTIONS.flatMap(key => library[key].map(item => ({ id: item.id, label: `${SECTION_LABEL[key]} · ${itemTitle(key, item)}` })));
-    const answerOf = (name: string): Answer => answers[name] ?? { choice: "skip", example: "", itemId: "" };
+    const categories = library.skills.filter(s => s.category.trim().toLowerCase() !== SOFT_CATEGORY);
+    const answerOf = (name: string): Answer => answers[name] ?? { choice: "skip", example: "", itemId: "", categoryId: "" };
     const set = (name: string, patch: Partial<Answer>) => setAnswers(prev => ({ ...prev, [name]: { ...answerOf(name), ...patch } }));
 
     const rows = [...toAsk, ...previouslyDeclined.filter(r => reopened.has(r.name))];
     const decided = rows.filter(r => answerOf(r.name).choice !== "skip");
+    const hasHard = rows.some(r => requirementTier(r) === "hard");
 
     const save = async () => {
         setSaving(true);
@@ -61,10 +68,12 @@ export function SoftSkillQuestions({ gaps, declined, library, onSaved, onSkip, s
         try {
             const payload = decided.map(r => {
                 const a = answerOf(r.name);
-                return { name: r.name, display: r.display, kind: r.kind, have: a.choice === "yes", example: a.choice === "yes" ? a.example : "", itemId: a.choice === "yes" ? a.itemId : "" };
+                const yes = a.choice === "yes";
+                const hard = requirementTier(r) === "hard";
+                return { name: r.name, display: r.display, kind: r.kind, hard, have: yes, categoryId: yes && hard ? a.categoryId : "", example: yes ? a.example : "", itemId: yes ? a.itemId : "" };
             });
-            const res = await fetch("/api/jobs/soft-skills", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answers: payload }) });
-            const json = (await res.json().catch(() => null)) as ({ ok: true } & SoftSkillsSaved) | { ok: false; error: string } | null;
+            const res = await fetch("/api/jobs/skill-answers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answers: payload }) });
+            const json = (await res.json().catch(() => null)) as ({ ok: true } & SkillsSaved) | { ok: false; error: string } | null;
             if (!json) throw new Error(`Saving failed (${res.status}).`);
             if (!json.ok) throw new Error(json.error);
             onSaved({ resume: json.resume, declined: json.declined, warning: json.warning });
@@ -82,18 +91,19 @@ export function SoftSkillQuestions({ gaps, declined, library, onSaved, onSkip, s
             {rows.length > 0 ? (
                 <>
                     <p className="text-13 text-fg-muted">
-                        The job asks for these soft skills and nothing in your library shows them yet. Answer honestly: a Yes adds the skill to a
-                        <span className="font-medium text-fg"> Soft skills</span> line on your résumé, and an example becomes a bullet.
+                        The job asks for these and nothing in your library shows them yet. Answer honestly: a Yes adds the skill to your skills
+                        section ({hasHard ? <>technical skills go into the category you pick, soft skills into <span className="font-medium text-fg">Soft skills</span></> : <span className="font-medium text-fg">Soft skills</span>}), and an example becomes a bullet.
                     </p>
                     <ul className="divide-y divide-border rounded-lg border border-border">
                         {rows.map(r => {
                             const a = answerOf(r.name);
+                            const hard = requirementTier(r) === "hard";
                             return (
                                 <li key={r.name} className="space-y-3 px-4 py-3">
                                     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                                         <p className="min-w-0 flex-1 text-sm text-fg">
                                             Do you have <span className="font-medium">{r.display}</span>?
-                                            {r.importance === "must" && <Badge size="xs" tone="strong" className="ml-2 align-middle">must</Badge>}
+                                            <Badge size="xs" tone={hard ? "strong" : "neutral"} className="ml-2 align-middle">{hard ? "hard" : "soft"}{r.importance === "must" ? " · must" : ""}</Badge>
                                         </p>
                                         <div className="flex gap-1" role="radiogroup" aria-label={`Do you have ${r.display}?`}>
                                             {(["yes", "no", "skip"] as const).map(c => (
@@ -117,11 +127,17 @@ export function SoftSkillQuestions({ gaps, declined, library, onSaved, onSkip, s
                                         </div>
                                     </div>
                                     {a.choice === "yes" && (
-                                        <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,16rem)]">
+                                        <div className={cn("grid gap-2", hard ? "md:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_minmax(0,14rem)]" : "md:grid-cols-[minmax(0,1fr)_minmax(0,16rem)]")}>
+                                            {hard && (
+                                                <Select value={a.categoryId} onChange={e => set(r.name, { categoryId: e.target.value })} aria-label={`Skill category for ${r.display}`} selectClassName="h-8 text-13">
+                                                    <option value="">Let AI pick a category</option>
+                                                    {categories.map(s => <option key={s.id} value={s.id}>{s.category || "Untitled category"}</option>)}
+                                                </Select>
+                                            )}
                                             <Input
                                                 value={a.example}
                                                 onChange={e => set(r.name, { example: e.target.value })}
-                                                placeholder={`Optional: where did you use ${r.display.toLowerCase()}? (one line)`}
+                                                placeholder={`Optional: where did you use ${hard ? r.display : r.display.toLowerCase()}? (one line)`}
                                                 className="h-8 text-13"
                                                 aria-label={`Example of ${r.display}`}
                                             />
@@ -137,14 +153,18 @@ export function SoftSkillQuestions({ gaps, declined, library, onSaved, onSkip, s
                                             </Select>
                                         </div>
                                     )}
-                                    {a.choice === "no" && <p className="text-xs text-fg-subtle">Remembered. Jobs that need it will warn you until you add it.</p>}
+                                    {a.choice === "no" && (
+                                        <p className="text-xs text-fg-subtle">
+                                            Remembered. {hard && r.importance === "must" ? "This is a must-have, so the résumé will be flagged as missing it. " : ""}Jobs that need it will warn you until you add it.
+                                        </p>
+                                    )}
                                 </li>
                             );
                         })}
                     </ul>
                 </>
             ) : previouslyDeclined.length === 0 ? (
-                <p className="text-13 text-fg-muted">Your library already covers every soft skill this job asks for.</p>
+                <p className="text-13 text-fg-muted">Your library already covers every requirement of this job.</p>
             ) : null}
 
             {previouslyDeclined.some(r => !reopened.has(r.name)) && (
@@ -153,7 +173,7 @@ export function SoftSkillQuestions({ gaps, declined, library, onSaved, onSkip, s
                     <ul className="space-y-1.5">
                         {previouslyDeclined.filter(r => !reopened.has(r.name)).map(r => (
                             <li key={r.name} className="flex items-center gap-3 text-13">
-                                <span className="min-w-0 flex-1 text-fg">{r.display}{r.importance === "must" ? " · must-have" : ""}</span>
+                                <span className="min-w-0 flex-1 text-fg">{r.display}{requirementTier(r) === "hard" ? " · hard" : ""}{r.importance === "must" ? " · must-have" : ""}</span>
                                 <Button size="sm" onClick={() => { setReopened(prev => new Set(prev).add(r.name)); set(r.name, { choice: "yes" }); }}>I have this now</Button>
                             </li>
                         ))}

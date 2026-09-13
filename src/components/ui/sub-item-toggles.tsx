@@ -21,10 +21,14 @@ interface SubItemListProps {
     lockedKeys?: readonly string[];
     /** Optional note per key (e.g. why it is hidden), shown under a bullet. */
     notes?: Readonly<Record<string, string>>;
+    /** Keys to outline (e.g. an AI suggestion is pending on them). */
+    highlighted?: readonly string[];
+    /** Extra content under a bullet (suggestion actions, warnings). Bullets only. */
+    renderExtra?: (entry: SubItem, on: boolean) => React.ReactNode;
     className?: string;
 }
 
-export function SubItemList({ entries, hidden, onToggle, variant, idPrefix, disabled, lockedKeys = [], notes = {}, className }: SubItemListProps) {
+export function SubItemList({ entries, hidden, onToggle, variant, idPrefix, disabled, lockedKeys = [], notes = {}, highlighted = [], renderExtra, className }: SubItemListProps) {
     if (entries.length === 0) return null;
     const off = new Set(hidden);
     const shown = entries.filter(e => !off.has(e.key)).length;
@@ -41,7 +45,7 @@ export function SubItemList({ entries, hidden, onToggle, variant, idPrefix, disa
                         const id = `${idPrefix}-b${i}`;
                         const locked = lockedKeys.includes(e.key);
                         return (
-                            <li key={e.key} className="flex items-start gap-2.5">
+                            <li key={e.key} className={cn("flex items-start gap-2.5", highlighted.includes(e.key) && "-mx-2 rounded-md px-2 py-1 ring-1 ring-accent")}>
                                 <Checkbox id={id} checked={on} onChange={() => onToggle(e.key)} disabled={disabled || locked} className="mt-0.5" />
                                 <div className="min-w-0">
                                     <label htmlFor={id} className={cn("leading-relaxed", locked ? "cursor-not-allowed" : "cursor-pointer", on ? "text-fg-muted" : "text-fg-subtle line-through decoration-fg-subtle/60")}>
@@ -49,6 +53,7 @@ export function SubItemList({ entries, hidden, onToggle, variant, idPrefix, disa
                                     </label>
                                     {locked && <span className="block text-xs text-fg-subtle">Names a hard requirement · always shown</span>}
                                     {!on && notes[e.key] && <span className="block text-xs text-fg-subtle">{notes[e.key]}</span>}
+                                    {renderExtra?.(e, on)}
                                 </div>
                             </li>
                         );
@@ -68,6 +73,7 @@ export function SubItemList({ entries, hidden, onToggle, variant, idPrefix, disa
                                 title={lockedKeys.includes(e.key) ? "Names a hard requirement · always shown" : notes[e.key] ?? (on ? "Shown on résumé · click to hide" : "Hidden · click to show")}
                                 className={cn(
                                     "inline-flex h-7 items-center rounded-md border px-2.5 text-xs font-medium transition-colors",
+                                    highlighted.includes(e.key) && "ring-1 ring-accent ring-offset-1",
                                     on
                                         ? "border-border-strong bg-surface text-fg hover:bg-surface-hover"
                                         : "border-dashed border-border bg-transparent text-fg-subtle line-through hover:text-fg-muted",

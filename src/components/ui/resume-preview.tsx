@@ -17,13 +17,15 @@ interface ResumePreviewProps {
     /** Pane mode: tighter toolbar with a close button. */
     compact?: boolean;
     onClose?: () => void;
+    /** Hide the download button (the tailor window downloads through its own flow). */
+    hideDownload?: boolean;
 }
 
 type Status = "loading-engine" | "compiling" | "ready" | "error";
 
 const DEBOUNCE_MS = 300;
 
-export function ResumePreview({ resumeData, template = DEFAULT_TEMPLATE, compact = false, onClose }: ResumePreviewProps) {
+export function ResumePreview({ resumeData, template = DEFAULT_TEMPLATE, compact = false, onClose, hideDownload = false }: ResumePreviewProps) {
     // Key the effect on the serialized document so object identity churn never
     // triggers a recompile; only real content changes do.
     const docJson = JSON.stringify(toTypstDoc(resumeData));
@@ -97,9 +99,11 @@ export function ResumePreview({ resumeData, template = DEFAULT_TEMPLATE, compact
                 <span className={cn("text-xs", status === "error" ? "text-danger" : "text-fg-subtle", status !== "ready" && status !== "error" && "animate-pulse")}>{statusLabel[status]}</span>
                 {pageCount > 0 && <Badge tone={pageCount > 1 ? "warning" : "neutral"}>{pageCount} {pageCount === 1 ? "page" : "pages"}</Badge>}
                 <div className="ml-auto flex items-center gap-1">
-                    <Button size="sm" variant={compact ? "secondary" : "primary"} icon={Download} onClick={handleDownload} loading={downloading} disabled={status === "loading-engine"}>
-                        {downloading ? "Preparing…" : compact ? "PDF" : "Download PDF"}
-                    </Button>
+                    {!hideDownload && (
+                        <Button size="sm" variant={compact ? "secondary" : "primary"} icon={Download} onClick={handleDownload} loading={downloading} disabled={status === "loading-engine"}>
+                            {downloading ? "Preparing…" : compact ? "PDF" : "Download PDF"}
+                        </Button>
+                    )}
                     {compact && onClose && <IconButton icon={X} aria-label="Close preview" onClick={onClose} />}
                 </div>
             </div>

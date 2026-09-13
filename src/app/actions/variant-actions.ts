@@ -111,7 +111,20 @@ export async function loadVariant(id: string): Promise<{ missing: number }> {
 }
 
 /**
- * Saves a selection built in the browser (auto-tailor review) as a new variant and
+ * Writes a selection built in the browser (the tailor window's Close) onto the working
+ * selection without creating a variant. The loaded variant pointer is kept; the
+ * toolbar shows it as out of sync when the selection differs.
+ */
+export async function applyWorkingSelection(input: { items: VariantItems; hidden: VariantHidden }): Promise<{ missing: number }> {
+    const uid = await requireUid();
+    const items = readVariantItems(input.items as unknown as Record<string, string[]>);
+    const { missing } = await applyVariantSelection(uid, items, readVariantHidden(input.hidden) ?? {});
+    revalidate();
+    return { missing };
+}
+
+/**
+ * Saves a selection built in the browser (tailor window) as a new variant and
  * loads it as the working selection. Ids that no longer exist are dropped.
  */
 export async function createVariantFromPlan(input: { name: string; labels?: string[]; items: VariantItems; hidden: VariantHidden }): Promise<{ id: string; missing: number }> {

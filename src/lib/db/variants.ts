@@ -7,7 +7,7 @@ import { db } from "@/lib/firestore";
 import { isoOf, strOf, strArray, userCol } from "@/lib/db/user-collection";
 import { COLLECTION_NAMES } from "@/lib/sections";
 import { emptyVariantItems, readVariantHidden, readVariantItems, type VariantHidden, type VariantItems } from "@/lib/variants";
-import { bulletEntries, pruneHidden, skillEntries } from "@/lib/sub-items";
+import { bulletEntries, bulletLines, pruneHidden, skillEntries } from "@/lib/sub-items";
 import type { ResumeVariant } from "@/types/db";
 import { DEFAULT_TEMPLATE } from "@/lib/typst/templates";
 
@@ -60,7 +60,7 @@ export async function snapshotSelection(uid: string): Promise<{ items: VariantIt
         if (!withSub) return;
         for (const doc of snap.docs) {
             const d = doc.data();
-            const entries = c === "skills" ? skillEntries(strOf(d.items)) : bulletEntries(strArray(d.description));
+            const entries = c === "skills" ? skillEntries(strOf(d.items)) : bulletEntries(bulletLines(strArray(d.description)));
             const keys = pruneHidden(strArray(d.hidden), entries).sort();
             if (keys.length > 0) hidden[doc.id] = keys;
         }

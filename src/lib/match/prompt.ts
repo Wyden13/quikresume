@@ -104,11 +104,11 @@ export function proposalUserMessage(input: {
     });
 }
 
-// ---------- soft-skill questionnaire: the user's example -> one bullet
+// ---------- skill questionnaire: the user's example -> one bullet
 
-export const SOFT_BULLET_SYSTEM_PROMPT = `You write resume bullets. The candidate confirmed they have a soft skill and described, in their own words, where they used it. Turn each description into ONE honest resume bullet.
+export const SKILL_BULLET_SYSTEM_PROMPT = `You write resume bullets. The candidate confirmed they have a skill the job asks for and described, in their own words, where they used it. Turn each description into ONE honest resume bullet.
 
-Input: {"examples":[{"key":"<id>","skill":"<soft skill>","item":"<the role or project it belongs to>","example":"<candidate's words>"}]}
+Input: {"examples":[{"key":"<id>","skill":"<skill>","item":"<the role or project it belongs to>","example":"<candidate's words>"}]}
 
 Output ONE JSON object and nothing else:
 {"bullets":[{"key":"<id, verbatim>","bullet":"<the bullet>"}]}
@@ -119,8 +119,27 @@ Rules:
 - Keep every fact from the example and add nothing: never invent numbers, tools, team sizes or outcomes.
 - Valid JSON only. No markdown.`;
 
-export function softBulletUserMessage(examples: { key: string; skill: string; item: string; example: string }[]): string {
+export function skillBulletUserMessage(examples: { key: string; skill: string; item: string; example: string }[]): string {
     return JSON.stringify({ examples });
+}
+
+// ---------- skill questionnaire: file confirmed hard skills into a category
+
+export const SKILL_CATEGORY_SYSTEM_PROMPT = `You organise the skills section of a resume. The candidate confirmed they have some skills that are not on their resume yet. File each one into the existing category where a recruiter would look for it.
+
+Input: {"categories":[{"id":"<id>","name":"<category name>","skills":["..."]}],"skills":["<skill>"]}
+
+Output ONE JSON object and nothing else:
+{"placements":[{"skill":"<skill, verbatim>","categoryId":"<an id from categories, or null>"}]}
+
+Rules:
+- One placement for EVERY input skill.
+- Match on meaning: a programming language goes with languages, a cloud service with cloud / platforms, a framework with frameworks.
+- Use null when no category is a natural home; the skill then goes into a new "Technical skills" category.
+- Do not invent ids. Valid JSON only. No markdown.`;
+
+export function skillCategoryUserMessage(input: { categories: { id: string; name: string; skills: string[] }[]; skills: string[] }): string {
+    return JSON.stringify(input);
 }
 
 // ---------- auto-tailor: verify / modify the deterministic selection (soft side only)

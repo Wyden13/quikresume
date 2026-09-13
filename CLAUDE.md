@@ -57,7 +57,7 @@ src/
   app/api/tags/{analyze,backfill}/route.ts   tag unsaved draft items (nothing persisted) / re-tag stale library items
   app/api/jobs/{analyze,proposals,reconcile}/route.ts   JD -> requirements (+ reconcile when the form carries `resume`) /
                                              gap -> proposals (re-reconciles first; UI hidden) / re-run the reconcile pass for a saved job
-  app/api/jobs/{auto-tailor,soft-skills}/route.ts   auto-tailor plan (see Auto-tailor) / questionnaire answers -> library
+  app/api/jobs/{auto-tailor,skill-answers}/route.ts   tailor plan for suggestions (see Tailor window) / questionnaire answers -> library
   app/actions/*-actions.ts                   "use server" CRUD per collection + resume-actions.ts (save + tagging)
                                              + user-actions.ts (profile), variant-actions.ts, job-actions.ts, tag-actions.ts,
                                              auth-actions.ts (signOutAction, passed to the client sidebar)
@@ -67,25 +67,25 @@ src/
                                              Switch, Badge/TagChip, Tabs, Segmented, Card/SectionHeader, Table, ExpandableRow,
                                              TopBar (sticky; rows: title+actions / tabs / banner), Dialog+ConfirmDialog
                                              (native <dialog>), Drawer, EmptyState, ScoreRing, NoticeBanner, icons.ts
-  components/dashboard-client.tsx            view from `?view=` (lib/ui/use-dashboard-view.ts); TopBar per view; draft state;
-                                             preview pane grid; JobContextStrip
+  components/dashboard-client.tsx            view from `?view=` (lib/ui/use-dashboard-view.ts); TopBar per view; draft state
+                                             + editor leave guard (lib/ui/leave-guard.ts, used by the sidebar links); preview pane grid
   components/ui/section-tabs.tsx             "All | Profile | <sections with counts>" filter strip (Library + Editor)
   components/ui/library/{library-view,library-section,library-row}.tsx   dense expandable rows; server-action forms
   components/ui/editor/{resume-form,editor-section,editor-item-row,section-fields,personal-info-section,date-range-fields}.tsx
                                              the Master Editor: collapsible item rows, per-section field config
-  components/ui/job-context-strip.tsx        slim sticky strip under the TopBar while tailoring for a job
   components/ui/profile-form.tsx             Profile page form -> updateUserProfile
   components/ui/resume-import.tsx            multi-file upload (PDF -> page images) + combined review step
   components/ui/variant-toolbar.tsx          Save as / Load / Update variant on the library view
   components/ui/variants-page.tsx            /dashboard/variants: search, labels, rename, duplicate, delete, load
   components/ui/insights-view.tsx, tag-charts.tsx   tag charts (recharts radar / bars) + tag table, filterable by kind
   components/ui/job-match-view.tsx, proposal-cards.tsx, use-page-count.ts   Job Match (grouped requirements, Guidelines card)
-  components/ui/job-match/{auto-tailor-dialog,soft-skill-questions}.tsx   Auto-tailor stepper + soft-skill questionnaire
-  lib/match/auto-tailor.ts                   pure: buildTailorPlan, mergeAiReview, applyPlan, trimSteps
+  components/ui/job-match/{tailor-dialog,skill-questions}.tsx   Tailor window + hard/soft skill questionnaire
+  lib/match/auto-tailor.ts                   pure: buildTailorPlan, mergeAiReview, selections, diffSuggestions, trimSteps /
+                                             fitToOnePage, overrideWarnings
   components/ui/resume-preview.tsx           Typst preview + PDF download (client only; `compact` for the side pane)
   components/ui/pane-resize-handle.tsx       drag / keyboard splitter for the preview pane (width in preview-pane-store)
   components/ui/sub-item-toggles.tsx         per-bullet checkboxes / per-skill chips (Library: SubItemToggles in library-row, Editor)
-  lib/ui/{use-dashboard-view,use-media-query,persisted-store,preview-pane-store,expansion-store}.ts
+  lib/ui/{use-dashboard-view,use-media-query,persisted-store,preview-pane-store,expansion-store,leave-guard}.ts
                                              URL view state, matchMedia hook, useSyncExternalStore stores (pane open in
                                              localStorage, expanded row ids in sessionStorage)
   lib/dates.ts, lib/ids.ts, lib/hash.ts      date-string helpers, temp ids, stableHash (content hashes)
@@ -120,10 +120,13 @@ public/pdfjs/pdf.worker.min.mjs              gitignored, filled by scripts/copy-
    `initialResumeData` with `toResumeData`.
 2. `DashboardClient` reads the view from `?view=editor|preview|import|insights|jobs` (no param = library) and
    navigates with `router.push` so Back works; the page never unmounts, so `draft` survives view switches.
-   It holds `draft: ResumeData | null`. `resumeData = draft ?? initialResumeData`.
+   It holds `draft: ResumeData | null`. In the editor `resumeData = draft ?? initialResumeData`; every other view reads
+   `initialResumeData`, so a stale draft can never hide what Job Match / variant actions just wrote.
    Opening the editor copies server truth into the draft; Save calls `saveResumeData(draft)` then clears it;
    Discard just clears it. The draft is **never re-derived from props**, so `revalidatePath` refreshes
-   after server actions cannot clobber unsaved edits.
+   after server actions cannot clobber unsaved edits. Leaving the editor with unsaved changes through the sidebar
+   opens "Save & leave / Discard / Keep editing" (`setLeaveGuard` + `interceptNavigation`); reload / tab close get the
+   browser prompt; browser Back out of the editor discards the draft (popstate).
 3. `ResumeForm` edits through a functional `onChange(prev => next)`. New items get `tmp-<uuid>` ids
    (`src/lib/ids.ts`). Deleting a persisted item calls the delete action immediately; adds/edits persist on save.
 4. `saveResumeData` writes personal info to `users/{uid}` and every list item into its subcollection
@@ -140,7 +143,8 @@ public/pdfjs/pdf.worker.min.mjs              gitignored, filled by scripts/copy-
 Experience, projects, volunteering and skill categories carry `hidden: string[]`: keys of bullets
 (`bulletKey`, whitespace-squashed text) or skills (`skillKey`, lowercased) switched off individually.
 
-- Keys come from the text, so reordering is safe and rewording a hidden line brings it back. `saveResumeData` stores
+- Keys come from the printed lines (`bulletLines`: trimmed, leading `-`/`•`/`*` dropped), the same in the Library, Editor,
+  variants and Typst. Keys come from the text, so reordering is safe and rewording a hidden line brings it back. `saveResumeData` stores
   `pruneHidden(...)` so keys whose text is gone are dropped.
 - `toTypstDoc` filters them (a skill category with every skill hidden is omitted). Page count, the ATS literal check
   and the PDF follow; tag coverage in Job Match is per item and still counts a hidden bullet's tags.
@@ -207,37 +211,45 @@ Weight of a tag = number of selected items carrying it (`aggregateTags`, compute
   proposals, muted rules filtered, statuses preserved by id, stored on the job. "Ignore similar" writes a
   `{kind, tag | itemId}` rule to `users/{uid}/meta/preferences.mutedProposals`.
 - Apply: include/exclude call the item's `update*` action (or edit the draft when one is open); rewrite /
-  add-skill always edit the draft (`applyProposal`) and open the editor. "Tailor manually" keeps a sticky
-  strip (`job-context-strip.tsx`) with the live score and page count on the Library / Editor views.
+  add-skill always edit the draft (`applyProposal`) and open the editor.
 - **The Suggestions card is hidden** (`SHOW_SUGGESTIONS = false` in `job-match-view.tsx`); the route, proposal cards and
   mute rules are kept. The job page shows requirements grouped Hard / Soft (by `requirementTier`), a Guidelines card
-  (missing must-haves, keyword gaps, declined soft skills) and Auto-tailor.
+  (missing must-haves, keyword gaps, declined skills) and the "Tailor résumé" button (the only tailoring flow).
 - `patchJob` runs `stripUndefined`: Firestore rejects `undefined` values, which used to crash the proposals route
   (proposals carry optional `section` / `current` / …) and surfaced as a generic "Could not get suggestions".
 
-## Auto-tailor
+## Tailor window
 
 ```
-questions (soft gaps) -> POST /api/jobs/auto-tailor -> auto-trim (browser Typst) -> review -> createVariantFromPlan
+questions (uncovered hard + soft reqs) -> window on the working selection -> (background) POST /api/jobs/auto-tailor
+  -> trim to one page (browser Typst) -> highlighted suggestions -> Close | Save variant | Save variant & download PDF
 ```
 
-- **Gate:** disabled while `scoreJob(reqs, withAllSelected(library)).missingMust` is non-empty (client and route, 409).
-- **Questionnaire** (`soft-skill-questions.tsx`, `POST /api/jobs/soft-skills`): asks about the job's soft requirements no
-  library item covers. Yes appends the skill to a printed "Soft skills" skill category (created if missing); an optional
-  example is worded into one bullet by the text model (verbatim on failure) and appended to the picked item. Touched items
-  are re-tagged (30 s) and also get the answered requirement's tag, with `contentHash = tagsHash`, so coverage is
-  immediate. No is stored in `meta/preferences.declinedSoftSkills` and shown as a Guidelines warning on later jobs
-  ("I have one now" re-opens the question; Yes clears it).
+- **One flow, suggest-only.** "Tailor résumé" (`tailor-dialog.tsx`) replaces Auto-tailor / Tailor manually and never
+  navigates away from Job Match. There is no must-have gate: the route plans even when hard requirements are uncovered.
+- **Questionnaire** (`skill-questions.tsx`, `POST /api/jobs/skill-answers`): asks about `uncoveredRequirements` (every
+  requirement with strength 0 on the whole library, hard first). Yes on a soft requirement appends it to a printed
+  "Soft skills" category; Yes on a hard one appends it to the category picked in the row, or the one the text model picks
+  (`SKILL_CATEGORY_SYSTEM_PROMPT`; a new "Technical skills" category when nothing fits or the call fails). An optional
+  example is worded into one bullet on the picked item. Touched items are re-tagged (30 s) and also get the answered
+  requirement's tag, with `contentHash = tagsHash`, so coverage is immediate. No is stored in
+  `meta/preferences.declinedSoftSkills` (hard and soft despite the name) and shown in Guidelines ("I have one now").
 - **Plan** (`lib/match/auto-tailor.ts`, pure): items covering a hard requirement (plus the newest education) are
-  *locked on*; the rest follow `recommendSelection` over the soft requirements. Bullets / skills that literally name a hard
-  requirement are *protected*. The text model (`AUTO_TAILOR_SYSTEM_PROMPT`) confirms or flips unlocked decisions and may
-  hide unprotected bullets / skills; `mergeAiReview` ignores anything touching a locked include, a protected line, an
-  unknown id or index. AI failure returns the tag-based plan with a warning.
-- **Trim:** unless "Allow more than one page" is ticked, the dialog applies `trimSteps` (bullets of weak unlocked items,
-  then those items, then unprotected bullets of locked items; the first bullet of an item stays) recompiling until one
-  page. Every trim is marked and reversible in the review; allowing more pages restores the untrimmed plan.
-- **Create:** `createVariantFromPlan({name, labels, items, hidden})` writes the variant, loads it
-  (`applyVariantSelection`) and switches the dashboard to manual tailoring for that job.
+  *locked*; the rest follow `recommendSelection` over the soft requirements. Lines that literally name a hard requirement
+  are *protected* (`protectedBy` records which). The text model (`AUTO_TAILOR_SYSTEM_PROMPT`) confirms or flips unlocked
+  decisions and may hide unprotected bullets / skills; `mergeAiReview` ignores anything touching a locked include, a
+  protected line, an unknown id or index. AI failure -> tag-based plan with a warning.
+- **Suggestions, not decisions:** the window edits a `TailorSelection` that starts as the working selection. The plan is
+  trimmed (`fitToOnePage`: bullets of weak unlocked items, then those items, then unprotected bullets of locked items; the
+  first bullet stays) and `diffSuggestions(plan, target, base)` lists every difference with a reason. Pending ones are
+  outlined with Accept / Dismiss, plus Accept all; toggling by hand to match clears them. "Allow more than one page" swaps to
+  the untrimmed suggestions; "Fit to one page" trims the current selection directly.
+- **Overrides:** locked items and protected lines can be switched off; `overrideWarnings` explains why not in yellow
+  (the only item covering a hard requirement, a hidden ATS keyword, no education left).
+- **Buttons:** Close (also Escape / backdrop) writes the selection onto the working selection (`applyWorkingSelection`,
+  skipped when unchanged), so reopening starts where you left off. Save variant -> `createVariantFromPlan` (writes and
+  loads the variant). Save variant & download PDF compiles the PDF first, then saves and downloads. Both saves need one
+  page or the multi-page tick; Close never does. A Preview toggle swaps the list for the Typst preview.
 
 ## Resume import
 
@@ -326,7 +338,7 @@ Subcollections, each item doc has `isSelected`, `tags`, `contentHash`, `tagsHash
 | `variants` | `name, labels: string[], items: {experience: string[], …}, hidden: {itemId: string[]}, templateId` (pointers only) |
 | `jobs` | `title, company, source, jdText, summary, requirements[] ({name, display, kind, importance, yearsMin, satisfiedBy[], evidence[], reason}), proposals[], proposalsAt, lastScore` |
 | `meta/tags` | `aliases: Record<alias, canonical>` |
-| `meta/preferences` | `mutedProposals: {kind, tag?, itemId?}[], caps: Record<ResumeListKey, number \| null>, declinedSoftSkills: {name, display, at}[]` |
+| `meta/preferences` | `mutedProposals: {kind, tag?, itemId?}[], caps: Record<ResumeListKey, number \| null>, declinedSoftSkills: {name, display, at}[]` (hard + soft) |
 
 Dates are stored as Firestore `Timestamp` at **UTC midnight** (`toUtcDate`). In the editor model
 `startDate` is `"YYYY-MM-DD" | ""` and `endDate` is `"YYYY-MM-DD" | "Present" | ""`; `"Present"`

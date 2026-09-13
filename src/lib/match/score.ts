@@ -98,6 +98,14 @@ export function scoreJob(requirements: Requirement[], data: ResumeData, aliases:
     };
 }
 
+/**
+ * Requirements nothing in the library covers (every item switched on): hard ones of any
+ * importance plus soft keyword gaps. What the tailor window's questionnaire asks about.
+ */
+export function uncoveredRequirements(requirements: Requirement[], library: ResumeData, aliases: AliasMap = {}): Requirement[] {
+    return scoreJob(requirements, withAllSelected(library), aliases).rows.filter(r => r.strength === 0).map(r => r.requirement);
+}
+
 /** Kind totals for the job side of a radar (must = 2, nice = 1). */
 export function jobKindTotals(requirements: Requirement[]): KindTotals {
     const totals = emptyKindTotals();

@@ -20,7 +20,7 @@ import { SECTION_LABEL } from "@/lib/sections";
 import type { SectionTab } from "@/components/ui/section-tabs";
 import { LibrarySection } from "./library-section";
 import { Detail, LibraryRow, SubItemToggles } from "./library-row";
-import { bulletEntries, hiddenCount, skillEntries, visible } from "@/lib/sub-items";
+import { bulletEntries, bulletLines, hiddenCount, skillEntries, visible } from "@/lib/sub-items";
 import { EmptyState } from "@/components/ui/primitives/empty-state";
 import { Button } from "@/components/ui/primitives/button";
 import {
@@ -106,10 +106,10 @@ export function LibraryView({ tab, variantUsage, onImport, onEdit, ...lists }: L
             {show("workExperience") && (
                 <LibrarySection icon={SECTION_ICON.workExperience} title={SECTION_LABEL.workExperience} ids={lists.experiences.map(x => x.id)}>
                     {lists.experiences.map(x => (
-                        <LibraryRow key={x.id} id={x.id} title={x.position} subtitle={x.company} meta={range(x.startDate, x.endDate, x.isActive)} hiddenCount={hiddenCount(bulletEntries(x.description), x.hidden)}
+                        <LibraryRow key={x.id} id={x.id} title={x.position} subtitle={x.company} meta={range(x.startDate, x.endDate, x.isActive)} hiddenCount={hiddenCount(bulletEntries(bulletLines(x.description)), x.hidden)}
                             isSelected={x.isSelected} active={{ isActive: x.isActive, type: "experience" }} tags={x.tags} usedBy={variantUsage[x.id]}
                             onUpdate={updateExperience} onDelete={deleteExperience}>
-                            <SubItemToggles id={x.id} entries={bulletEntries(x.description)} hidden={x.hidden} onUpdate={updateExperience} variant="bullets" />
+                            <SubItemToggles id={x.id} entries={bulletEntries(bulletLines(x.description))} hidden={x.hidden} onUpdate={updateExperience} variant="bullets" />
                         </LibraryRow>
                     ))}
                 </LibrarySection>
@@ -133,11 +133,11 @@ export function LibraryView({ tab, variantUsage, onImport, onEdit, ...lists }: L
             {show("projects") && (
                 <LibrarySection icon={SECTION_ICON.projects} title={SECTION_LABEL.projects} ids={lists.projects.map(x => x.id)}>
                     {lists.projects.map(x => (
-                        <LibraryRow key={x.id} id={x.id} title={x.title} subtitle={x.stack ?? ""} meta={range(x.startDate, x.endDate, x.isActive)} hiddenCount={hiddenCount(bulletEntries(x.description), x.hidden)}
+                        <LibraryRow key={x.id} id={x.id} title={x.title} subtitle={x.stack ?? ""} meta={range(x.startDate, x.endDate, x.isActive)} hiddenCount={hiddenCount(bulletEntries(bulletLines(x.description)), x.hidden)}
                             isSelected={x.isSelected} active={{ isActive: x.isActive, type: "project" }} tags={x.tags} usedBy={variantUsage[x.id]}
                             onUpdate={updateProject} onDelete={deleteProject}>
                             {x.link && <p className="break-all text-fg-muted">{x.link}</p>}
-                            <SubItemToggles id={x.id} entries={bulletEntries(x.description)} hidden={x.hidden} onUpdate={updateProject} variant="bullets" />
+                            <SubItemToggles id={x.id} entries={bulletEntries(bulletLines(x.description))} hidden={x.hidden} onUpdate={updateProject} variant="bullets" />
                         </LibraryRow>
                     ))}
                 </LibrarySection>
@@ -156,10 +156,10 @@ export function LibraryView({ tab, variantUsage, onImport, onEdit, ...lists }: L
             {show("volunteering") && (
                 <LibrarySection icon={SECTION_ICON.volunteering} title={SECTION_LABEL.volunteering} ids={lists.volunteering.map(x => x.id)}>
                     {lists.volunteering.map(x => (
-                        <LibraryRow key={x.id} id={x.id} title={x.role} subtitle={x.organization} meta={range(x.startDate, x.endDate, x.isActive)} hiddenCount={hiddenCount(bulletEntries(x.description), x.hidden)}
+                        <LibraryRow key={x.id} id={x.id} title={x.role} subtitle={x.organization} meta={range(x.startDate, x.endDate, x.isActive)} hiddenCount={hiddenCount(bulletEntries(bulletLines(x.description)), x.hidden)}
                             isSelected={x.isSelected} active={{ isActive: x.isActive, type: "volunteering" }} tags={x.tags} usedBy={variantUsage[x.id]}
                             onUpdate={updateVolunteering} onDelete={deleteVolunteering}>
-                            <SubItemToggles id={x.id} entries={bulletEntries(x.description)} hidden={x.hidden} onUpdate={updateVolunteering} variant="bullets" />
+                            <SubItemToggles id={x.id} entries={bulletEntries(bulletLines(x.description))} hidden={x.hidden} onUpdate={updateVolunteering} variant="bullets" />
                         </LibraryRow>
                     ))}
                 </LibrarySection>

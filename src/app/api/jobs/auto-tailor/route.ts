@@ -1,11 +1,11 @@
 // src/app/api/jobs/auto-tailor/route.ts
 // POST { jobId, resume: ResumeData } -> { ok, plan, requirements, warning? }.
 // 1. reconcile requirements against the library (semantic matches), stored on the job;
-// 2. refuse (409) while a hard must-have is uncovered anywhere in the library;
-// 3. deterministic plan (hard items locked, soft set cover) -> text-model review
-//    limited to the soft side (lib/match/auto-tailor.ts). Nothing is persisted
-//    besides the reconciled requirements; the client reviews, trims and creates
-//    the variant.
+// 2. deterministic plan (hard items locked, soft set cover) -> text-model review
+//    limited to the soft side (lib/match/auto-tailor.ts). Uncovered hard
+//    requirements do not block: the tailor window asks about them first and
+//    warns about them. Nothing is persisted besides the reconciled requirements;
+//    the window shows the plan as suggestions.
 
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
@@ -16,14 +16,13 @@ import { readTagAliases } from "@/lib/db/meta";
 import { patchJob, readJob, readPreferences } from "@/lib/db/jobs";
 import { reconcileRequirements } from "@/lib/match/reconcile";
 import { isResumeData } from "@/lib/match/resume-body";
-import { scoreJob, withAllSelected } from "@/lib/match/score";
 import { buildTailorPlan, mergeAiReview, tailorPromptInput } from "@/lib/match/auto-tailor";
 import { AUTO_TAILOR_SYSTEM_PROMPT, autoTailorUserMessage } from "@/lib/match/prompt";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-const fail = (status: number, error: string, extra: Record<string, unknown> = {}) => NextResponse.json({ ok: false, error, ...extra }, { status });
+const fail = (status: number, error: string) => NextResponse.json({ ok: false, error }, { status });
 
 export async function POST(req: Request) {
     try {
@@ -47,13 +46,6 @@ export async function POST(req: Request) {
         const reconciled = await reconcileRequirements(job.requirements, resume, aliases, { timeoutMs: 45_000, retries: 0 });
         const requirements = reconciled.requirements;
         await patchJob(uid, job.id, { requirements });
-
-        const missing = scoreJob(requirements, withAllSelected(resume), aliases).missingMust;
-        if (missing.length > 0) {
-            return fail(409, `Auto-tailor needs every hard must-have covered. Missing: ${missing.map(r => r.display).join(", ")}.`, {
-                missing: missing.map(r => r.display), requirements,
-            });
-        }
 
         const plan = buildTailorPlan(requirements, resume, prefs.caps, aliases);
         const warnings: string[] = reconciled.warning ? [`AI match check skipped: ${reconciled.warning}`] : [];

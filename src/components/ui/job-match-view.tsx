@@ -3,7 +3,7 @@
 
 // Job Match: analyse a job description, score a resume source against it
 // (working selection / saved variant / uploaded resume), follow the guidelines,
-// inspect the ATS keyword table, and auto-tailor a variant. The AI proposals
+// inspect the ATS keyword table, and tailor the résumé (tailor-dialog.tsx). The AI proposals
 // card is hidden (SHOW_SUGGESTIONS).
 
 import React, { useState } from "react";
@@ -13,7 +13,7 @@ import type { ResumeData } from "@/types/schema";
 import type { ResumeVariant } from "@/types/db";
 import type { JobRecord, MuteRule, Preferences, Proposal, Requirement, ResumeSource } from "@/lib/match/types";
 import type { AliasMap } from "@/lib/tags/normalize";
-import { jobKindTotals, requirementTier, scoreJob, withAllSelected } from "@/lib/match/score";
+import { jobKindTotals, requirementTier, scoreJob, uncoveredRequirements } from "@/lib/match/score";
 import { muteRuleFor } from "@/lib/match/proposals";
 import { aggregateTags, kindTotals } from "@/lib/tags/aggregate";
 import { applyTags, allInputs, tagContext } from "@/lib/tags/content";
@@ -39,9 +39,9 @@ import { Table, Td, Th } from "@/components/ui/primitives/table";
 import { ChevronDown, Target } from "@/components/ui/primitives/icons";
 import { useResumePageCount } from "@/components/ui/use-page-count";
 import { Dialog } from "@/components/ui/primitives/dialog";
-import { Lock, Wand2 } from "@/components/ui/primitives/icons";
-import { AutoTailorDialog } from "@/components/ui/job-match/auto-tailor-dialog";
-import { SoftSkillQuestions } from "@/components/ui/job-match/soft-skill-questions";
+import { Wand2 } from "@/components/ui/primitives/icons";
+import { TailorDialog } from "@/components/ui/job-match/tailor-dialog";
+import { SkillQuestions } from "@/components/ui/job-match/skill-questions";
 
 /** The Suggestions card (AI proposals) is hidden from the UI; its code paths stay for later. */
 const SHOW_SUGGESTIONS = false;
@@ -83,12 +83,10 @@ interface JobMatchViewProps {
     preferences: Preferences;
     aliases: AliasMap;
     variants: ResumeVariant[];
-    /** Working selection (draft-aware). */
+    /** Working selection (server truth; the editor draft never leaks outside the editor). */
     resumeData: ResumeData;
-    activeJobId: string | null;
     selectedJobId: string | null;
     onSelectJob: (id: string | null) => void;
-    onTailor: (id: string | null) => void;
     onApplyProposal: (job: JobRecord, p: Proposal) => Promise<void>;
     onImportExternal: (r: ExternalResume) => void;
     externalResume: ExternalResume | null;
@@ -133,7 +131,7 @@ export function JobMatchView(props: JobMatchViewProps) {
                                                     <span className={cn("h-8 w-0.5 shrink-0 rounded-full", active ? "bg-accent" : "bg-transparent")} aria-hidden />
                                                     <span className="min-w-0 flex-1">
                                                         <span className="block truncate text-sm font-medium text-fg">{j.title}</span>
-                                                        <span className="block truncate text-xs text-fg-muted">{j.company || "Unknown company"}{props.activeJobId === j.id ? " · tailoring" : ""}</span>
+                                                        <span className="block truncate text-xs text-fg-muted">{j.company || "Unknown company"}</span>
                                                     </span>
                                                     {j.lastScore !== null && <span className="text-13 tabular-nums text-fg-muted">{j.lastScore}</span>}
                                                 </button>
@@ -167,7 +165,6 @@ export function JobMatchView(props: JobMatchViewProps) {
                         setDeleting(true);
                         try {
                             await deleteJob(pendingDelete.id);
-                            if (props.activeJobId === pendingDelete.id) props.onTailor(null);
                             if (selectedJobId === pendingDelete.id) onSelectJob(null);
                             setPendingDelete(null);
                             router.refresh();
@@ -259,7 +256,7 @@ function AnalyzeForm({ resumeData, onAnalyzed, onError }: { resumeData: ResumeDa
 
 type DetailProps = JobMatchViewProps & { job: JobRecord; onDelete: () => void; onError: (e: string | null) => void };
 
-function JobDetail({ job, preferences, aliases, variants, resumeData, activeJobId, onTailor, onApplyProposal, onImportExternal, externalResume, onExternalResume, onDelete, onError }: DetailProps) {
+function JobDetail({ job, preferences, aliases, variants, resumeData, onApplyProposal, onImportExternal, externalResume, onExternalResume, onDelete, onError }: DetailProps) {
     const router = useRouter();
     const [source, setSource] = useState<ResumeSource>(externalResume ? { kind: "upload", fileName: externalResume.fileName } : { kind: "selection" });
     const [proposals, setProposals] = useState<Proposal[]>(job.proposals);
@@ -368,12 +365,9 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, activeJobI
         try { await unmuteProposal(rule); } catch (err) { onError(err instanceof Error ? err.message : "Could not update the rule."); }
     };
 
-    const tailoring = activeJobId === job.id;
-
-    // Library-wide view (every item on): the auto-tailor gate and the soft-skill questions.
-    const library = scoreJob(job.requirements, withAllSelected(resumeData), aliases);
+    // Library-wide (every item on): requirements answered "No" in the questionnaire that this job needs.
     const declinedNames = new Set(preferences.declinedSoftSkills.map(d => d.name));
-    const declinedNeeded = library.keywordGaps.filter(r => declinedNames.has(r.name));
+    const declinedNeeded = uncoveredRequirements(job.requirements, resumeData, aliases).filter(r => declinedNames.has(r.name));
     const [tailorRun, setTailorRun] = useState(0);
     const [answering, setAnswering] = useState(false);
     const [notice, setNotice] = useState<string | null>(null);
@@ -387,20 +381,8 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, activeJobI
                     hint={<>{job.company || "Unknown company"}{job.source.fileName ? ` · from ${job.source.fileName}` : ""}</>}
                     action={
                         <>
-                            <Button
-                                size="sm"
-                                variant="primary"
-                                icon={library.missingMust.length > 0 ? Lock : Wand2}
-                                onClick={() => setTailorRun(n => n + 1)}
-                                disabled={library.missingMust.length > 0 || source.kind === "upload"}
-                                title={library.missingMust.length > 0
-                                    ? `Auto-tailor needs every hard must-have covered. Missing: ${library.missingMust.map(r => r.display).join(", ")}`
-                                    : source.kind === "upload" ? "Auto-tailor works on your own library" : "Build a variant tailored to this job"}
-                            >
-                                Auto-tailor
-                            </Button>
-                            <Button size="sm" variant="secondary" onClick={() => onTailor(tailoring ? null : job.id)}>
-                                {tailoring ? "Stop tailoring" : "Tailor manually"}
+                            <Button size="sm" variant="primary" icon={Wand2} onClick={() => setTailorRun(n => n + 1)} title="Pick what goes on your résumé for this job, with AI suggestions">
+                                Tailor résumé
                             </Button>
                             <Button size="sm" variant="danger" onClick={onDelete}>Delete</Button>
                         </>
@@ -473,7 +455,6 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, activeJobI
             <GuidelinesCard
                 missingMust={match.missingMust}
                 keywordGaps={match.keywordGaps}
-                libraryMissingMust={library.missingMust}
                 declinedNeeded={declinedNeeded}
                 onAnswerDeclined={() => setAnswering(true)}
                 showScoreSource={source.kind !== "selection"}
@@ -552,21 +533,20 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, activeJobI
             </Card>}
 
             {tailorRun > 0 && (
-                <AutoTailorDialog
+                <TailorDialog
                     key={tailorRun}
-                    open
-                    onClose={() => setTailorRun(0)}
                     job={job}
                     resumeData={resumeData}
                     declined={preferences.declinedSoftSkills}
                     aliases={aliases}
-                    onCreated={(message) => { setNotice(message); onTailor(job.id); }}
+                    caps={caps}
+                    onClose={(message) => { setTailorRun(0); if (message) setNotice(message); }}
                 />
             )}
 
             {answering && (
-                <Dialog open onClose={() => setAnswering(false)} size="lg" title="Soft skills you said you don't have" description="Changed your mind? Add them and the warning goes away.">
-                    <SoftSkillQuestions
+                <Dialog open onClose={() => setAnswering(false)} size="lg" title="Skills you said you don't have" description="Changed your mind? Add them and the warning goes away.">
+                    <SkillQuestions
                         gaps={declinedNeeded}
                         declined={preferences.declinedSoftSkills}
                         library={resumeData}
@@ -621,27 +601,21 @@ function RequirementGroups({ requirements }: { requirements: Requirement[] }) {
 
 // ---------- guidelines
 
-function GuidelinesCard({ missingMust, keywordGaps, libraryMissingMust, declinedNeeded, onAnswerDeclined, showScoreSource }: {
+function GuidelinesCard({ missingMust, keywordGaps, declinedNeeded, onAnswerDeclined, showScoreSource }: {
     missingMust: Requirement[];
     keywordGaps: Requirement[];
-    libraryMissingMust: Requirement[];
     declinedNeeded: Requirement[];
     onAnswerDeclined: () => void;
     showScoreSource: boolean;
 }) {
     const declined = new Set(declinedNeeded.map(r => r.name));
     const gaps = keywordGaps.filter(r => !declined.has(r.name));
-    const empty = missingMust.length === 0 && gaps.length === 0 && declinedNeeded.length === 0 && libraryMissingMust.length === 0;
+    const empty = missingMust.length === 0 && gaps.length === 0 && declinedNeeded.length === 0;
     return (
         <Card>
             <CardHeader title="Guidelines" hint={showScoreSource ? "For the résumé being scored above." : "For your working selection."} />
             <CardBody className="space-y-3 text-13">
                 {empty && <p className="text-fg-muted">Nothing missing. Every requirement is covered by the résumé above.</p>}
-                {libraryMissingMust.length > 0 && (
-                    <GuidelineRow tone="danger" label="Auto-tailor is locked">
-                        Nothing in your library covers these hard must-haves: <span className="font-medium">{libraryMissingMust.map(r => r.display).join(", ")}</span>. Add them to your library (if you have them) to unlock it.
-                    </GuidelineRow>
-                )}
                 {missingMust.length > 0 && (
                     <GuidelineRow tone="danger" label="Missing must-haves">
                         <span className="font-medium">{missingMust.map(r => r.display).join(", ")}</span>

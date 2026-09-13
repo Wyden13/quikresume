@@ -8,7 +8,7 @@
 // filtering or date logic of their own; they are pure styling.
 
 import { formatDateRange, formatMonthYear } from "@/lib/dates";
-import { bulletEntries, skillEntries, visible } from "@/lib/sub-items";
+import { bulletEntries, bulletLines, skillEntries, visible } from "@/lib/sub-items";
 import type { PersonalInfo, ResumeData } from "@/types/schema";
 
 export interface TypstHeader {
@@ -102,10 +102,7 @@ const s = (v: string | null | undefined): string => (v ?? "").trim();
 
 /** Newline-separated text -> trimmed, non-empty bullet strings (leading "- " / "• " stripped). */
 export function toBullets(text: string | null | undefined): string[] {
-    return (text ?? "")
-        .split("\n")
-        .map(line => line.trim().replace(/^[-•*]\s+/, ""))
-        .filter(line => line !== "");
+    return bulletLines(text);
 }
 
 /** Bullets minus the ones switched off individually. */

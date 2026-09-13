@@ -26,6 +26,16 @@ export function splitSkills(items: string | null | undefined): string[] {
     return (items ?? "").split(",").map(squash).filter(Boolean);
 }
 
+/**
+ * Printed bullet lines from the editor's newline string or a stored array: split on newlines,
+ * trimmed, leading "- " / "• " / "* " dropped, empty lines removed. Keys always come from these lines,
+ * so the Library, the Editor, variants and the PDF agree on them.
+ */
+export function bulletLines(text: string | readonly string[] | null | undefined): string[] {
+    const raw = Array.isArray(text) ? (text as readonly string[]).join("\n") : ((text as string | null | undefined) ?? "");
+    return raw.split("\n").map(line => line.trim().replace(/^[-•*]\s+/, "")).filter(line => line !== "");
+}
+
 export const bulletEntries = (bullets: string[]): SubItem[] => bullets.map(b => ({ key: bulletKey(b), label: b }));
 export const skillEntries = (items: string | null | undefined): SubItem[] => splitSkills(items).map(s => ({ key: skillKey(s), label: s }));
 

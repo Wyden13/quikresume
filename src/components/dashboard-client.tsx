@@ -13,15 +13,15 @@ import { LibraryView, libraryCounts, type LibraryLists } from "@/components/ui/l
 import { ResumeImport } from "@/components/ui/resume-import";
 import { InsightsView } from "@/components/ui/insights-view";
 import { JobMatchView, type ExternalResume } from "@/components/ui/job-match-view";
-import { JobContextStrip } from "@/components/ui/job-context-strip";
 import { VariantToolbar } from "@/components/ui/variant-toolbar";
 import { SectionTabs, type SectionTab } from "@/components/ui/section-tabs";
 import { TopBar } from "@/components/ui/primitives/top-bar";
 import { Button, IconButton } from "@/components/ui/primitives/button";
-import { ConfirmDialog } from "@/components/ui/primitives/dialog";
+import { ConfirmDialog, Dialog } from "@/components/ui/primitives/dialog";
 import { NoticeBanner } from "@/components/ui/primitives/notice-banner";
 import { PanelRight, PenLine, Upload } from "@/components/ui/primitives/icons";
-import { useDashboardView, VIEW_TITLE } from "@/lib/ui/use-dashboard-view";
+import { parseView, useDashboardView, VIEW_TITLE, viewHref } from "@/lib/ui/use-dashboard-view";
+import { setLeaveGuard } from "@/lib/ui/leave-guard";
 import { useMediaQuery, XL } from "@/lib/ui/use-media-query";
 import { PANE_MIN, setPreviewPane, togglePreviewPane, usePreviewPane, usePreviewPaneWidth } from "@/lib/ui/preview-pane-store";
 import { PaneResizeHandle } from "@/components/ui/pane-resize-handle";
@@ -36,7 +36,7 @@ import { updateVolunteering } from "@/app/actions/volunteering-actions";
 import { updatePublication } from "@/app/actions/publication-actions";
 import { updateLanguage } from "@/app/actions/language-actions";
 import { mergeImport, type ImportSelection } from "@/lib/import/merge";
-import { applyTags, contentHashOf, staleInputs, tagContext } from "@/lib/tags/content";
+import { contentHashOf, staleInputs } from "@/lib/tags/content";
 import { applyProposal } from "@/lib/match/proposals";
 import { itemTitle } from "@/lib/sections";
 import { cn } from "@/lib/cn";
@@ -80,8 +80,6 @@ interface DashboardClientProps extends LibraryLists {
 
 type Notice = { tone: "ok" | "warn"; text: string };
 
-const TAILOR_KEY = "quikresume.activeJobId";
-
 export default function DashboardClient(props: DashboardClientProps) {
     // useSearchParams (inside useDashboardView) needs a Suspense boundary.
     return (
@@ -116,42 +114,58 @@ function DashboardClientInner({
     const [isSaving, setIsSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
     const [notice, setNotice] = useState<Notice | null>(null);
-    const [confirmVariants, setConfirmVariants] = useState<string[] | null>(null);
+    /** Variants affected by the edits being saved, and where to go after saving (null = Library). */
+    const [confirmVariants, setConfirmVariants] = useState<{ names: string[]; target: string | null } | null>(null);
     const [confirmDiscard, setConfirmDiscard] = useState(false);
-    const [reanalyzing, setReanalyzing] = useState(false);
+    /** In-app navigation away from the editor with unsaved changes, waiting for Save / Discard / Keep editing. */
+    const [pendingLeave, setPendingLeave] = useState<string | null>(null);
 
     // Job Match state
-    const [activeJobId, setActiveJobId] = useState<string | null>(null);
     const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
     const [externalResume, setExternalResume] = useState<ExternalResume | null>(null);
 
     // Draft model: `draft` is null unless the editor is open. Everything else
     // reads server truth from props, which Next refreshes after each server
     // action (revalidatePath). Because the draft is never re-derived from
-    // props, a revalidation can't clobber unsaved edits.
+    // props, a revalidation can't clobber unsaved edits. The draft only lives
+    // in the editor: other views always read server truth (so a draft can never
+    // hide what Job Match / variants just wrote), leaving the editor asks to
+    // save or discard, and leaving through browser Back discards it.
     const [draft, setDraft] = useState<ResumeData | null>(null);
-    const resumeData = draft ?? initialResumeData;
+    const editorDraft = draft ?? initialResumeData;
+    const resumeData = view === "editor" ? editorDraft : initialResumeData;
     const dirty = draft !== null && JSON.stringify(draft) !== JSON.stringify(initialResumeData);
 
-    // Deep-linking straight into ?view=editor must still open a draft.
-    const editorDraft = view === "editor" ? (draft ?? initialResumeData) : resumeData;
-
-    // Tailoring mode survives a reload (browser-only state, read once after mount).
+    // Sidebar links ask before leaving an editor with unsaved changes; reload / closing the tab gets the browser prompt.
     useEffect(() => {
-        try {
-            const stored = window.sessionStorage.getItem(TAILOR_KEY);
-            if (stored && jobs.some(j => j.id === stored)) setActiveJobId(stored);
-        } catch { /* storage unavailable */ }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-    const setTailoring = (id: string | null) => {
-        setActiveJobId(id);
-        try {
-            if (id) window.sessionStorage.setItem(TAILOR_KEY, id);
-            else window.sessionStorage.removeItem(TAILOR_KEY);
-        } catch { /* ignore */ }
-    };
-    const activeJob = activeJobId ? jobs.find(j => j.id === activeJobId) ?? null : null;
+        if (view !== "editor" || !dirty) return;
+        const uninstall = setLeaveGuard(href => {
+            if (href === viewHref("editor")) return false;
+            setPendingLeave(href);
+            return true;
+        });
+        const onBeforeUnload = (e: BeforeUnloadEvent) => e.preventDefault();
+        window.addEventListener("beforeunload", onBeforeUnload);
+        return () => {
+            uninstall();
+            window.removeEventListener("beforeunload", onBeforeUnload);
+        };
+    }, [view, dirty]);
+
+    // Browser Back / Forward out of the editor cannot be intercepted: the draft is reverted.
+    const hasDraft = draft !== null;
+    useEffect(() => {
+        if (!hasDraft) return;
+        const onPop = () => {
+            const url = new URL(window.location.href);
+            if (url.pathname !== "/dashboard" || parseView(url.searchParams.get("view")) !== "editor") {
+                setDraft(null);
+                setSaveError(null);
+            }
+        };
+        window.addEventListener("popstate", onPop);
+        return () => window.removeEventListener("popstate", onPop);
+    }, [hasDraft]);
 
     const updateDraft = (updater: (prev: ResumeData) => ResumeData) => {
         setDraft(prev => updater(prev ?? initialResumeData));
@@ -191,7 +205,8 @@ function DashboardClientInner({
         return out;
     };
 
-    const doSave = async () => {
+    /** Saves the draft, then goes to `target` (another page / view) or back to the Library. */
+    const doSave = async (target: string | null = null) => {
         if (!draft) return;
         setConfirmVariants(null);
         setIsSaving(true);
@@ -205,7 +220,8 @@ function DashboardClientInner({
                     : result.tagged > 0
                         ? { tone: "ok", text: `Saved. Analysed skills for ${result.tagged} ${result.tagged === 1 ? "item" : "items"}.` }
                         : null);
-                setView("library", { replace: true });
+                if (target) router.push(target, { scroll: false });
+                else setView("library", { replace: true });
             }
         } catch (error) {
             console.error("Failed to save:", error);
@@ -215,11 +231,29 @@ function DashboardClientInner({
         }
     };
 
-    const handleSaveAndExit = () => {
-        if (!draft) { setView("library", { replace: true }); return; }
+    const handleSaveAndExit = (target: string | null = null) => {
+        if (!draft) {
+            if (target) router.push(target, { scroll: false });
+            else setView("library", { replace: true });
+            return;
+        }
         const affected = [...new Set(changedItemIds().flatMap(id => variantUsage[id] ?? []))];
-        if (affected.length > 0) { setConfirmVariants(affected); return; }
-        void doSave();
+        if (affected.length > 0) { setConfirmVariants({ names: affected, target }); return; }
+        void doSave(target);
+    };
+
+    const leaveDiscarding = () => {
+        const href = pendingLeave;
+        setPendingLeave(null);
+        setDraft(null);
+        setSaveError(null);
+        setNotice(null);
+        if (href) router.push(href, { scroll: false });
+    };
+    const leaveSaving = () => {
+        const href = pendingLeave;
+        setPendingLeave(null);
+        handleSaveAndExit(href);
     };
 
     const handleImport = (selection: ImportSelection, meta: { fileNames: string[] }) => {
@@ -234,28 +268,6 @@ function DashboardClientInner({
         setSaveError(null);
         setEditorTab("all");
         setView("editor");
-    };
-
-    /** Tags stale draft items in place (nothing saved) or, with no draft open, backfills the library. */
-    const reanalyze = async () => {
-        setReanalyzing(true);
-        try {
-            if (draft) {
-                const res = await fetch("/api/tags/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: staleInputs(draft), context: tagContext(draft) }) });
-                const json = (await res.json().catch(() => null)) as { ok: boolean; error?: string; tagsById?: Record<string, ResumeData["profileTags"]> } | null;
-                if (!json?.ok) throw new Error(json?.error ?? "Skill analysis failed.");
-                setDraft(prev => (prev ? applyTags(prev, json.tagsById ?? {}) : prev));
-            } else {
-                const res = await fetch("/api/tags/backfill", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-                const json = (await res.json().catch(() => null)) as { ok: boolean; error?: string } | null;
-                if (!json?.ok) throw new Error(json?.error ?? "Skill analysis failed.");
-                router.refresh();
-            }
-        } catch (err) {
-            setNotice({ tone: "warn", text: err instanceof Error ? err.message : "Skill analysis failed." });
-        } finally {
-            setReanalyzing(false);
-        }
     };
 
     /** Applies a Job Match proposal: selection changes go to the server unless a draft is open; text edits open the editor. */
@@ -276,7 +288,6 @@ function DashboardClientInner({
         setDraft(next);
         const item = (next[p.section] as ResumeData[ResumeListKey][number][]).find(it => it.id === p.itemId);
         setNotice({ tone: "ok", text: `Applied the suggestion to ${item ? itemTitle(p.section, item) : "an item"} for ${job.title}. Review it below, then Save & Exit.` });
-        setTailoring(job.id);
         setEditorTab(p.section);
         setView("editor");
     };
@@ -284,8 +295,6 @@ function DashboardClientInner({
     const lists: LibraryLists = { experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages };
     const counts = libraryCounts(lists);
     const draftCounts = Object.fromEntries(RESUME_LIST_KEYS.map(k => [k, editorDraft[k].length])) as Record<ResumeListKey, number>;
-
-    const showStrip = activeJob !== null && (view === "library" || view === "editor");
 
     const previewToggle = wide
         ? <IconButton icon={PanelRight} aria-label={paneWanted ? "Hide preview pane" : "Show preview pane"} aria-pressed={paneWanted} variant={paneWanted ? "secondary" : "ghost"} size="md" onClick={togglePreviewPane} />
@@ -299,7 +308,7 @@ function DashboardClientInner({
                     {dirty ? "Unsaved changes" : "No changes"}
                 </span>
                 <Button variant="ghost" onClick={discardDraft} disabled={isSaving}>Discard</Button>
-                <Button variant="primary" onClick={handleSaveAndExit} loading={isSaving}>
+                <Button variant="primary" onClick={() => handleSaveAndExit()} loading={isSaving}>
                     {isSaving ? (staleInputs(resumeData).length > 0 ? "Analysing & saving…" : "Saving…") : "Save & Exit"}
                 </Button>
             </>
@@ -341,10 +350,8 @@ function DashboardClientInner({
                 aliases={tagAliases}
                 variants={variants}
                 resumeData={resumeData}
-                activeJobId={activeJobId}
-                selectedJobId={selectedJobId ?? activeJobId ?? jobs[0]?.id ?? null}
+                selectedJobId={selectedJobId ?? jobs[0]?.id ?? null}
                 onSelectJob={setSelectedJobId}
-                onTailor={(id) => { setTailoring(id); if (id) setView("library"); }}
                 onApplyProposal={handleApplyProposal}
                 onImportExternal={(r) => {
                     const items: ImportSelection["items"] = {};
@@ -375,17 +382,6 @@ function DashboardClientInner({
                 title={VIEW_TITLE[view]}
                 actions={actions}
                 tabs={tabs}
-                banner={showStrip && activeJob ? (
-                    <JobContextStrip
-                        job={activeJob}
-                        data={resumeData}
-                        aliases={tagAliases}
-                        reanalyzing={reanalyzing}
-                        onReanalyze={reanalyze}
-                        onSuggestions={() => { setSelectedJobId(activeJob.id); setView("jobs"); }}
-                        onExit={() => setTailoring(null)}
-                    />
-                ) : undefined}
             />
 
             <div
@@ -418,11 +414,26 @@ function DashboardClientInner({
                 confirmLabel="Save anyway"
                 busy={isSaving}
                 onCancel={() => setConfirmVariants(null)}
-                onConfirm={() => void doSave()}
+                onConfirm={() => void doSave(confirmVariants?.target ?? null)}
             >
                 <p>Variants only point at library items, so the changed text will show up in every variant that includes those items:</p>
-                <ul className="ml-5 list-disc font-medium text-fg">{confirmVariants?.map(v => <li key={v}>{v}</li>)}</ul>
+                <ul className="ml-5 list-disc font-medium text-fg">{confirmVariants?.names.map(v => <li key={v}>{v}</li>)}</ul>
             </ConfirmDialog>
+
+            <Dialog
+                open={pendingLeave !== null}
+                onClose={() => setPendingLeave(null)}
+                title="Leave the editor?"
+                footer={
+                    <>
+                        <Button variant="ghost" onClick={() => setPendingLeave(null)}>Keep editing</Button>
+                        <Button variant="secondary" onClick={leaveDiscarding}>Discard changes</Button>
+                        <Button variant="primary" onClick={leaveSaving}>Save & leave</Button>
+                    </>
+                }
+            >
+                <p>You have unsaved changes. Save them first, or they are discarded when you leave.</p>
+            </Dialog>
 
             <ConfirmDialog
                 open={confirmDiscard}

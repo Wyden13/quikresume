@@ -8,6 +8,7 @@ import { cn } from "@/lib/cn";
 import { parseView, viewHref, type View } from "@/lib/ui/use-dashboard-view";
 import { useMediaQuery, XL } from "@/lib/ui/use-media-query";
 import { togglePreviewPane, usePreviewPane } from "@/lib/ui/preview-pane-store";
+import { interceptNavigation } from "@/lib/ui/leave-guard";
 import { FOCUS_RING } from "@/components/ui/primitives/button";
 import { BarChart3, Eye, Layers, Library, LogOut, PenLine, Target, Upload, User, type LucideIcon } from "@/components/ui/primitives/icons";
 
@@ -39,6 +40,11 @@ export function SidebarNav({ user, signOutAction, onNavigate }: { user: ShellUse
     const wide = useMediaQuery(XL);
     const paneOpen = usePreviewPane();
 
+    const follow = (href: string) => (e: React.MouseEvent) => {
+        if (interceptNavigation(href)) e.preventDefault();
+        onNavigate?.();
+    };
+
     const render = (item: NavItem) => {
         const Icon = item.icon;
         // On wide screens "Preview" toggles the side pane instead of navigating.
@@ -56,7 +62,7 @@ export function SidebarNav({ user, signOutAction, onNavigate }: { user: ShellUse
         const active = item.match(pathname, view);
         return (
             <li key={item.label}>
-                <Link href={item.href} onClick={onNavigate} aria-current={active ? "page" : undefined} className={cn(ITEM, active ? ACTIVE : IDLE, FOCUS_RING)}>
+                <Link href={item.href} onClick={follow(item.href)} aria-current={active ? "page" : undefined} className={cn(ITEM, active ? ACTIVE : IDLE, FOCUS_RING)}>
                     <Icon className="size-4 shrink-0" aria-hidden />
                     {item.label}
                 </Link>
@@ -67,7 +73,7 @@ export function SidebarNav({ user, signOutAction, onNavigate }: { user: ShellUse
     return (
         <div className="flex h-full flex-col">
             <div className="flex h-14 items-center px-4">
-                <Link href="/dashboard" onClick={onNavigate} className={cn("flex items-center gap-2 rounded-md", FOCUS_RING)}>
+                <Link href="/dashboard" onClick={follow("/dashboard")} className={cn("flex items-center gap-2 rounded-md", FOCUS_RING)}>
                     <Image src="/icons/quik-resume.svg" alt="" width={24} height={24} className="size-6" priority />
                     <span className="text-[15px] font-semibold tracking-tight">quikResume</span>
                 </Link>
