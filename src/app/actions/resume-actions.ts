@@ -9,7 +9,7 @@ import { PRESENT, toUtcDate } from "@/lib/dates";
 import { isTempId } from "@/lib/ids";
 import { toBullets } from "@/lib/typst/doc";
 import { personalInfoToUserDoc } from "@/lib/resume-mapper";
-import { contentHashOf, PROFILE_ID, profileHashOf, staleInputs } from "@/lib/tags/content";
+import { contentHashOf, PROFILE_ID, profileHashOf, staleInputs, tagContext } from "@/lib/tags/content";
 import { extractTags, TagError } from "@/lib/tags/extract";
 import { mergeTagAliases, readTagAliases } from "@/lib/db/meta";
 import type { Tag } from "@/lib/tags/types";
@@ -58,7 +58,7 @@ export async function saveResumeData(data: ResumeData): Promise<SaveResult> {
     let tagWarning: string | undefined;
     if (stale.length > 0) {
         try {
-            const result = await extractTags(stale, await readTagAliases(uid));
+            const result = await extractTags(stale, await readTagAliases(uid), { context: tagContext(data) });
             tagsById = result.tagsById;
             newAliases = result.aliases;
             if (result.skipped.length > 0) {

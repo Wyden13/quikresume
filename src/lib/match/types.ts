@@ -14,6 +14,16 @@ export interface Requirement {
     kind: TagKind;
     importance: Importance;
     yearsMin: number | null;
+    /**
+     * Candidate tag keys that satisfy this requirement without being the same
+     * key ("bachelor's degree" <- "bachelor of science"). Filled by the
+     * reconcile pass (lib/match/reconcile.ts) against the candidate's library.
+     */
+    satisfiedBy: string[];
+    /** Item ids the reconcile pass cited as demonstrating the requirement even without a tag. */
+    evidence: string[];
+    /** Short explanation from the reconcile pass ("" when it did nothing). */
+    reason: string;
 }
 
 export type ProposalKind = "include" | "exclude" | "rewrite-bullet" | "add-skill" | "gap";
@@ -76,15 +86,24 @@ export interface Preferences {
     caps: Caps;
 }
 
+/** hard = named technologies, tools, credentials, languages (missing = disqualifying); soft = traits and practices (missing = keyword advice). */
+export type RequirementTier = "hard" | "soft";
+
 export interface MatchRow {
     requirement: Requirement;
+    tier: RequirementTier;
     /** 0..1 */
     strength: number;
+    /** True when at least one scored item covers the requirement (exact tag, satisfying tag or cited evidence). */
     tagHit: boolean;
-    /** Number of scored items carrying the tag. */
+    /** Number of distinct scored items covering the requirement. */
     weight: number;
     literalHit: boolean;
     items: TagCarrier[];
+    /** Display names of the tags that covered it other than the exact key (e.g. "Bachelor of Science"). */
+    via: string[];
+    /** Reconcile-pass explanation when the hit is not an exact tag; "" otherwise. */
+    reason: string;
 }
 
 export interface MatchResult {
@@ -93,7 +112,10 @@ export interface MatchResult {
     must: { hit: number; total: number };
     nice: { hit: number; total: number };
     rows: MatchRow[];
+    /** Hard must-haves with no coverage at all: the disqualifiers. */
     missingMust: Requirement[];
+    /** Soft requirements (traits / practices) with no coverage: keywords worth adding before applying. */
+    keywordGaps: Requirement[];
 }
 
 /** Shape of one resume-side option in Job Match. */

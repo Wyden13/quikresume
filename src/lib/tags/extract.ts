@@ -34,11 +34,11 @@ const CHUNK_TIMEOUT_MS = 45_000;
 
 interface ChunkOutcome { tagsById: Record<string, Tag[]>; aliases: AliasMap }
 
-async function runChunk(chunk: TagInput[], userAliases: AliasMap, timeoutMs: number): Promise<ChunkOutcome> {
+async function runChunk(chunk: TagInput[], userAliases: AliasMap, timeoutMs: number, context: string): Promise<ChunkOutcome> {
     const result = await chatCompletion(
         [
             { role: "system", content: TAG_SYSTEM_PROMPT },
-            { role: "user", content: tagUserMessage(chunk) },
+            { role: "user", content: tagUserMessage(chunk, context) },
         ],
         { model: textModel(), json: true, effort: "low", temperature: 0.1, maxTokens: 8192, timeoutMs },
     );
@@ -77,9 +77,10 @@ async function runChunk(chunk: TagInput[], userAliases: AliasMap, timeoutMs: num
 export async function extractTags(
     inputs: TagInput[],
     userAliases: AliasMap,
-    opts: { budgetMs?: number } = {},
+    opts: { budgetMs?: number; /** Candidate background sent with every chunk (see `tagContext`). */ context?: string } = {},
 ): Promise<ExtractResult> {
     const budget = opts.budgetMs ?? DEFAULT_BUDGET_MS;
+    const context = opts.context ?? "";
     const started = Date.now();
     const chunks: TagInput[][] = [];
     for (let i = 0; i < inputs.length; i += TAG_CHUNK_SIZE) chunks.push(inputs.slice(i, i + TAG_CHUNK_SIZE));
@@ -99,7 +100,7 @@ export async function extractTags(
                 continue;
             }
             try {
-                const out = await runChunk(chunk, userAliases, Math.min(CHUNK_TIMEOUT_MS, remaining));
+                const out = await runChunk(chunk, userAliases, Math.min(CHUNK_TIMEOUT_MS, remaining), context);
                 Object.assign(tagsById, out.tagsById);
                 Object.assign(aliases, out.aliases);
             } catch (err) {

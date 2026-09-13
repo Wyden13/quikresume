@@ -11,7 +11,7 @@ import { db } from "@/lib/firestore";
 import { isGlmConfigured } from "@/lib/glm/client";
 import { extractTags, TagError } from "@/lib/tags/extract";
 import { mergeTagAliases, readTagAliases } from "@/lib/db/meta";
-import { allInputs, contentHashOf, PROFILE_ID, profileHashOf, staleInputs } from "@/lib/tags/content";
+import { allInputs, contentHashOf, PROFILE_ID, profileHashOf, staleInputs, tagContext } from "@/lib/tags/content";
 import { SECTION_COLLECTION } from "@/lib/sections";
 import { loadResumeData } from "@/lib/db/load-resume";
 import { RESUME_LIST_KEYS } from "@/types/schema";
@@ -38,7 +38,7 @@ export async function POST(req: Request) {
     if (inputs.length === 0) return NextResponse.json({ ok: true, tagged: 0, skipped: 0 });
 
     try {
-        const result = await extractTags(inputs, await readTagAliases(uid), { budgetMs: 100_000 });
+        const result = await extractTags(inputs, await readTagAliases(uid), { budgetMs: 100_000, context: tagContext(data) });
         const now = Timestamp.now();
         const userRef = db.collection("users").doc(uid);
         let batch = db.batch();

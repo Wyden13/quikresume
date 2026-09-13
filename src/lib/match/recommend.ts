@@ -5,8 +5,9 @@
 
 import type { ResumeData, ResumeListKey } from "@/types/schema";
 import { RESUME_LIST_KEYS } from "@/types/schema";
-import { itemRecency, itemTitle } from "@/lib/sections";
+import { itemRecency } from "@/lib/sections";
 import type { Caps, Proposal, Requirement } from "@/lib/match/types";
+import { coverageItems, coveredByItem, satisfierIndex } from "@/lib/match/coverage";
 
 const REQ_WEIGHT = { must: 3, nice: 1 } as const;
 /** A requirement is "saturated" after this many carriers (matches the scoring curve). */
@@ -16,6 +17,7 @@ interface Candidate {
     key: ResumeListKey;
     id: string;
     label: string;
+    /** Requirement keys this item covers (exact tag, satisfying tag or cited evidence). */
     tagNames: Set<string>;
     recency: string;
     selected: boolean;
@@ -44,12 +46,19 @@ export function recommendSelection(requirements: Requirement[], data: ResumeData
         return g;
     };
 
+    const units = coverageItems(data, false);
+    const inventory = new Set<string>();
+    for (const u of units) for (const t of u.tags) inventory.add(t.name);
+    const index = satisfierIndex(requirements, inventory);
+    const unitById = new Map(units.map(u => [u.carrier.id, u]));
+
     const candidates: Candidate[] = [];
     for (const key of RESUME_LIST_KEYS) {
         for (const item of data[key] as ResumeData[ResumeListKey][number][]) {
+            const unit = unitById.get(item.id);
             const c: Candidate = {
-                key, id: item.id, label: itemTitle(key, item),
-                tagNames: new Set(item.tags.map(t => t.name)),
+                key, id: item.id, label: unit?.carrier.label ?? "Untitled",
+                tagNames: unit ? coveredByItem(unit, requirements, index) : new Set(),
                 recency: itemRecency(key, item), selected: item.isSelected, initialGain: 0,
             };
             c.initialGain = gainOf(c);

@@ -30,7 +30,7 @@ import { updateVolunteering } from "@/app/actions/volunteering-actions";
 import { updatePublication } from "@/app/actions/publication-actions";
 import { updateLanguage } from "@/app/actions/language-actions";
 import { mergeImport, type ImportSelection } from "@/lib/import/merge";
-import { applyTags, contentHashOf, staleInputs } from "@/lib/tags/content";
+import { applyTags, contentHashOf, staleInputs, tagContext } from "@/lib/tags/content";
 import { applyProposal } from "@/lib/match/proposals";
 import { itemTitle } from "@/lib/sections";
 
@@ -229,7 +229,7 @@ export default function DashboardClient({
         setReanalyzing(true);
         try {
             if (draft) {
-                const res = await fetch("/api/tags/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: staleInputs(draft) }) });
+                const res = await fetch("/api/tags/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: staleInputs(draft), context: tagContext(draft) }) });
                 const json = (await res.json().catch(() => null)) as { ok: boolean; error?: string; tagsById?: Record<string, ResumeData["profileTags"]> } | null;
                 if (!json?.ok) throw new Error(json?.error ?? "Skill analysis failed.");
                 setDraft(prev => (prev ? applyTags(prev, json.tagsById ?? {}) : prev));

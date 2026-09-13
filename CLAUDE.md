@@ -50,7 +50,8 @@ src/
   app/page.tsx, (auth)/login, (dashboard)/dashboard/{page,profile/page,variants/page}.tsx
   app/api/import/route.ts                    POST upload -> GLM-4.6V -> ResumeData draft (see Resume import)
   app/api/tags/{analyze,backfill}/route.ts   tag unsaved draft items (nothing persisted) / re-tag stale library items
-  app/api/jobs/{analyze,proposals}/route.ts  JD -> requirements (saved job) / gap -> proposals (saved on the job)
+  app/api/jobs/{analyze,proposals,reconcile}/route.ts   JD -> requirements (+ reconcile when the form carries `resume`) /
+                                             gap -> proposals (re-reconciles first) / re-run the reconcile pass for a saved job
   app/actions/*-actions.ts                   "use server" CRUD per collection + resume-actions.ts (save + tagging)
                                              + user-actions.ts (profile), variant-actions.ts, job-actions.ts, tag-actions.ts
   lib/db/{user-collection,meta,variants,jobs,load-resume}.ts   server-only Firestore helpers
@@ -75,7 +76,8 @@ src/
   lib/import/pdf-pages.ts (browser), document-text.ts (server)   upload -> GLM parts, shared with /api/jobs/analyze
   lib/tags/{types,content,normalize,prompt,extract,aggregate}.ts   smart tags (see Smart tags)
   lib/variants.ts                            pure variant helpers (selectedIds, applyVariant, variantUsage)
-  lib/match/{types,text,score,recommend,proposals,prompt}.ts   Job Match scoring, set cover, proposals (pure except prompt)
+  lib/match/{types,text,score,coverage,recommend,proposals,prompt,resume-body}.ts   Job Match scoring, coverage, set cover, proposals (pure)
+  lib/match/reconcile.ts                     server-only "broader context" pass: LLM reconciles requirements vs the whole library
   lib/typst/doc.ts                           ResumeData -> TypstResumeDoc (the JSON contract)
   lib/typst/client.ts                        browser singleton around typst.ts
   lib/typst/templates.ts                     template registry
@@ -119,7 +121,12 @@ Weight of a tag = number of selected items carrying it (`aggregateTags`, compute
 - **Hash rule** (`lib/tags/content.ts`): `contentHash` is taken over the content fields only (no dates / ids /
   isSelected). An item is *stale* when `tagsHash !== contentHash`. Changing the field list re-stales everything once.
 - **Extraction** (`lib/tags/extract.ts`, `saveResumeData`): stale items go to the text model in chunks of 20,
-  3 chunks in parallel, 60 s budget, JSON mode. A failure never blocks the save: items stay stale and the
+  3 chunks in parallel, 60 s budget, JSON mode. Every chunk also carries `tagContext(data)` (headline, degrees,
+  summary; not hashed) so the model can file items under the candidate's field, and the prompt asks for
+  *implied* concepts ("5-service architecture" -> Microservices, a compiler project -> Computer Science as domain)
+  while tools/platforms must still be named. Degrees yield the specific degree **and** the generic level
+  ("Bachelor's Degree"). Libraries tagged before this rule keep their old tags until re-tagged (Insights ->
+  Analyse everything, or `POST /api/tags/backfill {force:true}`). A failure never blocks the save: items stay stale and the
   action returns `tagWarning`. `POST /api/tags/analyze` tags draft items without persisting (live Job Match,
   uploaded resumes); `POST /api/tags/backfill` re-tags stale (or all) persisted items.
 - **Normalisation** (`lib/tags/normalize.ts`): lowercase key + built-in alias table (`js` -> `javascript`,
@@ -133,8 +140,27 @@ Weight of a tag = number of selected items carrying it (`aggregateTags`, compute
 
 - `POST /api/jobs/analyze`: pasted text or an uploaded file (images transcribed with GLM-4.6V) -> text model ->
   `requirements: {name, display, kind, importance: must|nice, yearsMin}` saved in `users/{uid}/jobs`.
+- **Reconcile pass** (`lib/match/reconcile.ts`, server-only): exact tag keys miss what a human sees at once, so the
+  text model gets *all* requirements + the candidate's whole tag inventory + condensed items and returns, per
+  requirement, `satisfiedBy` (other candidate tag keys that count: `bachelor's degree` <- `bachelor of science`,
+  `microservices` <- `grpc`) and `evidence` (item ids that demonstrate it without a tag) + `reason`. These are
+  stored **on the requirement** in the job doc, so the pure scorer honours them on every client-side recompute.
+  Runs in `/api/jobs/analyze` when the form carries `resume` (the client sends the working selection), in
+  `/api/jobs/proposals` before scoring, and on demand via `POST /api/jobs/reconcile {jobId, resume}`
+  ("Re-check with AI" button; works for variants and uploads too). Failures never block: requirements come
+  back unchanged and the built-in hierarchy still applies.
+- **Coverage** (`lib/match/coverage.ts`, pure): an item covers a requirement when it carries the exact key, a
+  `satisfiedBy` key, a key the built-in hierarchy accepts (`builtinSatisfiers` in `lib/tags/normalize.ts`:
+  `bachelor's degree` <- any `bachelor of …` / master / doctorate, etc.), or is cited in `evidence`. Shared by
+  the scorer and the set cover.
 - **Scoring** (`lib/match/score.ts`, pure, runs in the browser for the live panel):
-  `strength = tagHit ? min(1, 0.5 + 0.25·weight) : literalHit ? 0.5 : 0`; `score = 100·(0.7·mean(must) + 0.3·mean(nice))`.
+  `strength = covered ? min(1, 0.5 + 0.25·weight) : literalHit ? 0.5 : 0` (credentials / languages: any carrier = 1);
+  `score = 100·Σ(w·strength)/Σw` with `w = importance (must 1, nice 0.4) × tier (hard 1, soft 0.3)`.
+  **Tier** (`requirementTier`): `soft-skill`, `methodology`, `domain` kinds and a built-in list of generic practices
+  (`PRACTICE_KEYS`: SDLC, documentation, software testing, code review, analytical thinking, …) are *soft*;
+  named technologies, tools, credentials and languages are *hard*. `missingMust` = hard must-haves with no
+  coverage (the disqualifiers, e.g. C++ with no coursework or project); `keywordGaps` = soft requirements with
+  no coverage ("add these keywords before applying"). `MatchRow.via` / `.reason` explain inferred hits in the UI.
   `literalHit` searches the exact strings Typst prints (`renderedText(toTypstDoc(data))`) — the ATS check.
 - **Recommendation** (`lib/match/recommend.ts`): greedy weighted set cover (must = 3, nice = 1, a requirement
   saturates after 2 carriers) under per-section caps (`DEFAULT_CAPS`, user-editable in `meta/preferences`);
@@ -231,7 +257,7 @@ Subcollections, each item doc has `isSelected`, `tags`, `contentHash`, `tagsHash
 | `publications` | `title, venue, date, link, authors` |
 | `languages` | `language, proficiency` |
 | `variants` | `name, labels: string[], items: {experience: string[], …}, templateId` (pointers only) |
-| `jobs` | `title, company, source, jdText, summary, requirements[], proposals[], proposalsAt, lastScore` |
+| `jobs` | `title, company, source, jdText, summary, requirements[] ({name, display, kind, importance, yearsMin, satisfiedBy[], evidence[], reason}), proposals[], proposalsAt, lastScore` |
 | `meta/tags` | `aliases: Record<alias, canonical>` |
 | `meta/preferences` | `mutedProposals: {kind, tag?, itemId?}[], caps: Record<ResumeListKey, number \| null>` |
 

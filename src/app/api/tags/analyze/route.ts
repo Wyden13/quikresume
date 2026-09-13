@@ -1,5 +1,5 @@
 // src/app/api/tags/analyze/route.ts
-// POST { items: TagInput[] } -> { ok, tagsById, skipped }. Tags unsaved draft
+// POST { items: TagInput[], context?: string } -> { ok, tagsById, skipped }. Tags unsaved draft
 // items (or an uploaded resume) without persisting anything but new aliases.
 // A Route Handler so the GLM call can run under its own maxDuration.
 
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
     if (!session?.user?.id) return fail(401, "You need to be signed in.");
     if (!isGlmConfigured()) return fail(500, "Skill analysis is not configured on this server (GLM_API_KEY missing).");
 
-    let body: { items?: unknown };
+    let body: { items?: unknown; context?: unknown };
     try {
         body = await req.json();
     } catch {
@@ -45,7 +45,8 @@ export async function POST(req: Request) {
 
     try {
         const uid = session.user.id;
-        const result = await extractTags(items, await readTagAliases(uid), { budgetMs: 100_000 });
+        const context = typeof body.context === "string" ? body.context.slice(0, 1500) : "";
+        const result = await extractTags(items, await readTagAliases(uid), { budgetMs: 100_000, context });
         await mergeTagAliases(uid, result.aliases);
         return NextResponse.json({ ok: true, tagsById: result.tagsById, skipped: result.skipped });
     } catch (err) {

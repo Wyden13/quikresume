@@ -15,7 +15,7 @@ import type { AliasMap } from "@/lib/tags/normalize";
 import { jobKindTotals, scoreJob } from "@/lib/match/score";
 import { muteRuleFor } from "@/lib/match/proposals";
 import { aggregateTags, kindTotals } from "@/lib/tags/aggregate";
-import { applyTags, allInputs } from "@/lib/tags/content";
+import { applyTags, allInputs, tagContext } from "@/lib/tags/content";
 import { kindMeta } from "@/lib/tags/types";
 import { applyVariant } from "@/lib/variants";
 import { documentFormData } from "@/lib/import/pdf-pages";
@@ -90,7 +90,7 @@ export function JobMatchView(props: JobMatchViewProps) {
     return (
         <div className="grid gap-8 lg:grid-cols-[340px_1fr]">
             <aside className="space-y-6">
-                <AnalyzeForm onAnalyzed={(job) => { onSelectJob(job.id); router.refresh(); }} onError={setError} />
+                <AnalyzeForm resumeData={props.resumeData} onAnalyzed={(job) => { onSelectJob(job.id); router.refresh(); }} onError={setError} />
                 <div className="space-y-2">
                     <h3 className="font-black text-gray-900 uppercase text-[11px] tracking-[0.3em] opacity-30 px-2">Analysed jobs</h3>
                     {jobs.length === 0 && <p className="px-2 text-sm text-black/40 font-medium">Nothing analysed yet.</p>}
@@ -161,7 +161,7 @@ export function JobMatchView(props: JobMatchViewProps) {
 
 const ACCEPT = ".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp";
 
-function AnalyzeForm({ onAnalyzed, onError }: { onAnalyzed: (job: JobRecord) => void; onError: (e: string | null) => void }) {
+function AnalyzeForm({ resumeData, onAnalyzed, onError }: { resumeData: ResumeData; onAnalyzed: (job: JobRecord) => void; onError: (e: string | null) => void }) {
     const [text, setText] = useState("");
     const [file, setFile] = useState<File | null>(null);
     const [busy, setBusy] = useState<string | null>(null);
@@ -177,13 +177,17 @@ function AnalyzeForm({ onAnalyzed, onError }: { onAnalyzed: (job: JobRecord) => 
                 setBusy("Preparing file…");
                 body = await documentFormData(file);
             } else return;
-            setBusy("Extracting requirements…");
+            // The working selection rides along so the server can reconcile the requirements
+            // against the whole library (semantic matches: degree levels, implied skills, fields).
+            body.set("resume", JSON.stringify(resumeData));
+            setBusy("Extracting requirements & matching…");
             const res = await fetch("/api/jobs/analyze", { method: "POST", body });
-            const json = (await res.json().catch(() => null)) as { ok: boolean; error?: string; job?: JobRecord } | null;
+            const json = (await res.json().catch(() => null)) as { ok: boolean; error?: string; job?: JobRecord; warning?: string } | null;
             if (!json) throw new Error(`Analysis failed (${res.status}).`);
             if (!json.ok || !json.job) throw new Error(json.error ?? "Analysis failed.");
             setText("");
             setFile(null);
+            if (json.warning) onError(`${json.warning} Exact keyword matching is shown; use "Re-check with AI" to retry.`);
             onAnalyzed(json.job);
         } catch (err) {
             onError(err instanceof Error ? err.message : "Analysis failed.");
@@ -255,7 +259,7 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, activeJobI
             if (!json) throw new Error(`Import failed (${res.status}).`);
             if (!json.ok) throw new Error(json.error);
             setUploading("Analysing skills…");
-            const tagRes = await fetch("/api/tags/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: allInputs(json.data) }) });
+            const tagRes = await fetch("/api/tags/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: allInputs(json.data), context: tagContext(json.data) }) });
             const tagJson = (await tagRes.json().catch(() => null)) as { ok: boolean; error?: string; tagsById?: Record<string, ResumeData["profileTags"]> } | null;
             if (!tagJson?.ok) throw new Error(tagJson?.error ?? "Skill analysis failed.");
             const data = applyTags(json.data, tagJson.tagsById ?? {});
@@ -265,6 +269,22 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, activeJobI
             onError(err instanceof Error ? err.message : "Could not read that resume.");
         } finally {
             setUploading(null);
+        }
+    };
+
+    /** Re-runs the broader-context pass against the resume being scored (any source). */
+    const recheck = async () => {
+        onError(null);
+        setBusy("recheck");
+        try {
+            const res = await fetch("/api/jobs/reconcile", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: job.id, resume }) });
+            const json = (await res.json().catch(() => null)) as { ok: boolean; error?: string } | null;
+            if (!json?.ok) throw new Error(json?.error ?? "The AI match check failed.");
+            router.refresh();
+        } catch (err) {
+            onError(err instanceof Error ? err.message : "The AI match check failed.");
+        } finally {
+            setBusy(null);
         }
     };
 
@@ -394,12 +414,23 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, activeJobI
                                 <span className="text-black/40">Length</span>
                                 <span className={pages !== null && pages > 1 ? "text-amber-600" : ""}>{pages === null ? "…" : `${pages} ${pages === 1 ? "page" : "pages"}${pages > 1 ? " — over one page" : ""}`}</span>
                             </div>
-                            {match.missingMust.length > 0 && (
-                                <div className="md:ml-auto text-sm">
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-red-600/70">Missing must-haves</p>
-                                    <p className="font-bold text-red-700">{match.missingMust.map(r => r.display).join(", ")}</p>
-                                </div>
-                            )}
+                            <div className="md:ml-auto text-sm space-y-2 md:text-right">
+                                {match.missingMust.length > 0 && (
+                                    <div>
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-red-600/70">Missing must-haves</p>
+                                        <p className="font-bold text-red-700">{match.missingMust.map(r => r.display).join(", ")}</p>
+                                    </div>
+                                )}
+                                {match.keywordGaps.length > 0 && (
+                                    <div>
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-amber-600/80">Add these keywords before applying</p>
+                                        <p className="font-bold text-amber-700">{match.keywordGaps.map(r => r.display).join(", ")}</p>
+                                    </div>
+                                )}
+                                <Button size="sm" onClick={recheck} loading={busy === "recheck"} title="Ask the AI to match requirements against your whole library: equivalent degrees, implied skills, related projects.">
+                                    Re-check with AI
+                                </Button>
+                            </div>
                         </div>
                         <Charts job={job} resume={resume} />
                     </>
@@ -428,8 +459,15 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, activeJobI
                                 {match.rows.map(r => (
                                     <tr key={r.requirement.name} className={`border-b border-black/5 align-top ${r.strength === 0 ? "bg-red-50/40" : ""}`}>
                                         <td className="px-3 py-2 font-bold whitespace-nowrap">{r.requirement.display}</td>
-                                        <td className="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-black/40">{r.requirement.importance === "must" ? "Must" : "Nice"}</td>
-                                        <td className="px-3 py-2">{r.tagHit ? <span className="text-emerald-700 font-bold">Yes · {r.weight}</span> : <span className="text-black/30">No</span>}</td>
+                                        <td className="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-black/40 whitespace-nowrap">
+                                            {r.requirement.importance === "must" ? "Must" : "Nice"}
+                                            <span className="text-black/25" title={r.tier === "hard" ? "Hard skill: missing it counts fully against the score." : "Soft skill or practice: missing it is keyword advice, weighted 0.3."}> · {r.tier}</span>
+                                        </td>
+                                        <td className="px-3 py-2" title={r.reason || undefined}>
+                                            {r.tagHit ? <span className="text-emerald-700 font-bold">Yes · {r.weight}</span> : <span className="text-black/30">No</span>}
+                                            {r.via.length > 0 && <span className="block text-[11px] text-black/50 font-medium">via {r.via.slice(0, 3).join(", ")}{r.via.length > 3 ? ` +${r.via.length - 3}` : ""}</span>}
+                                            {r.via.length === 0 && r.reason && <span className="block text-[11px] text-black/50 font-medium">inferred from your items</span>}
+                                        </td>
                                         <td className="px-3 py-2">{r.literalHit ? <span className="text-emerald-700 font-bold">Yes</span> : <span className={r.tagHit ? "text-amber-600 font-bold" : "text-black/30"}>{r.tagHit ? "Not literally" : "No"}</span>}</td>
                                         <td className="px-3 py-2 text-black/50 text-xs">{r.items.map(i => i.label).slice(0, 3).join(" · ")}{r.items.length > 3 ? ` +${r.items.length - 3}` : ""}</td>
                                     </tr>

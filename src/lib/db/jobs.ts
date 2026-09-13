@@ -28,6 +28,9 @@ export function readRequirements(v: unknown): Requirement[] {
             kind: o.kind,
             importance: o.importance === "nice" ? "nice" : "must",
             yearsMin: typeof o.yearsMin === "number" ? o.yearsMin : null,
+            satisfiedBy: strArray(o.satisfiedBy),
+            evidence: strArray(o.evidence),
+            reason: strOf(o.reason),
         });
     }
     return out;

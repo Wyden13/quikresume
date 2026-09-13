@@ -35,6 +35,19 @@ export const BUILTIN_ALIASES: AliasMap = {
     "m.sc": "master of science", msc: "master of science", "m.s.": "master of science", ms: "master of science",
     "b.eng": "bachelor of engineering", beng: "bachelor of engineering", "b.a.": "bachelor of arts", ba: "bachelor of arts",
     "comp sci": "computer science", cs: "computer science", "compsci": "computer science",
+    "bachelors": "bachelor's degree", "bachelor's": "bachelor's degree", "bachelors degree": "bachelor's degree",
+    "bachelor degree": "bachelor's degree", "bachelor's degrees": "bachelor's degree", "undergraduate degree": "bachelor's degree",
+    "ba/bs": "bachelor's degree", "bs/ba": "bachelor's degree", "bs/ms": "bachelor's degree",
+    "masters": "master's degree", "master's": "master's degree", "masters degree": "master's degree", "master degree": "master's degree",
+    "graduate degree": "master's degree", "ms/phd": "master's degree",
+    "phd": "doctorate", "ph.d": "doctorate", "ph.d.": "doctorate", "doctoral degree": "doctorate", "doctor of philosophy": "doctorate",
+    "degree": "university degree", "college degree": "university degree", "university degree": "university degree",
+    "relevant degree": "university degree", "related degree": "university degree",
+    microservice: "microservices", "micro-services": "microservices", "micro services": "microservices",
+    "microservice architecture": "microservices", "microservices architecture": "microservices", "microservices-based architecture": "microservices",
+    "service-oriented architecture": "microservices", "service oriented architecture": "microservices", soa: "microservices",
+    "cs degree": "computer science", "computer science degree": "computer science", "computer sciences": "computer science",
+    "software engineer": "software engineering", "software development": "software engineering", "software dev": "software engineering",
 };
 
 /** Pretty forms for canonical keys the alias table produces (otherwise the model's spelling is kept). */
@@ -51,7 +64,33 @@ const DISPLAY_NAMES: Record<string, string> = {
     "github actions": "GitHub Actions", "data structures & algorithms": "Data Structures & Algorithms", agile: "Agile", scrum: "Scrum",
     "test-driven development": "Test-Driven Development", "bachelor of science": "Bachelor of Science", "master of science": "Master of Science",
     "bachelor of engineering": "Bachelor of Engineering", "bachelor of arts": "Bachelor of Arts", "computer science": "Computer Science",
+    "bachelor's degree": "Bachelor's Degree", "master's degree": "Master's Degree", doctorate: "Doctorate", "university degree": "University Degree",
+    microservices: "Microservices", "software engineering": "Software Engineering",
 };
+
+/**
+ * Built-in implications: a requirement key on the left is satisfied by any
+ * candidate tag key matching the pattern on the right. This is the deterministic
+ * floor under the LLM reconcile pass, so degree levels resolve even offline
+ * ("bachelor's degree" <- "bachelor of science", "b.eng"...).
+ */
+const BUILTIN_SATISFIERS: Array<[requirement: string, pattern: RegExp]> = [
+    ["bachelor's degree", /^(bachelor(?:'s)? (?:of|in) |b\.?(?:sc|s|a|eng|e|tech|comp|cs|ba)\b|bachelor's degree in |master|doctor|phd)/],
+    ["master's degree", /^(master(?:'s)? (?:of|in) |m\.?(?:sc|s|a|eng|e|tech|ba|phil)\b|master's degree in |doctorate|doctor of |phd)/],
+    ["doctorate", /^(doctor of |phd\b|ph\.d)/],
+    ["university degree", /^(bachelor|master|doctor|phd|associate|b\.?(?:sc|s|a|eng|e|tech)\b|m\.?(?:sc|s|a|eng|e|tech|ba)\b)/],
+];
+
+/** Candidate tag keys (from `inventory`) that satisfy `requirement` through the built-in hierarchy. */
+export function builtinSatisfiers(requirement: string, inventory: Iterable<string>): string[] {
+    const rules = BUILTIN_SATISFIERS.filter(([req]) => req === requirement);
+    if (rules.length === 0) return [];
+    const out: string[] = [];
+    for (const key of inventory) {
+        if (key !== requirement && rules.some(([, re]) => re.test(key))) out.push(key);
+    }
+    return out;
+}
 
 /** Lowercase, trimmed, single-spaced, outer quotes and trailing punctuation stripped. */
 export function normalizeTagName(raw: string): string {

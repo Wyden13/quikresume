@@ -1,7 +1,9 @@
 // src/app/api/jobs/proposals/route.ts
-// POST { jobId, resume: ResumeData } -> { ok, proposals, score }.
-// Include/exclude proposals come from the deterministic set cover; rewrite /
-// add-skill / gap proposals from the text model. Muted rules are filtered,
+// POST { jobId, resume: ResumeData } -> { ok, proposals, score, requirements }.
+// The requirements are first reconciled against the resume (lib/match/reconcile.ts)
+// so the score and the set cover see semantic matches. Include/exclude proposals
+// come from the deterministic set cover; rewrite / add-skill / gap proposals
+// from the text model. Muted rules are filtered,
 // statuses of unchanged proposals are preserved, and the result is stored on
 // the job document.
 
@@ -14,6 +16,8 @@ import { extractJson, ImportParseError } from "@/lib/import/parsed-resume";
 import { readTagAliases } from "@/lib/db/meta";
 import { patchJob, readJob, readPreferences, readProposals } from "@/lib/db/jobs";
 import { scoreJob } from "@/lib/match/score";
+import { reconcileRequirements } from "@/lib/match/reconcile";
+import { isResumeData } from "@/lib/match/resume-body";
 import { recommendSelection } from "@/lib/match/recommend";
 import { isMuted, newProposalId } from "@/lib/match/proposals";
 import { PROPOSAL_SYSTEM_PROMPT, proposalUserMessage, type ProposalPromptItem } from "@/lib/match/prompt";
@@ -27,12 +31,6 @@ export const runtime = "nodejs";
 export const maxDuration = 120;
 
 const fail = (status: number, error: string) => NextResponse.json({ ok: false, error }, { status });
-
-function isResumeData(v: unknown): v is ResumeData {
-    if (!v || typeof v !== "object") return false;
-    const o = v as Record<string, unknown>;
-    return typeof o.personalInfo === "object" && RESUME_LIST_KEYS.every(k => Array.isArray(o[k]));
-}
 
 export async function POST(req: Request) {
     const session = await auth();
@@ -52,8 +50,13 @@ export async function POST(req: Request) {
     const [job, prefs, aliases] = await Promise.all([readJob(uid, body.jobId), readPreferences(uid), readTagAliases(uid)]);
     if (!job) return fail(404, "Job not found.");
 
-    const match = scoreJob(job.requirements, resume, aliases);
-    const rec = recommendSelection(job.requirements, resume, prefs.caps);
+    // Broader-context pass first: semantic matches feed both the score and the set cover.
+    const reconciled = await reconcileRequirements(job.requirements, resume, aliases);
+    const requirements = reconciled.requirements;
+    if (reconciled.warning) console.warn("[jobs/proposals] reconcile skipped:", reconciled.warning);
+
+    const match = scoreJob(requirements, resume, aliases);
+    const rec = recommendSelection(requirements, resume, prefs.caps);
 
     // Items the coach may reference (all of them, so add-skill can cite unselected evidence).
     const items: ProposalPromptItem[] = [];
@@ -67,7 +70,7 @@ export async function POST(req: Request) {
         }
     }
     const mutedTags = prefs.mutedProposals.filter(r => r.tag).map(r => r.tag as string);
-    const muted = job.requirements.filter(r => mutedTags.includes(r.name)).map(r => r.display);
+    const muted = requirements.filter(r => mutedTags.includes(r.name)).map(r => r.display);
 
     let llmProposals: Proposal[] = [];
     try {
@@ -76,8 +79,8 @@ export async function POST(req: Request) {
                 { role: "system", content: PROPOSAL_SYSTEM_PROMPT },
                 { role: "user", content: proposalUserMessage({
                     job: { title: job.title, company: job.company, summary: job.summary },
-                    requirements: job.requirements,
-                    coverage: match.rows.map(r => ({ name: r.requirement.display, strength: r.strength })),
+                    requirements,
+                    coverage: match.rows.map(r => ({ name: r.requirement.display, strength: r.strength, tier: r.tier })),
                     items,
                     skillCategories: resume.skills.map(s => ({ id: s.id, category: s.category, items: s.items })),
                     muted,
@@ -86,7 +89,7 @@ export async function POST(req: Request) {
             { model: textModel(), json: true, effort: "low", temperature: 0.3, maxTokens: 6000 },
         );
         const json = extractJson(result.text) as { proposals?: unknown };
-        const reqByDisplay = new Map(job.requirements.map(r => [r.display.toLowerCase(), r.name]));
+        const reqByDisplay = new Map(requirements.map(r => [r.display.toLowerCase(), r.name]));
         const toKey = (t: unknown) => (typeof t === "string" ? reqByDisplay.get(t.toLowerCase()) ?? canonicalKey(t, aliases) : "");
         for (const raw of readProposals(
             Array.isArray(json.proposals) ? json.proposals.map((p, i) => ({ ...(p as object), id: `llm-${i}` })) : [],
@@ -116,7 +119,7 @@ export async function POST(req: Request) {
         .filter(p => !isMuted(p, prefs.mutedProposals))
         .map(p => ({ ...p, status: previous.get(p.id) ?? p.status }));
 
-    await patchJob(uid, job.id, { proposals: all, proposalsAt: Timestamp.now(), lastScore: match.score });
+    await patchJob(uid, job.id, { proposals: all, proposalsAt: Timestamp.now(), lastScore: match.score, requirements });
     revalidatePath("/dashboard");
-    return NextResponse.json({ ok: true, proposals: all, score: match.score, uncovered: rec.uncovered.map(r => r.display) });
+    return NextResponse.json({ ok: true, proposals: all, score: match.score, requirements, uncovered: rec.uncovered.map(r => r.display) });
 }

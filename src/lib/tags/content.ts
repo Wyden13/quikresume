@@ -73,6 +73,25 @@ export function profileText(p: PersonalInfo): string {
     return [t(p.headline) && `Headline: ${t(p.headline)}`, t(p.summary) && `Summary: ${t(p.summary)}`].filter(Boolean).join("\n");
 }
 
+/**
+ * Background the tagger gets with every chunk: who the candidate is (headline,
+ * degrees, summary). Items are tagged on their own text, but the context lets
+ * the model resolve ambiguity and file items under the candidate's field.
+ * Not hashed: it never makes an item stale.
+ */
+export function tagContext(data: ResumeData): string {
+    const p = data.personalInfo;
+    const degrees = data.education
+        .map(e => [t(e.degree), t(e.institution)].filter(Boolean).join(", ") + (t(e.minor) ? ` (minor: ${t(e.minor)})` : ""))
+        .filter(Boolean);
+    const lines = [
+        t(p.headline) && `Headline: ${t(p.headline)}`,
+        degrees.length > 0 && `Education: ${degrees.join(" | ")}`,
+        t(p.summary) && `Summary: ${t(p.summary).slice(0, 600)}`,
+    ].filter(Boolean) as string[];
+    return lines.join("\n").slice(0, 1500);
+}
+
 export function profileHashOf(p: PersonalInfo): string {
     return stableHash(`profile|${JSON.stringify([t(p.headline), t(p.summary)])}`);
 }

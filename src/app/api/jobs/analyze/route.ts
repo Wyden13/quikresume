@@ -1,8 +1,10 @@
 // src/app/api/jobs/analyze/route.ts
 // POST multipart: `text` (pasted job description) OR the upload contract from
 // /api/import (`file` / `pages` / `fileName`). Images are transcribed with
-// GLM-4.6V, then the text model extracts structured requirements. Saves the
-// job under users/{uid}/jobs and returns it.
+// GLM-4.6V, then the text model extracts structured requirements. When the
+// form also carries `resume` (ResumeData as JSON), a second text-model pass
+// reconciles the requirements against that resume (lib/match/reconcile.ts).
+// Saves the job under users/{uid}/jobs and returns it.
 
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
@@ -12,10 +14,13 @@ import { formToDocument, isDocumentError, transcribeImages } from "@/lib/import/
 import { extractJson, ImportParseError } from "@/lib/import/parsed-resume";
 import { readTagAliases } from "@/lib/db/meta";
 import { createJob } from "@/lib/db/jobs";
+import { reconcileRequirements } from "@/lib/match/reconcile";
+import { isResumeData } from "@/lib/match/resume-body";
 import { JD_MAX_CHARS, JD_SYSTEM_PROMPT, jdUserMessage } from "@/lib/match/prompt";
 import { makeTag, type AliasMap } from "@/lib/tags/normalize";
 import { isTagKind } from "@/lib/tags/types";
 import type { Requirement } from "@/lib/match/types";
+import type { ResumeData } from "@/types/schema";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -37,9 +42,20 @@ function parseRequirements(raw: unknown, aliases: AliasMap): Requirement[] {
             ...tag,
             importance: o.importance === "nice" ? "nice" : "must",
             yearsMin: typeof o.yearsMin === "number" && o.yearsMin > 0 ? Math.round(o.yearsMin) : null,
+            satisfiedBy: [], evidence: [], reason: "",
         });
     }
     return out;
+}
+
+function parseResumeField(v: FormDataEntryValue | null): ResumeData | null {
+    if (typeof v !== "string" || !v) return null;
+    try {
+        const parsed = JSON.parse(v) as unknown;
+        return isResumeData(parsed) ? parsed : null;
+    } catch {
+        return null;
+    }
 }
 
 export async function POST(req: Request) {
@@ -74,8 +90,16 @@ export async function POST(req: Request) {
         );
         const json = extractJson(result.text) as Record<string, unknown>;
         const aliases = await readTagAliases(uid);
-        const requirements = parseRequirements(json.requirements, aliases);
+        let requirements = parseRequirements(json.requirements, aliases);
         if (requirements.length === 0) return fail(502, "No requirements could be extracted from that text. Try pasting the full posting.");
+
+        let warning: string | undefined;
+        const resume = parseResumeField(form.get("resume"));
+        if (resume) {
+            const rec = await reconcileRequirements(requirements, resume, aliases);
+            requirements = rec.requirements;
+            warning = rec.warning;
+        }
 
         const job = await createJob(uid, {
             title: String(json.title ?? "").trim().slice(0, 120) || "Untitled job",
@@ -86,7 +110,7 @@ export async function POST(req: Request) {
             requirements,
         });
         revalidatePath("/dashboard");
-        return NextResponse.json({ ok: true, job });
+        return NextResponse.json({ ok: true, job, warning });
     } catch (err) {
         if (err instanceof ImportParseError) {
             console.error("[jobs/analyze] unparseable reply:", err.raw.slice(0, 500));

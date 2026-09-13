@@ -53,6 +53,10 @@ export function JobContextPanel({ job, data, aliases, reanalyzing, onReanalyze, 
                     ))}
                     {match.missingMust.length > 4 && <span className="text-[10px] font-black text-white/40">+{match.missingMust.length - 4} missing</span>}
                     {match.missingMust.length === 0 && match.must.total > 0 && <span className="text-[10px] font-black uppercase tracking-widest text-emerald-300">All must-haves covered</span>}
+                    {match.keywordGaps.slice(0, 3).map(r => (
+                        <span key={r.name} className="px-2 py-0.5 rounded-md bg-amber-400/20 text-amber-200 text-[11px] font-bold" title="Soft skill or practice keyword missing: work it into a bullet before applying.">+ {r.display}</span>
+                    ))}
+                    {match.keywordGaps.length > 3 && <span className="text-[10px] font-black text-white/40">+{match.keywordGaps.length - 3} keywords</span>}
                     {stale > 0 && (
                         <button type="button" onClick={onReanalyze} disabled={reanalyzing} className="ml-1 px-2 py-0.5 rounded-md bg-amber-400/20 text-amber-200 text-[10px] font-black uppercase tracking-widest hover:bg-amber-400/30 disabled:opacity-50">
                             {reanalyzing ? "Analysing…" : `${stale} not analysed · re-analyse`}

@@ -12,19 +12,52 @@ Output ONE JSON object and nothing else:
 {"title":"<job title>","company":"<company or empty>","summary":"<one or two sentences on the role>","requirements":[{"name":"<canonical skill/keyword>","kind":"<kind>","importance":"must"|"nice","yearsMin":<number or null>}]}
 
 Kinds (exact ids): ${TAG_KINDS.map(k => k.id).join(", ")}.
-- technical-skill: languages, frameworks, concepts. tool-platform: products, clouds, tools. domain: industries / problem areas. soft-skill: interpersonal traits. methodology: ways of working (Agile, CI/CD). credential: degrees, certifications, clearances. language: human languages.
+- technical-skill: languages, frameworks, concepts. tool-platform: products, clouds, tools. domain: industries / problem areas. soft-skill: interpersonal traits and generic abilities ("Analytical Thinking", "Communication", "Problem Solving"). methodology: ways of working and engineering practices ("Agile", "CI/CD", "Software Development Lifecycle", "Documentation", "Software Testing", "Code Review", "Debugging"). credential: degrees, certifications, clearances. language: human languages.
+- Hard skills (technical-skill, tool-platform, credential, language) are scored as disqualifying when missing; soft-skill and methodology entries are keyword advice. Classify accordingly: a named language, framework, product or degree is hard; a practice or trait is not, even when the posting lists it under "technical requirements".
 
 Rules:
 - 8 to 30 requirements. Merge duplicates. Skip generic filler ("team player", "fast-paced environment") unless the posting stresses it.
 - "must": stated as required / must / minimum qualifications, or clearly central to the role. "nice": preferred / bonus / plus.
 - Canonical names as commonly written: "PostgreSQL", "Node.js", "Amazon Web Services", "Machine Learning", "CI/CD", "Bachelor of Science". Split compounds ("React/Vue" -> two entries). No version numbers.
-- Degree requirements become two entries: the level ("Bachelor of Science", credential) and the field ("Computer Science", credential). "or equivalent experience" keeps them as "nice".
+- Degree requirements become two entries: the level and the field, both credential. Level: "Bachelor's Degree" / "Master's Degree" / "Doctorate" when the posting says bachelor's/master's/PhD generically; the specific degree ("Bachelor of Science") only when the posting names it. Field: "Computer Science". "or a related field" makes the field entry "nice"; "or equivalent experience" makes both "nice".
 - yearsMin only when the posting states a number of years for that requirement (e.g. "5+ years of Go" -> Go with yearsMin 5).
 - Never invent requirements that are not in the posting.
 - Valid JSON only. No markdown.`;
 
 export function jdUserMessage(text: string): string {
     return `Job posting:\n\n${text.slice(0, JD_MAX_CHARS)}`;
+}
+
+// ---------- reconcile: requirements vs the candidate's actual library
+
+export const RECONCILE_SYSTEM_PROMPT = `You are a senior technical recruiter. A job's requirements are matched against a candidate's skill tags by exact name, which misses what a human sees at once. Decide, requirement by requirement, which of the candidate's OTHER tags and items also satisfy it. A requirement whose exact tag the candidate already has may still get extra satisfiers or evidence; one nothing supports is left out.
+
+Input: {"requirements":[{"name":"...","kind":"...","importance":"must"|"nice"}],"candidateTags":[{"name":"...","kind":"...","items":<count>}],"items":[{"id":"...","section":"...","label":"...","bullets":["..."],"tags":["..."]}]}
+
+Output ONE JSON object and nothing else:
+{"matches":[{"requirement":"<requirement name, verbatim>","satisfiedBy":["<candidateTags name, verbatim>"],"evidence":["<item id>"],"reason":"<one short sentence>"}]}
+
+How to reason (like a human reading the resume, not a keyword matcher):
+- A more specific or higher credential satisfies a generic one: "Bachelor of Science" or "Master of Engineering" satisfies "Bachelor's Degree"; "B.Sc. in Computer Science" satisfies "Computer Science"; a Software Engineering degree satisfies "Computer Science" for software roles.
+- A described practice satisfies the concept: an item that split a system into several services satisfies "Microservices"; deploying with Docker images on a cluster satisfies "Containerisation"; a project that trains a CNN satisfies "Deep Learning".
+- A body of work satisfies a field: several substantial computer-science projects (compilers, systems, algorithms, distributed systems) evidence "Computer Science"; shipping production software evidences "Software Engineering" and "Software Development Lifecycle".
+- Equivalents and supersets count ("Amazon Web Services" for "Cloud Computing"; "PostgreSQL" for "SQL" and "Relational Databases"; "React" for "Frontend Development"). The reverse does NOT: "Cloud Computing" does not satisfy "Amazon Web Services", "SQL" does not satisfy "PostgreSQL", and one named tool never satisfies a different named tool (React is not Angular, Java is not JavaScript).
+- Cite evidence item ids only for items that genuinely demonstrate the requirement. Prefer satisfiedBy (tag names) when a tag fits; use evidence for cases no tag captures.
+- When nothing in the library supports a requirement, leave it out. Never stretch: a hiring manager must agree with every match.
+- satisfiedBy entries must be copied verbatim from candidateTags names; evidence ids verbatim from items. Valid JSON only, no markdown.`;
+
+export interface ReconcileTagRow { name: string; kind: string; items: number }
+
+export function reconcileUserMessage(input: {
+    requirements: Requirement[];
+    candidateTags: ReconcileTagRow[];
+    items: ProposalPromptItem[];
+}): string {
+    return JSON.stringify({
+        requirements: input.requirements.map(r => ({ name: r.display, kind: r.kind, importance: r.importance })),
+        candidateTags: input.candidateTags,
+        items: input.items,
+    });
 }
 
 export const PROPOSAL_SYSTEM_PROMPT = `You are a resume coach. Given a job's requirements, which of them the candidate's resume already covers, and the candidate's actual resume items, propose concrete, honest improvements.
@@ -38,6 +71,7 @@ Output ONE JSON object and nothing else:
 
 Rules:
 - At most 10 proposals. Prioritise must-have requirements that are missing or only weakly covered.
+- Coverage rows carry a "tier": "hard" (named technologies, tools, degrees; missing ones are disqualifying) or "soft" (traits and practices such as "Analytical Thinking", "Documentation", "Software Testing", "Software Development Lifecycle"; missing ones are keyword advice). For a soft gap, propose a rewrite-bullet that works the keyword into a bullet that already evidences the practice, or an add-skill into a fitting category; never a "gap" proposal. Use "gap" only for hard requirements nothing supports.
 - rewrite-bullet: "current" must be copied verbatim from the item's bullets. The rewrite keeps every fact, adds the requirement's keyword only where the bullet already evidences it, and may make impact more concrete. Never invent numbers, tools or outcomes.
 - add-skill: only when the skill is genuinely evidenced by the candidate's other items (a tag on a work/project item) but missing from the skills section. Use the id of the best-fitting skills category.
 - gap: for requirements nothing in the library supports. Say plainly what would close it (a course, a project, a certification). Do not suggest lying.
@@ -55,7 +89,7 @@ export interface ProposalPromptItem {
 export function proposalUserMessage(input: {
     job: { title: string; company: string; summary: string };
     requirements: Requirement[];
-    coverage: { name: string; strength: number }[];
+    coverage: { name: string; strength: number; tier: "hard" | "soft" }[];
     items: ProposalPromptItem[];
     skillCategories: { id: string; category: string; items: string }[];
     muted: string[];
