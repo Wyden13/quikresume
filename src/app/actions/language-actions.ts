@@ -4,7 +4,7 @@ import { auth } from "@/auth"
 import { revalidatePath } from "next/cache"
 import type { LanguageItem } from "@/types/db";
 import {
-    deleteUserDoc, formBool, formStrOrNull, isoOf, readCol, strOf, strOrNull, updateUserDoc,
+    tagFieldsOf, deleteUserDoc, formBool, formStrOrNull, isoOf, readCol, strOf, strOrNull, updateUserDoc,
 } from "@/lib/db/user-collection";
 
 const COL = "languages";
@@ -18,6 +18,7 @@ export async function getLanguages(): Promise<LanguageItem[]> {
         language: strOf(d.language),
         proficiency: strOrNull(d.proficiency),
         isSelected: Boolean(d.isSelected),
+        ...tagFieldsOf(d),
         createdAt: isoOf(d.createdAt),
         updatedAt: isoOf(d.updatedAt),
     }));

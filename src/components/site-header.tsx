@@ -16,6 +16,7 @@ export function SiteHeader({ session }: { session: Session }) {
                 </Link>
                 <nav className="hidden sm:flex items-center gap-1">
                     <NavLink href="/dashboard">Dashboard</NavLink>
+                    <NavLink href="/dashboard/variants">Variants</NavLink>
                     <NavLink href="/dashboard/profile">Profile</NavLink>
                 </nav>
             </div>

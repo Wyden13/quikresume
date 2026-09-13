@@ -4,7 +4,7 @@ import { auth } from "@/auth"
 import { revalidatePath } from "next/cache"
 import type { VolunteeringItem } from "@/types/db";
 import {
-    deleteUserDoc, formBool, isoOf, readCol, strArray, strOf, toTimestamp, updateUserDoc,
+    tagFieldsOf, deleteUserDoc, formBool, isoOf, readCol, strArray, strOf, toTimestamp, updateUserDoc,
 } from "@/lib/db/user-collection";
 
 const COL = "volunteering";
@@ -22,6 +22,7 @@ export async function getVolunteering(): Promise<VolunteeringItem[]> {
         isActive: Boolean(d.isActive),
         description: strArray(d.description),
         isSelected: Boolean(d.isSelected),
+        ...tagFieldsOf(d),
         createdAt: isoOf(d.createdAt),
         updatedAt: isoOf(d.updatedAt),
     }));

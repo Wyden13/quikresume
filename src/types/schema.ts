@@ -6,6 +6,12 @@
 //   startDate: "YYYY-MM-DD" | ""
 //   endDate:   "YYYY-MM-DD" | "Present" | ""
 //   description: newline-separated bullet points
+//
+// Every list item also carries smart tags (see src/lib/tags): `tags` are the
+// last extracted tags and `tagsHash` the content hash they were extracted
+// from; when it differs from the current content hash the item is "stale".
+
+import type { Tag } from "@/lib/tags/types";
 
 export interface PersonalInfo {
     firstName: string;
@@ -29,6 +35,8 @@ export interface WorkExperience {
     endDate: string;
     description: string;
     isSelected: boolean;
+    tags: Tag[];
+    tagsHash: string | null;
 }
 
 export interface Education {
@@ -42,6 +50,8 @@ export interface Education {
     /** Coursework, honors, dean's list, etc. */
     details: string;
     isSelected: boolean;
+    tags: Tag[];
+    tagsHash: string | null;
 }
 
 export interface SkillCategory {
@@ -49,6 +59,8 @@ export interface SkillCategory {
     category: string;
     items: string;
     isSelected: boolean;
+    tags: Tag[];
+    tagsHash: string | null;
 }
 
 export interface Project {
@@ -61,6 +73,8 @@ export interface Project {
     endDate: string;
     description: string;
     isSelected: boolean;
+    tags: Tag[];
+    tagsHash: string | null;
 }
 
 export interface Certification {
@@ -69,6 +83,8 @@ export interface Certification {
     issuer: string;
     year: string;
     isSelected: boolean;
+    tags: Tag[];
+    tagsHash: string | null;
 }
 
 export interface Award {
@@ -79,6 +95,8 @@ export interface Award {
     date: string;
     description: string;
     isSelected: boolean;
+    tags: Tag[];
+    tagsHash: string | null;
 }
 
 export interface Volunteering {
@@ -89,6 +107,8 @@ export interface Volunteering {
     endDate: string;
     description: string;
     isSelected: boolean;
+    tags: Tag[];
+    tagsHash: string | null;
 }
 
 export interface Publication {
@@ -101,6 +121,8 @@ export interface Publication {
     link: string;
     authors: string;
     isSelected: boolean;
+    tags: Tag[];
+    tagsHash: string | null;
 }
 
 export interface Language {
@@ -109,10 +131,15 @@ export interface Language {
     /** e.g. "Native", "Fluent", "B2". */
     proficiency: string;
     isSelected: boolean;
+    tags: Tag[];
+    tagsHash: string | null;
 }
 
 export interface ResumeData {
     personalInfo: PersonalInfo;
+    /** Tags extracted from the headline + summary (kept outside PersonalInfo, which is a flat string map). */
+    profileTags: Tag[];
+    profileTagsHash: string | null;
     workExperience: WorkExperience[];
     education: Education[];
     skills: SkillCategory[];
@@ -125,7 +152,7 @@ export interface ResumeData {
 }
 
 /** The list-valued keys of ResumeData. */
-export type ResumeListKey = Exclude<keyof ResumeData, "personalInfo">;
+export type ResumeListKey = Exclude<keyof ResumeData, "personalInfo" | "profileTags" | "profileTagsHash">;
 
 export const RESUME_LIST_KEYS: ResumeListKey[] = [
     "workExperience",
@@ -157,6 +184,8 @@ export function emptyPersonalInfo(): PersonalInfo {
 export function emptyResumeData(): ResumeData {
     return {
         personalInfo: emptyPersonalInfo(),
+        profileTags: [],
+        profileTagsHash: null,
         workExperience: [],
         education: [],
         skills: [],

@@ -7,6 +7,8 @@ import "server-only";
 import { Timestamp, type DocumentData } from "firebase-admin/firestore";
 import { db } from "@/lib/firestore";
 import { toUtcDate } from "@/lib/dates";
+import { readTags } from "@/lib/tags/types";
+import type { TagFields } from "@/types/db";
 
 export type OrderSpec = { field: string; dir: "asc" | "desc" } | null;
 
@@ -28,6 +30,13 @@ export const strOf = (v: unknown): string => (typeof v === "string" ? v : "");
 
 export const strArray = (v: unknown): string[] =>
     Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+
+/** Smart-tag columns shared by every item row. */
+export const tagFieldsOf = (d: DocumentData): TagFields => ({
+    tags: readTags(d.tags),
+    contentHash: strOrNull(d.contentHash),
+    tagsHash: strOrNull(d.tagsHash),
+});
 
 /** Checkbox-style booleans arrive as "on" (native) or "true" (hidden input). */
 export const formBool = (fd: FormData, key: string): boolean => {

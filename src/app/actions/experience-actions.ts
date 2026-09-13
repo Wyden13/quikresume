@@ -3,6 +3,7 @@
 import { auth } from "@/auth"
 import { db } from "@/lib/firestore"
 import { revalidatePath } from "next/cache"
+import { tagFieldsOf } from "@/lib/db/user-collection";
 import { Timestamp } from "firebase-admin/firestore";
 import { toUtcDate } from "@/lib/dates";
 import type { ExperienceItem } from "@/types/db";
@@ -44,6 +45,7 @@ export async function getExperiences(): Promise<ExperienceItem[]> {
             company: data.company ?? "",
             isActive: Boolean(data.isActive),
             isSelected: Boolean(data.isSelected),
+            ...tagFieldsOf(data),
             startDate: data.startDate?.toDate().toISOString() ?? null,
             endDate: data.endDate?.toDate().toISOString() ?? null,
             description: Array.isArray(data.description) ? data.description : [],

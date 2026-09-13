@@ -7,6 +7,7 @@ import { Timestamp } from "firebase-admin/firestore";
 import type { UserProfile } from "@/types/db"
 import type { PersonalInfo } from "@/types/schema";
 import { personalInfoToUserDoc } from "@/lib/resume-mapper";
+import { readTags } from "@/lib/tags/types";
 
 const str = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
 
@@ -33,6 +34,8 @@ export async function getUserProfile(): Promise<UserProfile | null> {
         linkedIn: str(data.linkedIn),
         website: str(data.website),
         bio: str(data.bio),
+        profileTags: readTags(data.profileTags),
+        profileTagsHash: str(data.profileTagsHash),
     };
 }
 

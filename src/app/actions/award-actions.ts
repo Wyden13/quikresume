@@ -4,7 +4,7 @@ import { auth } from "@/auth"
 import { revalidatePath } from "next/cache"
 import type { AwardItem } from "@/types/db";
 import {
-    deleteUserDoc, formBool, formStrOrNull, isoOf, readCol, strOf, strOrNull, toTimestamp, updateUserDoc,
+    tagFieldsOf, deleteUserDoc, formBool, formStrOrNull, isoOf, readCol, strOf, strOrNull, toTimestamp, updateUserDoc,
 } from "@/lib/db/user-collection";
 
 const COL = "awards";
@@ -20,6 +20,7 @@ export async function getAwards(): Promise<AwardItem[]> {
         date: isoOf(d.date),
         description: strOrNull(d.description),
         isSelected: Boolean(d.isSelected),
+        ...tagFieldsOf(d),
         createdAt: isoOf(d.createdAt),
         updatedAt: isoOf(d.updatedAt),
     }));

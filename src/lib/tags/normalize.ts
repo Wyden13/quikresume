@@ -1,0 +1,134 @@
+// src/lib/tags/normalize.ts
+// Tag identity. The model is asked for canonical names, and this module makes
+// "JS", "Javascript" and "JavaScript" collapse onto one key: lowercase, trimmed,
+// then folded through the built-in alias table and the user's own aliases
+// (model-reported, stored in users/{uid}/meta/tags). Pure; used on both sides.
+
+import { isTagKind, type Tag, type TagKind } from "@/lib/tags/types";
+
+export type AliasMap = Record<string, string>;
+
+/** alias -> canonical key. Keys and values are already normalised. */
+export const BUILTIN_ALIASES: AliasMap = {
+    js: "javascript", ts: "typescript", py: "python", golang: "go", cpp: "c++", "c plus plus": "c++",
+    csharp: "c#", "c sharp": "c#", "dotnet": ".net", "asp.net core": "asp.net",
+    node: "node.js", nodejs: "node.js", "node js": "node.js",
+    reactjs: "react", "react.js": "react", "react js": "react", vue: "vue.js", vuejs: "vue.js", "angularjs": "angular",
+    nextjs: "next.js", "next js": "next.js", expressjs: "express", "express.js": "express",
+    postgres: "postgresql", psql: "postgresql", pg: "postgresql", mongo: "mongodb", mssql: "microsoft sql server",
+    "sql server": "microsoft sql server", "ms sql": "microsoft sql server", "my sql": "mysql",
+    k8s: "kubernetes", aws: "amazon web services", "amazon aws": "amazon web services",
+    gcp: "google cloud", "google cloud platform": "google cloud", "azure": "microsoft azure",
+    ml: "machine learning", ai: "artificial intelligence", dl: "deep learning", nlp: "natural language processing",
+    cv: "computer vision", "gen ai": "generative ai", genai: "generative ai", llms: "large language models", llm: "large language models",
+    "ci cd": "ci/cd", "ci-cd": "ci/cd", cicd: "ci/cd", "continuous integration": "ci/cd", "continuous delivery": "ci/cd",
+    "continuous deployment": "ci/cd", "continuous integration/continuous delivery": "ci/cd",
+    "rest": "rest apis", "rest api": "rest apis", "restful apis": "rest apis", "restful api": "rest apis", "restful": "rest apis",
+    "graph ql": "graphql", tf: "tensorflow", "sci-kit learn": "scikit-learn", sklearn: "scikit-learn",
+    oop: "object-oriented programming", "object oriented programming": "object-oriented programming",
+    ux: "user experience", ui: "user interface", "ui/ux": "ui/ux design", html5: "html", css3: "css",
+    "tailwind": "tailwind css", tailwindcss: "tailwind css", "github action": "github actions",
+    "data structures and algorithms": "data structures & algorithms", dsa: "data structures & algorithms",
+    "agile methodologies": "agile", "agile methodology": "agile", "scrum methodology": "scrum",
+    "test driven development": "test-driven development", tdd: "test-driven development",
+    "b.sc": "bachelor of science", bsc: "bachelor of science", "b.s.": "bachelor of science", bs: "bachelor of science",
+    "m.sc": "master of science", msc: "master of science", "m.s.": "master of science", ms: "master of science",
+    "b.eng": "bachelor of engineering", beng: "bachelor of engineering", "b.a.": "bachelor of arts", ba: "bachelor of arts",
+    "comp sci": "computer science", cs: "computer science", "compsci": "computer science",
+};
+
+/** Pretty forms for canonical keys the alias table produces (otherwise the model's spelling is kept). */
+const DISPLAY_NAMES: Record<string, string> = {
+    javascript: "JavaScript", typescript: "TypeScript", python: "Python", go: "Go", "c++": "C++", "c#": "C#", ".net": ".NET",
+    "asp.net": "ASP.NET", "node.js": "Node.js", react: "React", "vue.js": "Vue.js", angular: "Angular", "next.js": "Next.js",
+    express: "Express", postgresql: "PostgreSQL", mongodb: "MongoDB", "microsoft sql server": "Microsoft SQL Server", mysql: "MySQL",
+    kubernetes: "Kubernetes", "amazon web services": "Amazon Web Services", "google cloud": "Google Cloud", "microsoft azure": "Microsoft Azure",
+    "machine learning": "Machine Learning", "artificial intelligence": "Artificial Intelligence", "deep learning": "Deep Learning",
+    "natural language processing": "Natural Language Processing", "computer vision": "Computer Vision", "generative ai": "Generative AI",
+    "large language models": "Large Language Models", "ci/cd": "CI/CD", "rest apis": "REST APIs", graphql: "GraphQL", tensorflow: "TensorFlow",
+    "scikit-learn": "scikit-learn", "object-oriented programming": "Object-Oriented Programming", "user experience": "User Experience",
+    "user interface": "User Interface", "ui/ux design": "UI/UX Design", html: "HTML", css: "CSS", "tailwind css": "Tailwind CSS",
+    "github actions": "GitHub Actions", "data structures & algorithms": "Data Structures & Algorithms", agile: "Agile", scrum: "Scrum",
+    "test-driven development": "Test-Driven Development", "bachelor of science": "Bachelor of Science", "master of science": "Master of Science",
+    "bachelor of engineering": "Bachelor of Engineering", "bachelor of arts": "Bachelor of Arts", "computer science": "Computer Science",
+};
+
+/** Lowercase, trimmed, single-spaced, outer quotes and trailing punctuation stripped. */
+export function normalizeTagName(raw: string): string {
+    return raw
+        .trim()
+        .replace(/^["'`]+|["'`]+$/g, "")
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .replace(/[.,;:!]+$/g, "")
+        .trim();
+}
+
+/** Normalised raw name -> canonical key. Built-in aliases win over user aliases. */
+export function canonicalKey(raw: string, userAliases: AliasMap = {}): string {
+    const n = normalizeTagName(raw);
+    if (n === "") return "";
+    return BUILTIN_ALIASES[n] ?? userAliases[n] ?? n;
+}
+
+export function makeTag(rawName: string, kind: TagKind, userAliases: AliasMap = {}): Tag | null {
+    const name = canonicalKey(rawName, userAliases);
+    if (!name) return null;
+    const display = DISPLAY_NAMES[name] ?? (normalizeTagName(rawName) === name ? rawName.trim().replace(/[.,;:!]+$/g, "") : name);
+    return { name, display, kind };
+}
+
+/** Keeps the first occurrence of each name. */
+export function dedupeTags(tags: Tag[]): Tag[] {
+    const seen = new Set<string>();
+    const out: Tag[] = [];
+    for (const t of tags) {
+        if (seen.has(t.name)) continue;
+        seen.add(t.name);
+        out.push(t);
+    }
+    return out;
+}
+
+/** Lenient reader for `{name, kind, aliases?}` rows straight from the model. */
+export function tagsFromModel(rows: unknown, userAliases: AliasMap = {}): Tag[] {
+    if (!Array.isArray(rows)) return [];
+    const out: Tag[] = [];
+    for (const r of rows) {
+        if (!r || typeof r !== "object") continue;
+        const o = r as Record<string, unknown>;
+        if (typeof o.name !== "string" || !isTagKind(o.kind)) continue;
+        const t = makeTag(o.name, o.kind, userAliases);
+        if (t) out.push(t);
+    }
+    return dedupeTags(out);
+}
+
+/**
+ * Filters aliases the model reported: keeps `alias -> canonical` only when the
+ * canonical is one of the tag names actually returned, the alias is not already
+ * a built-in alias, and the two differ. Returns normalised pairs.
+ */
+export function acceptModelAliases(reported: unknown, tagNames: Set<string>, userAliases: AliasMap = {}): AliasMap {
+    const out: AliasMap = {};
+    if (!reported || typeof reported !== "object") return out;
+    for (const [aliasRaw, canonRaw] of Object.entries(reported as Record<string, unknown>)) {
+        if (typeof canonRaw !== "string") continue;
+        const alias = normalizeTagName(aliasRaw);
+        const canon = canonicalKey(canonRaw, userAliases);
+        if (!alias || !canon || alias === canon) continue;
+        if (alias in BUILTIN_ALIASES || alias in userAliases) continue;
+        if (!tagNames.has(canon)) continue;
+        if (alias.length < 2) continue;
+        out[alias] = canon;
+    }
+    return out;
+}
+
+/** All surface forms that should count as a literal mention of `name`. */
+export function surfaceForms(name: string, userAliases: AliasMap = {}): string[] {
+    const forms = new Set<string>([name]);
+    for (const [alias, canon] of Object.entries(BUILTIN_ALIASES)) if (canon === name) forms.add(alias);
+    for (const [alias, canon] of Object.entries(userAliases)) if (canon === name) forms.add(alias);
+    return [...forms];
+}

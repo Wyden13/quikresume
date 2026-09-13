@@ -9,39 +9,21 @@
 //   fileName  display name (defaults to file.name).
 //
 // GLM rejects `file` parts for every model, so PDFs are rasterised in the
-// browser (src/components/ui/resume-import.tsx), DOCX is reduced to text here
-// with mammoth, and plain text is sent as-is.
+// browser (src/lib/import/pdf-pages.ts); DOCX/TXT/images are handled by
+// src/lib/import/document-text.ts (shared with /api/jobs/analyze).
 
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { chatCompletion, GlmError, glmModel, isGlmConfigured, type GlmContentPart } from "@/lib/glm/client";
+import { chatCompletion, GlmError, glmModel, isGlmConfigured } from "@/lib/glm/client";
 import { SYSTEM_PROMPT, userInstruction } from "@/lib/import/prompt";
 import { ImportParseError, parseModelOutput } from "@/lib/import/parsed-resume";
-import { MAX_FILE_BYTES, MAX_PDF_PAGES, type ImportResponse } from "@/lib/import/types";
+import { formToDocument, isDocumentError } from "@/lib/import/document-text";
+import { MAX_FILE_BYTES, type ImportResponse } from "@/lib/import/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // GLM limit per image
-const MAX_TEXT_CHARS = 60_000;
-
-const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
-const DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-const TEXT_TYPES = new Set(["text/plain", "text/markdown"]);
-
 const fail = (status: number, error: string) => NextResponse.json<ImportResponse>({ ok: false, error }, { status });
-
-const toDataUri = async (blob: Blob, type: string) =>
-    `data:${type};base64,${Buffer.from(await blob.arrayBuffer()).toString("base64")}`;
-
-function kindOf(file: File): "image" | "docx" | "text" | "pdf" | null {
-    const name = file.name.toLowerCase();
-    if (IMAGE_TYPES.has(file.type) || /\.(png|jpe?g|webp)$/.test(name)) return "image";
-    if (file.type === DOCX_TYPE || name.endsWith(".docx")) return "docx";
-    if (TEXT_TYPES.has(file.type) || /\.(txt|md)$/.test(name)) return "text";
-    if (file.type === "application/pdf" || name.endsWith(".pdf")) return "pdf";
-    return null;
-}
 
 export async function POST(req: Request) {
     const session = await auth();
@@ -58,52 +40,12 @@ export async function POST(req: Request) {
         return fail(400, "Expected a multipart form upload.");
     }
 
-    const file = form.get("file");
-    const pages = form.getAll("pages").filter((p): p is File => p instanceof File);
-    const fileName = String(form.get("fileName") || (file instanceof File ? file.name : "") || "resume").slice(0, 200);
-
-    const parts: GlmContentPart[] = [];
-    let kind: "images" | "text";
-
-    if (pages.length > 0) {
-        if (pages.length > MAX_PDF_PAGES) return fail(413, `Only the first ${MAX_PDF_PAGES} pages of a resume can be imported.`);
-        for (const page of pages) {
-            if (page.size > MAX_IMAGE_BYTES) return fail(413, "A rendered page exceeded 5 MB. Try a smaller PDF.");
-            const type = IMAGE_TYPES.has(page.type) ? page.type : "image/png";
-            parts.push({ type: "image_url", image_url: { url: await toDataUri(page, type) } });
-        }
-        kind = "images";
-    } else {
-        if (!(file instanceof File)) return fail(400, "No file was uploaded.");
-        if (file.size === 0) return fail(400, "The uploaded file is empty.");
-        if (file.size > MAX_FILE_BYTES) return fail(413, "That file is too large. Keep it under 10 MB.");
-        const k = kindOf(file);
-        if (k === null) return fail(415, "Unsupported file type. Upload a PDF, DOCX, TXT or an image (PNG/JPG/WebP).");
-        if (k === "pdf") return fail(415, "PDFs must be rendered to page images before upload (the app does this automatically).");
-
-        if (k === "image") {
-            if (file.size > MAX_IMAGE_BYTES) return fail(413, "Images must be under 5 MB.");
-            const type = IMAGE_TYPES.has(file.type) ? file.type : "image/png";
-            parts.push({ type: "image_url", image_url: { url: await toDataUri(file, type) } });
-            kind = "images";
-        } else {
-            let text: string;
-            if (k === "docx") {
-                const mammoth = await import("mammoth");
-                try {
-                    text = (await mammoth.extractRawText({ buffer: Buffer.from(await file.arrayBuffer()) })).value;
-                } catch {
-                    return fail(415, "Could not read that DOCX file.");
-                }
-            } else {
-                text = await file.text();
-            }
-            text = text.replace(/\r\n?/g, "\n").trim();
-            if (!text) return fail(415, "That document has no readable text.");
-            parts.push({ type: "text", text: `--- RESUME TEXT START ---\n${text.slice(0, MAX_TEXT_CHARS)}\n--- RESUME TEXT END ---` });
-            kind = "text";
-        }
-    }
+    const doc = await formToDocument(form, "resume");
+    if (isDocumentError(doc)) return fail(doc.status, doc.error);
+    const { fileName, kind } = doc;
+    const parts = doc.kind === "text"
+        ? [{ type: "text" as const, text: `--- RESUME TEXT START ---\n${doc.text}\n--- RESUME TEXT END ---` }]
+        : doc.parts;
 
     parts.unshift({ type: "text", text: userInstruction(kind, fileName) });
 

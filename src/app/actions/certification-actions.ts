@@ -3,6 +3,7 @@
 import { auth } from "@/auth"
 import { db } from "@/lib/firestore"
 import { revalidatePath } from "next/cache"
+import { tagFieldsOf } from "@/lib/db/user-collection";
 import { Timestamp } from "firebase-admin/firestore";
 import type { CertificationItem } from "@/types/db";
 
@@ -35,6 +36,7 @@ export async function getCertifications(): Promise<CertificationItem[]> {
             issuer: data.issuer ?? null,
             year: data.year ?? "",
             isSelected: Boolean(data.isSelected),
+            ...tagFieldsOf(data),
             createdAt: data.createdAt?.toDate().toISOString() ?? null,
             updatedAt: data.updatedAt?.toDate().toISOString() ?? null,
         };

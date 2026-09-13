@@ -16,6 +16,7 @@ import { deleteVolunteering } from "@/app/actions/volunteering-actions";
 import { deletePublication } from "@/app/actions/publication-actions";
 import { deleteLanguage } from "@/app/actions/language-actions";
 import { isTempId, newTempId } from "@/lib/ids";
+import { isStale } from "@/lib/tags/content";
 import { PRESENT } from "@/lib/dates";
 import { Button, Input, Label, Textarea } from "@/components/ui/form-controls";
 
@@ -59,15 +60,17 @@ function SectionHeading({ index, title, action }: { index: string; title: string
     );
 }
 
-function ItemCard({ onRemove, isSelected, onToggle, toggleHint, children }: {
+function ItemCard({ onRemove, isSelected, onToggle, toggleHint, badges, children }: {
     onRemove: () => void;
     isSelected: boolean;
     onToggle: (checked: boolean) => void;
     toggleHint: string;
+    badges?: React.ReactNode;
     children: React.ReactNode;
 }) {
     return (
         <div className="p-8 border-2 border-black/5 bg-gray-50/30 rounded-[2rem] space-y-6 relative group transition-all hover:bg-white hover:border-black/10 hover:shadow-2xl hover:shadow-black/5">
+            {badges && <div className="flex flex-wrap gap-2 pr-12">{badges}</div>}
             <Button
                 variant="ghost"
                 size="sm"
@@ -145,6 +148,8 @@ type ItemOf<K extends ListKey> = ResumeData[K][number];
 const fid = (itemId: string, field: string) => `${itemId}-${field}`;
 
 interface ResumeFormProps {
+    /** Item id -> names of saved variants that include it (for the "Used in N variants" badge). */
+    variantUsage?: Record<string, string[]>;
     resumeData: ResumeData;
     /** Functional updater so edits never depend on a stale snapshot. */
     onChange: (updater: (prev: ResumeData) => ResumeData) => void;
@@ -152,7 +157,26 @@ interface ResumeFormProps {
     isSaving: boolean;
 }
 
-export function ResumeForm({ resumeData, onChange, onSaveAndExit, isSaving }: ResumeFormProps) {
+export function ResumeForm({ resumeData, onChange, onSaveAndExit, isSaving, variantUsage = {} }: ResumeFormProps) {
+    const badgesFor = <K extends ListKey>(key: K, item: ItemOf<K>) => {
+        const used = variantUsage[item.id] ?? [];
+        const stale = isStale(key, item as ResumeData[K][number]);
+        if (used.length === 0 && !stale) return null;
+        return (
+            <>
+                {used.length > 0 && (
+                    <span title={used.join(", ")} className="px-2 py-1 rounded-md bg-black text-white text-[10px] font-black uppercase tracking-widest">
+                        Used in {used.length} {used.length === 1 ? "variant" : "variants"}
+                    </span>
+                )}
+                {stale && (
+                    <span title="Skills will be analysed when you save" className="px-2 py-1 rounded-md bg-amber-100 text-amber-800 text-[10px] font-black uppercase tracking-widest">
+                        Not analysed
+                    </span>
+                )}
+            </>
+        );
+    };
     const [deleteError, setDeleteError] = useState<string | null>(null);
 
     const updatePersonalInfo = (field: keyof ResumeData["personalInfo"], value: string) => {
@@ -185,15 +209,15 @@ export function ResumeForm({ resumeData, onChange, onSaveAndExit, isSaving }: Re
         onChange(prev => ({ ...prev, [key]: (prev[key] as ItemOf<K>[]).filter(item => item.id !== id) }));
     };
 
-    const newExperience = (): WorkExperience => ({ id: newTempId(), title: "", company: "", startDate: "", endDate: "", description: "", isSelected: true });
-    const newEducation = (): Education => ({ id: newTempId(), degree: "", institution: "", startDate: "", endDate: "", gpa: "", minor: "", details: "", isSelected: true });
-    const newSkill = (): SkillCategory => ({ id: newTempId(), category: "", items: "", isSelected: true });
-    const newProject = (): Project => ({ id: newTempId(), title: "", stack: "", link: "", startDate: "", endDate: "", description: "", isSelected: true });
-    const newCertification = (): Certification => ({ id: newTempId(), name: "", issuer: "", year: "", isSelected: true });
-    const newAward = (): Award => ({ id: newTempId(), title: "", issuer: "", date: "", description: "", isSelected: true });
-    const newVolunteering = (): Volunteering => ({ id: newTempId(), role: "", organization: "", startDate: "", endDate: "", description: "", isSelected: true });
-    const newPublication = (): Publication => ({ id: newTempId(), title: "", venue: "", date: "", link: "", authors: "", isSelected: true });
-    const newLanguage = (): Language => ({ id: newTempId(), language: "", proficiency: "", isSelected: true });
+    const newExperience = (): WorkExperience => ({ id: newTempId(), title: "", company: "", startDate: "", endDate: "", description: "", isSelected: true, tags: [], tagsHash: null });
+    const newEducation = (): Education => ({ id: newTempId(), degree: "", institution: "", startDate: "", endDate: "", gpa: "", minor: "", details: "", isSelected: true, tags: [], tagsHash: null });
+    const newSkill = (): SkillCategory => ({ id: newTempId(), category: "", items: "", isSelected: true, tags: [], tagsHash: null });
+    const newProject = (): Project => ({ id: newTempId(), title: "", stack: "", link: "", startDate: "", endDate: "", description: "", isSelected: true, tags: [], tagsHash: null });
+    const newCertification = (): Certification => ({ id: newTempId(), name: "", issuer: "", year: "", isSelected: true, tags: [], tagsHash: null });
+    const newAward = (): Award => ({ id: newTempId(), title: "", issuer: "", date: "", description: "", isSelected: true, tags: [], tagsHash: null });
+    const newVolunteering = (): Volunteering => ({ id: newTempId(), role: "", organization: "", startDate: "", endDate: "", description: "", isSelected: true, tags: [], tagsHash: null });
+    const newPublication = (): Publication => ({ id: newTempId(), title: "", venue: "", date: "", link: "", authors: "", isSelected: true, tags: [], tagsHash: null });
+    const newLanguage = (): Language => ({ id: newTempId(), language: "", proficiency: "", isSelected: true, tags: [], tagsHash: null });
 
     const addButton = (label: string, onClick: () => void) => (
         <Button onClick={onClick} size="sm" variant="default">
@@ -270,6 +294,7 @@ export function ResumeForm({ resumeData, onChange, onSaveAndExit, isSaving }: Re
                     {resumeData.workExperience.map((exp) => (
                         <ItemCard
                             key={exp.id}
+                            badges={badgesFor("workExperience", exp)}
                             isSelected={exp.isSelected}
                             onToggle={(checked) => updateItem("workExperience", exp.id, { isSelected: checked })}
                             onRemove={() => removeItem("workExperience", exp.id, deleteExperience)}
@@ -308,6 +333,7 @@ export function ResumeForm({ resumeData, onChange, onSaveAndExit, isSaving }: Re
                     {resumeData.education.map((edu) => (
                         <ItemCard
                             key={edu.id}
+                            badges={badgesFor("education", edu)}
                             isSelected={edu.isSelected}
                             onToggle={(checked) => updateItem("education", edu.id, { isSelected: checked })}
                             onRemove={() => removeItem("education", edu.id, deleteEducation)}
@@ -354,6 +380,7 @@ export function ResumeForm({ resumeData, onChange, onSaveAndExit, isSaving }: Re
                     {resumeData.skills.map((skill) => (
                         <ItemCard
                             key={skill.id}
+                            badges={badgesFor("skills", skill)}
                             isSelected={skill.isSelected}
                             onToggle={(checked) => updateItem("skills", skill.id, { isSelected: checked })}
                             onRemove={() => removeItem("skills", skill.id, deleteSkill)}
@@ -379,6 +406,7 @@ export function ResumeForm({ resumeData, onChange, onSaveAndExit, isSaving }: Re
                     {resumeData.projects.map((project) => (
                         <ItemCard
                             key={project.id}
+                            badges={badgesFor("projects", project)}
                             isSelected={project.isSelected}
                             onToggle={(checked) => updateItem("projects", project.id, { isSelected: checked })}
                             onRemove={() => removeItem("projects", project.id, deleteProject)}
@@ -421,6 +449,7 @@ export function ResumeForm({ resumeData, onChange, onSaveAndExit, isSaving }: Re
                     {resumeData.certifications.map((cert) => (
                         <ItemCard
                             key={cert.id}
+                            badges={badgesFor("certifications", cert)}
                             isSelected={cert.isSelected}
                             onToggle={(checked) => updateItem("certifications", cert.id, { isSelected: checked })}
                             onRemove={() => removeItem("certifications", cert.id, deleteCertification)}
@@ -452,6 +481,7 @@ export function ResumeForm({ resumeData, onChange, onSaveAndExit, isSaving }: Re
                     {resumeData.volunteering.map((vol) => (
                         <ItemCard
                             key={vol.id}
+                            badges={badgesFor("volunteering", vol)}
                             isSelected={vol.isSelected}
                             onToggle={(checked) => updateItem("volunteering", vol.id, { isSelected: checked })}
                             onRemove={() => removeItem("volunteering", vol.id, deleteVolunteering)}
@@ -490,6 +520,7 @@ export function ResumeForm({ resumeData, onChange, onSaveAndExit, isSaving }: Re
                     {resumeData.publications.map((pub) => (
                         <ItemCard
                             key={pub.id}
+                            badges={badgesFor("publications", pub)}
                             isSelected={pub.isSelected}
                             onToggle={(checked) => updateItem("publications", pub.id, { isSelected: checked })}
                             onRemove={() => removeItem("publications", pub.id, deletePublication)}
@@ -531,6 +562,7 @@ export function ResumeForm({ resumeData, onChange, onSaveAndExit, isSaving }: Re
                     {resumeData.awards.map((award) => (
                         <ItemCard
                             key={award.id}
+                            badges={badgesFor("awards", award)}
                             isSelected={award.isSelected}
                             onToggle={(checked) => updateItem("awards", award.id, { isSelected: checked })}
                             onRemove={() => removeItem("awards", award.id, deleteAward)}
@@ -566,6 +598,7 @@ export function ResumeForm({ resumeData, onChange, onSaveAndExit, isSaving }: Re
                     {resumeData.languages.map((lang) => (
                         <ItemCard
                             key={lang.id}
+                            badges={badgesFor("languages", lang)}
                             isSelected={lang.isSelected}
                             onToggle={(checked) => updateItem("languages", lang.id, { isSelected: checked })}
                             onRemove={() => removeItem("languages", lang.id, deleteLanguage)}

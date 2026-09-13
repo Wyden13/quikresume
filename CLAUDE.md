@@ -13,6 +13,7 @@ Resume builder. Users keep their full professional history in a **Master Library
 - `@myriaddreamin/typst.ts` 0.7.0 (+ `typst-ts-web-compiler`, `typst-ts-renderer`), wraps Typst 0.13
 - Resume import: Z.ai GLM-4.6V (vision) via plain `fetch` (`src/lib/glm/client.ts`), `pdfjs-dist` (browser PDF
   rasterising), `mammoth` (DOCX text), `zod` (lenient output parsing)
+- Smart tags + Job Match: Z.ai text model `glm-5.3-flash` in JSON mode (same client); `recharts` for the charts
 - No test framework, no CI. Lint is `eslint-config-next` (core-web-vitals + typescript).
 
 ## Commands
@@ -38,31 +39,43 @@ typst compile --root public/typst --font-path public/typst/fonts --ignore-system
 
 Required env (`.env.local`): `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_TRUST_HOST`,
 `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` (escaped `\n` newlines are unescaped in code),
-`GLM_API_KEY` (resume import). Optional: `GLM_BASE_URL` (default `https://api.z.ai/api/paas/v4`),
-`GLM_MODEL` (default `glm-4.6v`).
+`GLM_API_KEY` (import, tags, Job Match). Optional: `GLM_BASE_URL` (default `https://api.z.ai/api/paas/v4`),
+`GLM_MODEL` (vision, default `glm-4.6v`), `GLM_TEXT_MODEL` (tags / JD analysis / proposals, default `glm-5.3-flash`).
 
 ## Layout
 
 ```
 src/
   auth.ts, proxy.ts, lib/firestore.ts        auth + db singletons
-  app/page.tsx, (auth)/login, (dashboard)/dashboard/page.tsx, (dashboard)/dashboard/profile/page.tsx
+  app/page.tsx, (auth)/login, (dashboard)/dashboard/{page,profile/page,variants/page}.tsx
   app/api/import/route.ts                    POST upload -> GLM-4.6V -> ResumeData draft (see Resume import)
-  app/actions/*-actions.ts                   "use server" CRUD per collection + resume-actions.ts (save)
-                                             + user-actions.ts (profile read/save)
-  lib/db/user-collection.ts                  server-only Firestore helpers shared by the newer action files
-  components/site-header.tsx, site-footer.tsx, nav-link.tsx   signed-in chrome (dashboard + profile)
-  components/dashboard-client.tsx            view switch: library | edit | preview | import; draft state
-  components/ui/resume-form.tsx              the Master Editor (controlled form)
+  app/api/tags/{analyze,backfill}/route.ts   tag unsaved draft items (nothing persisted) / re-tag stale library items
+  app/api/jobs/{analyze,proposals}/route.ts  JD -> requirements (saved job) / gap -> proposals (saved on the job)
+  app/actions/*-actions.ts                   "use server" CRUD per collection + resume-actions.ts (save + tagging)
+                                             + user-actions.ts (profile), variant-actions.ts, job-actions.ts, tag-actions.ts
+  lib/db/{user-collection,meta,variants,jobs,load-resume}.ts   server-only Firestore helpers
+  components/site-header.tsx, site-footer.tsx, nav-link.tsx   signed-in chrome (Dashboard / Variants / Profile)
+  components/dashboard-client.tsx            view switch: library | edit | preview | import | insights | jobs; draft state
+  components/ui/resume-form.tsx              the Master Editor (controlled form; "Used in N variants" / "Not analysed" badges)
   components/ui/form-controls.tsx            Label / Input / Textarea / Button shared by the forms
+  components/ui/confirm-dialog.tsx           modal confirm (discard, delete, save-affects-variants)
   components/ui/profile-form.tsx             Profile page form -> updateUserProfile
-  components/ui/resume-import.tsx            upload (PDF -> page images via pdf.js) + review step
-  components/ui/selection-display.tsx        library cards (toggle / active / delete via server-action forms)
+  components/ui/resume-import.tsx            multi-file upload (PDF -> page images) + combined review step
+  components/ui/selection-display.tsx        library cards (toggle / active / delete via server-action forms; tag chips)
+  components/ui/variant-toolbar.tsx          Save as / Load / Update variant on the library view
+  components/ui/variants-page.tsx            /dashboard/variants: search, labels, rename, duplicate, delete, load
+  components/ui/insights-view.tsx, tag-charts.tsx   tag charts (recharts radar / bars / treemap) + tag table
+  components/ui/job-match-view.tsx, proposal-cards.tsx, job-context-panel.tsx, use-page-count.ts   Job Match
   components/ui/resume-preview.tsx           Typst preview + PDF download (client only)
-  lib/dates.ts, lib/ids.ts                   date-string helpers, temp ids
+  lib/dates.ts, lib/ids.ts, lib/hash.ts      date-string helpers, temp ids, stableHash (content hashes)
+  lib/sections.ts                            ResumeListKey <-> Firestore collection names, item labels
   lib/resume-mapper.ts                       Firestore rows -> ResumeData (server); personalInfoToUserDoc
-  lib/glm/client.ts                          chatCompletion() for Z.ai (server-only)
-  lib/import/{prompt,dates,parsed-resume,merge,types}.ts   import prompt, date normaliser, zod parser, draft merge
+  lib/glm/client.ts                          chatCompletion() for Z.ai (server-only): vision + text models, JSON mode
+  lib/import/{prompt,dates,parsed-resume,merge,types}.ts   import prompt, date normaliser, zod parser, union merge
+  lib/import/pdf-pages.ts (browser), document-text.ts (server)   upload -> GLM parts, shared with /api/jobs/analyze
+  lib/tags/{types,content,normalize,prompt,extract,aggregate}.ts   smart tags (see Smart tags)
+  lib/variants.ts                            pure variant helpers (selectedIds, applyVariant, variantUsage)
+  lib/match/{types,text,score,recommend,proposals,prompt}.ts   Job Match scoring, set cover, proposals (pure except prompt)
   lib/typst/doc.ts                           ResumeData -> TypstResumeDoc (the JSON contract)
   lib/typst/client.ts                        browser singleton around typst.ts
   lib/typst/templates.ts                     template registry
@@ -93,6 +106,45 @@ public/pdfjs/pdf.worker.min.mjs              gitignored, filled by scripts/copy-
 5. Library cards call `update*`/`delete*` actions via `<form action>`; each action revalidates `/dashboard`.
 6. The Profile page (`/dashboard/profile`) edits the same `users/{uid}` fields through `updateUserProfile`;
    both it and `saveResumeData` go through `personalInfoToUserDoc` so the written shape stays identical.
+7. `isSelected` is the **working selection**. A variant (`/dashboard/variants`) is a snapshot of the selected
+   ids; loading one rewrites `isSelected` on every item. Editing an item used by variants shows a badge and a
+   confirm dialog on Save & Exit (variants are pointers, so the edit shows up in all of them).
+
+## Smart tags
+
+Every item (all 9 collections) and the profile headline+bio carry `tags: {name, display, kind}[]`,
+kind ∈ `technical-skill | tool-platform | domain | soft-skill | methodology | credential | language`.
+Weight of a tag = number of selected items carrying it (`aggregateTags`, computed on read).
+
+- **Hash rule** (`lib/tags/content.ts`): `contentHash` is taken over the content fields only (no dates / ids /
+  isSelected). An item is *stale* when `tagsHash !== contentHash`. Changing the field list re-stales everything once.
+- **Extraction** (`lib/tags/extract.ts`, `saveResumeData`): stale items go to the text model in chunks of 20,
+  3 chunks in parallel, 60 s budget, JSON mode. A failure never blocks the save: items stay stale and the
+  action returns `tagWarning`. `POST /api/tags/analyze` tags draft items without persisting (live Job Match,
+  uploaded resumes); `POST /api/tags/backfill` re-tags stale (or all) persisted items.
+- **Normalisation** (`lib/tags/normalize.ts`): lowercase key + built-in alias table (`js` -> `javascript`,
+  `k8s` -> `kubernetes`, …) + model-reported aliases stored in `users/{uid}/meta/tags` (accepted only when the
+  canonical is a returned tag name; built-ins never overridden). `display` keeps the pretty spelling.
+- Profile tags live on `ResumeData.profileTags` (not inside `PersonalInfo`, which is treated as a flat string map).
+- `glm-5.x` models reject `thinking: disabled`; the client sends `reasoning_effort` when `effort` is set
+  (`"low"` ≈ 7 s per 20-item chunk on `glm-5.3-flash`).
+
+## Job Match
+
+- `POST /api/jobs/analyze`: pasted text or an uploaded file (images transcribed with GLM-4.6V) -> text model ->
+  `requirements: {name, display, kind, importance: must|nice, yearsMin}` saved in `users/{uid}/jobs`.
+- **Scoring** (`lib/match/score.ts`, pure, runs in the browser for the live panel):
+  `strength = tagHit ? min(1, 0.5 + 0.25·weight) : literalHit ? 0.5 : 0`; `score = 100·(0.7·mean(must) + 0.3·mean(nice))`.
+  `literalHit` searches the exact strings Typst prints (`renderedText(toTypstDoc(data))`) — the ATS check.
+- **Recommendation** (`lib/match/recommend.ts`): greedy weighted set cover (must = 3, nice = 1, a requirement
+  saturates after 2 carriers) under per-section caps (`DEFAULT_CAPS`, user-editable in `meta/preferences`);
+  matching skill categories always in; education never excluded. Produces include/exclude proposals.
+- `POST /api/jobs/proposals`: deterministic include/exclude + text-model `rewrite-bullet | add-skill | gap`
+  proposals, muted rules filtered, statuses preserved by id, stored on the job. "Ignore similar" writes a
+  `{kind, tag | itemId}` rule to `users/{uid}/meta/preferences.mutedProposals`.
+- Apply: include/exclude call the item's `update*` action (or edit the draft when one is open); rewrite /
+  add-skill always edit the draft (`applyProposal`) and open the editor. "Tailor for this job" keeps a sticky
+  panel (`job-context-panel.tsx`) with the live score and page count on the Library / Editor views.
 
 ## Resume import
 
@@ -113,8 +165,10 @@ file --(browser)--> PDF? render pages to JPEG with pdf.js : send as-is
 - Parsing is lenient on purpose: the envelope never fails, each item is validated on its own with zod, and
   rejects go into `warnings` (shown in the review step). Dates like `2021`, `Jan 2021`, `03/2021`,
   `Spring 2020`, `Present` are normalised in `lib/import/dates.ts`.
-- `mergeImport` appends items, skipping ones whose normalised key (`itemKey`) already exists in the draft;
-  personal info fills only empty fields unless the user ticks "Replace my existing details".
+- `mergeImport` appends new items and **merges** duplicates (same `itemKey`): bullets and skill lists are
+  unioned, empty scalar fields filled. The review step labels rows New / Adds detail / Already in library.
+  Several files can be queued in one session (`combineParsedFiles` dedupes across files). Personal info fills
+  only empty fields unless the user ticks "Replace my existing details".
 - Prompt tuning lives in `lib/import/prompt.ts`; skill grouping (3–6 categories when the resume lists
   skills flat) and section routing (Awards/Volunteering/Publications/Languages) are instructed there.
 
@@ -160,9 +214,10 @@ ResumeData --toTypstDoc()--> TypstResumeDoc (JSON) --sys.inputs.resume--> main.t
 ## Data model (Firestore)
 
 `users/{uid}`: `firstName, lastName, headline, professionalEmail, phoneNumber, location, github, linkedIn,
-website, bio, updatedAt` (+ NextAuth adapter fields such as `email`, `image`).
+website, bio, profileTags, profileContentHash, profileTagsHash, loadedVariantId, updatedAt`
+(+ NextAuth adapter fields such as `email`, `image`).
 
-Subcollections, each doc has `isSelected`, `createdAt`, `updatedAt`:
+Subcollections, each item doc has `isSelected`, `tags`, `contentHash`, `tagsHash`, `createdAt`, `updatedAt`:
 
 | collection | fields |
 |---|---|
@@ -175,6 +230,10 @@ Subcollections, each doc has `isSelected`, `createdAt`, `updatedAt`:
 | `volunteering` | `role, organization, startDate, endDate, isActive, description: string[]` |
 | `publications` | `title, venue, date, link, authors` |
 | `languages` | `language, proficiency` |
+| `variants` | `name, labels: string[], items: {experience: string[], …}, templateId` (pointers only) |
+| `jobs` | `title, company, source, jdText, summary, requirements[], proposals[], proposalsAt, lastScore` |
+| `meta/tags` | `aliases: Record<alias, canonical>` |
+| `meta/preferences` | `mutedProposals: {kind, tag?, itemId?}[], caps: Record<ResumeListKey, number \| null>` |
 
 Dates are stored as Firestore `Timestamp` at **UTC midnight** (`toUtcDate`). In the editor model
 `startDate` is `"YYYY-MM-DD" | ""` and `endDate` is `"YYYY-MM-DD" | "Present" | ""`; `"Present"`
@@ -208,6 +267,9 @@ editor and `string[]` in Firestore.
   `src/lib/db/user-collection.ts` (plain `server-only` module); never build actions with a factory.
 - Route handler files may only export route fields (`GET`, `POST`, `runtime`, `maxDuration`, …); shared
   constants/types for `/api/import` live in `src/lib/import/types.ts`.
+- `dashboard/page.tsx` exports `maxDuration = 120` because Save & Exit (a server action) now calls GLM; actions
+  inherit their page's segment config. Long GLM calls otherwise live in route handlers.
+- `variants` and `jobs` order by `updatedAt` (always written).
 - ESLint ignores `public/pdfjs/**` and `public/typst/wasm/**` (vendored bundles).
 - No `typst` CLI locally: `pip install typst` in a venv gives `typst.compile(...)` with `sys_inputs`, which is
   enough to check the templates against `sample.json`.

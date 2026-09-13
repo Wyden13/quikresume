@@ -3,6 +3,7 @@
 import { auth } from "@/auth"
 import { db } from "@/lib/firestore"
 import { revalidatePath } from "next/cache"
+import { tagFieldsOf } from "@/lib/db/user-collection";
 import { Timestamp } from "firebase-admin/firestore";
 import { toUtcDate } from "@/lib/dates";
 import type { EducationItem } from "@/types/db";
@@ -59,6 +60,7 @@ export async function getEducations(): Promise<EducationItem[]> {
             endDate: data.endDate?.toDate().toISOString() ?? null,
             isActive: Boolean(data.isActive),
             isSelected: Boolean(data.isSelected),
+            ...tagFieldsOf(data),
             createdAt: data.createdAt?.toDate().toISOString() ?? null,
             updatedAt: data.updatedAt?.toDate().toISOString() ?? null,
         };

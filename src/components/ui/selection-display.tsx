@@ -17,6 +17,7 @@ import type {
     SkillCategoryItem, VolunteeringItem,
 } from "@/types/db"
 import { formatDateRange, formatMonthYear, PRESENT } from "@/lib/dates"
+import { kindMeta, type Tag } from "@/lib/tags/types"
 
 interface SelectionDisplayProps {
     experiences: ExperienceItem[];
@@ -32,10 +33,12 @@ interface SelectionDisplayProps {
     onImport?: () => void;
     /** Opens the Master Editor (shown in the empty state). */
     onEdit?: () => void;
+    /** Item id -> names of saved variants that include it. */
+    variantUsage?: Record<string, string[]>;
 }
 
 export default function SelectionDisplay({
-    experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages, onImport, onEdit,
+    experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages, onImport, onEdit, variantUsage = {},
 }: SelectionDisplayProps) {
     const hasItems = [experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages]
         .some(list => list.length > 0);
@@ -74,6 +77,8 @@ export default function SelectionDisplay({
                         <SelectionCard
                             key={exp.id}
                             id={exp.id}
+                            tags={exp.tags}
+                            usedBy={variantUsage[exp.id]}
                             title={exp.position}
                             subtitle={exp.company}
                             startDate={exp.startDate}
@@ -96,6 +101,8 @@ export default function SelectionDisplay({
                         <SelectionCard
                             key={edu.id}
                             id={edu.id}
+                            tags={edu.tags}
+                            usedBy={variantUsage[edu.id]}
                             title={edu.programName}
                             subtitle={edu.schoolName}
                             startDate={edu.startDate}
@@ -130,6 +137,8 @@ export default function SelectionDisplay({
                         <SelectionCard
                             key={project.id}
                             id={project.id}
+                            tags={project.tags}
+                            usedBy={variantUsage[project.id]}
                             title={project.title}
                             subtitle={project.stack ?? ""}
                             startDate={project.startDate}
@@ -155,6 +164,8 @@ export default function SelectionDisplay({
                         <SimpleCard
                             key={skill.id}
                             id={skill.id}
+                            tags={skill.tags}
+                            usedBy={variantUsage[skill.id]}
                             title={skill.category}
                             body={skill.items}
                             isSelected={skill.isSelected}
@@ -171,6 +182,8 @@ export default function SelectionDisplay({
                         <SelectionCard
                             key={vol.id}
                             id={vol.id}
+                            tags={vol.tags}
+                            usedBy={variantUsage[vol.id]}
                             title={vol.role}
                             subtitle={vol.organization}
                             startDate={vol.startDate}
@@ -193,6 +206,8 @@ export default function SelectionDisplay({
                         <SimpleCard
                             key={pub.id}
                             id={pub.id}
+                            tags={pub.tags}
+                            usedBy={variantUsage[pub.id]}
                             title={pub.title}
                             body={[pub.authors, pub.venue, formatMonthYear(pub.date)].filter(Boolean).join(" · ")}
                             isSelected={pub.isSelected}
@@ -209,6 +224,8 @@ export default function SelectionDisplay({
                         <SimpleCard
                             key={award.id}
                             id={award.id}
+                            tags={award.tags}
+                            usedBy={variantUsage[award.id]}
                             title={award.title}
                             body={[[award.issuer, formatMonthYear(award.date)].filter(Boolean).join(" · "), award.description].filter(Boolean).join("\n")}
                             isSelected={award.isSelected}
@@ -225,6 +242,8 @@ export default function SelectionDisplay({
                         <SimpleCard
                             key={cert.id}
                             id={cert.id}
+                            tags={cert.tags}
+                            usedBy={variantUsage[cert.id]}
                             title={cert.name}
                             body={[cert.issuer, cert.year].filter(Boolean).join(" · ")}
                             isSelected={cert.isSelected}
@@ -241,6 +260,8 @@ export default function SelectionDisplay({
                         <SimpleCard
                             key={lang.id}
                             id={lang.id}
+                            tags={lang.tags}
+                            usedBy={variantUsage[lang.id]}
                             title={lang.language}
                             body={lang.proficiency ?? ""}
                             isSelected={lang.isSelected}
@@ -367,10 +388,12 @@ interface SelectionCardProps {
     onUpdate: ServerAction;
     onDelete: (id: string) => Promise<void>;
     type: keyof typeof ACTIVE_LABEL;
+    tags?: Tag[];
+    usedBy?: string[];
     children?: React.ReactNode;
 }
 
-function SelectionCard({ id, title, subtitle, startDate, endDate, isActive, isSelected, onUpdate, onDelete, type, children }: SelectionCardProps) {
+function SelectionCard({ id, title, subtitle, startDate, endDate, isActive, isSelected, onUpdate, onDelete, type, tags, usedBy, children }: SelectionCardProps) {
     const dateLabel = formatDateRange(startDate, isActive ? PRESENT : endDate);
     return (
         <div className={cardClass(isSelected)}>
@@ -388,7 +411,8 @@ function SelectionCard({ id, title, subtitle, startDate, endDate, isActive, isSe
                 <DeleteButton id={id} onDelete={onDelete} />
             </div>
 
-            <div className="flex-1 mb-10">{children}</div>
+            <div className="flex-1 mb-6">{children}</div>
+            <CardMeta tags={tags} usedBy={usedBy} />
 
             <div className="grid grid-cols-2 gap-3 pt-6 border-t border-black/5 mt-auto">
                 <IncludeToggle id={id} isSelected={isSelected} onUpdate={onUpdate} />
@@ -421,9 +445,11 @@ interface SimpleCardProps {
     isSelected: boolean;
     onUpdate: ServerAction;
     onDelete: (id: string) => Promise<void>;
+    tags?: Tag[];
+    usedBy?: string[];
 }
 
-function SimpleCard({ id, title, body, isSelected, onUpdate, onDelete }: SimpleCardProps) {
+function SimpleCard({ id, title, body, isSelected, onUpdate, onDelete, tags, usedBy }: SimpleCardProps) {
     return (
         <div className={cardClass(isSelected)}>
             <div className="flex justify-between items-start mb-6">
@@ -433,9 +459,10 @@ function SimpleCard({ id, title, body, isSelected, onUpdate, onDelete }: SimpleC
                 <DeleteButton id={id} onDelete={onDelete} />
             </div>
 
-            <div className="flex-1 mb-10">
+            <div className="flex-1 mb-6">
                 {body && <p className="text-black/60 font-medium leading-relaxed whitespace-pre-line">{body}</p>}
             </div>
+            <CardMeta tags={tags} usedBy={usedBy} />
 
             <div className="pt-6 border-t border-black/5 mt-auto">
                 <IncludeToggle id={id} isSelected={isSelected} onUpdate={onUpdate} />
@@ -446,6 +473,27 @@ function SimpleCard({ id, title, body, isSelected, onUpdate, onDelete }: SimpleC
             )}
         </div>
     )
+}
+
+/** Smart-tag chips and the "used in N variants" badge shown under a card body. */
+function CardMeta({ tags = [], usedBy = [] }: { tags?: Tag[]; usedBy?: string[] }) {
+    if (tags.length === 0 && usedBy.length === 0) return null;
+    const shown = tags.slice(0, 6);
+    return (
+        <div className="flex flex-wrap items-center gap-1.5 mb-4">
+            {usedBy.length > 0 && (
+                <span title={usedBy.join(", ")} className="px-2 py-0.5 rounded-md bg-black text-white text-[10px] font-black uppercase tracking-widest mr-1">
+                    {usedBy.length} {usedBy.length === 1 ? "variant" : "variants"}
+                </span>
+            )}
+            {shown.map(t => (
+                <span key={t.name} className="px-2 py-0.5 rounded-md text-[10px] font-bold border" style={{ color: kindMeta(t.kind).color, borderColor: `${kindMeta(t.kind).color}55`, background: `${kindMeta(t.kind).color}12` }}>
+                    {t.display}
+                </span>
+            ))}
+            {tags.length > shown.length && <span className="text-[10px] font-black text-black/30">+{tags.length - shown.length}</span>}
+        </div>
+    );
 }
 
 // --- LOCAL ICONS ---

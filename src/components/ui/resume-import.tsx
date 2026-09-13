@@ -1,77 +1,98 @@
 // src/components/ui/resume-import.tsx
-// Resume import flow: pick a file -> (PDF: render pages in the browser) ->
-// POST /api/import -> review parsed items -> hand the selection to the
-// dashboard, which merges it into the editor draft. Nothing is persisted here.
+// Resume import flow: pick one or more files -> (PDF: render pages in the
+// browser) -> POST /api/import per file -> combined review -> hand the
+// selection to the dashboard, which merges it into the editor draft.
+// Nothing is persisted here.
 "use client";
 
 import React, { useState } from "react";
 import type { PersonalInfo, ResumeData, ResumeListKey } from "@/types/schema";
-import { RESUME_LIST_KEYS } from "@/types/schema";
-import type { ImportSelection } from "@/lib/import/merge";
+import { emptyResumeData, RESUME_LIST_KEYS } from "@/types/schema";
+import { classifyIncoming, combineParsedFiles, type CombinedImport, type ImportSelection, type ParsedFile } from "@/lib/import/merge";
 import { MAX_FILE_BYTES, MAX_PDF_PAGES, type ImportResponse } from "@/lib/import/types";
-import { formatDateRange, formatMonthYear } from "@/lib/dates";
+import { documentFormData } from "@/lib/import/pdf-pages";
+import { itemLabel, itemTitle, SECTION_LABEL } from "@/lib/sections";
 import { Button } from "@/components/ui/form-controls";
 
 interface ResumeImportProps {
-    /** What the library currently holds; used to explain the personal-info merge rule. */
+    /** What the library (or the open draft) currently holds; drives the New / Merges / Already labels. */
     current: ResumeData;
-    onImport: (selection: ImportSelection, meta: { fileName: string }) => void;
+    onImport: (selection: ImportSelection, meta: { fileNames: string[] }) => void;
     onCancel: () => void;
 }
 
+type FileStatus = "queued" | "rendering" | "reading" | "done" | "failed";
+interface QueuedFile { file: File; status: FileStatus; error?: string }
+
 type Stage =
     | { step: "pick"; error: string | null }
-    | { step: "working"; label: string }
-    | { step: "review"; result: Extract<ImportResponse, { ok: true }> };
+    | { step: "working" }
+    | { step: "review"; result: CombinedImport };
 
 const ACCEPT = ".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp,application/pdf,image/png,image/jpeg,image/webp";
+const MAX_FILES = 6;
 
 export function ResumeImport({ current, onImport, onCancel }: ResumeImportProps) {
     const [stage, setStage] = useState<Stage>({ step: "pick", error: null });
-    const [file, setFile] = useState<File | null>(null);
+    const [queue, setQueue] = useState<QueuedFile[]>([]);
     const [dragOver, setDragOver] = useState(false);
 
-    const pickFile = (f: File | null | undefined) => {
-        if (!f) return;
-        if (f.size > MAX_FILE_BYTES) {
-            setStage({ step: "pick", error: "That file is over 10 MB. Please upload a smaller copy." });
-            return;
-        }
-        setFile(f);
-        setStage({ step: "pick", error: null });
+    const addFiles = (list: FileList | File[] | null | undefined) => {
+        if (!list) return;
+        const incoming = Array.from(list);
+        const errors: string[] = [];
+        setQueue(prev => {
+            const next = [...prev];
+            for (const f of incoming) {
+                if (next.some(q => q.file.name === f.name && q.file.size === f.size)) continue;
+                if (f.size > MAX_FILE_BYTES) { errors.push(`${f.name} is over 10 MB and was skipped.`); continue; }
+                if (next.length >= MAX_FILES) { errors.push(`Only ${MAX_FILES} files per import; ${f.name} was skipped.`); continue; }
+                next.push({ file: f, status: "queued" });
+            }
+            return next;
+        });
+        setStage({ step: "pick", error: errors.length ? errors.join(" ") : null });
     };
 
+    const removeFile = (name: string) => setQueue(prev => prev.filter(q => q.file.name !== name));
+
+    const setStatus = (name: string, status: FileStatus, error?: string) =>
+        setQueue(prev => prev.map(q => (q.file.name === name ? { ...q, status, error } : q)));
+
     const analyze = async () => {
-        if (!file) return;
-        try {
-            const body = new FormData();
-            body.set("fileName", file.name);
-            if (isPdf(file)) {
-                setStage({ step: "working", label: "Rendering PDF pages…" });
-                const pages = await renderPdfPages(file);
-                pages.forEach((blob, i) => body.append("pages", blob, `page-${i + 1}.jpg`));
-            } else {
-                body.set("file", file);
+        if (queue.length === 0) return;
+        setStage({ step: "working" });
+        const parsed: ParsedFile[] = [];
+        for (const q of queue) {
+            try {
+                setStatus(q.file.name, "rendering");
+                const body = await documentFormData(q.file);
+                setStatus(q.file.name, "reading");
+                const res = await fetch("/api/import", { method: "POST", body });
+                const json = (await res.json().catch(() => null)) as ImportResponse | null;
+                if (!json) throw new Error(`Import failed (${res.status}).`);
+                if (!json.ok) throw new Error(json.error);
+                parsed.push({ fileName: json.fileName, data: json.data, warnings: json.warnings });
+                setStatus(q.file.name, "done");
+            } catch (err) {
+                setStatus(q.file.name, "failed", err instanceof Error ? err.message : "Import failed.");
             }
-            setStage({ step: "working", label: "Reading your resume with GLM-4.6V… this can take up to a minute." });
-            const res = await fetch("/api/import", { method: "POST", body });
-            const json = (await res.json().catch(() => null)) as ImportResponse | null;
-            if (!json) throw new Error(`Import failed (${res.status}).`);
-            if (!json.ok) throw new Error(json.error);
-            setStage({ step: "review", result: json });
-        } catch (err) {
-            setStage({ step: "pick", error: err instanceof Error ? err.message : "Import failed. Please try again." });
         }
+        if (parsed.length === 0) {
+            setStage({ step: "pick", error: "None of the files could be read. See the errors next to each file." });
+            return;
+        }
+        setStage({ step: "review", result: combineParsedFiles(parsed, emptyResumeData()) });
     };
 
     if (stage.step === "review") {
         return (
             <ReviewStep
-                key={stage.result.fileName}
+                key={stage.result.fileNames.join("|")}
                 result={stage.result}
                 current={current}
-                onConfirm={(sel) => onImport(sel, { fileName: stage.result.fileName })}
-                onRestart={() => { setFile(null); setStage({ step: "pick", error: null }); }}
+                onConfirm={(sel) => onImport(sel, { fileNames: stage.result.fileNames })}
+                onRestart={() => { setQueue([]); setStage({ step: "pick", error: null }); }}
             />
         );
     }
@@ -81,10 +102,11 @@ export function ResumeImport({ current, onImport, onCancel }: ResumeImportProps)
     return (
         <div className="bg-white border-2 border-black/5 rounded-[3rem] shadow-2xl shadow-black/5 p-6 md:p-10 space-y-8">
             <div className="space-y-2">
-                <h2 className="text-2xl font-black tracking-tight">Import an existing resume</h2>
+                <h2 className="text-2xl font-black tracking-tight">Import existing resumes</h2>
                 <p className="text-black/55 font-medium">
-                    Upload a PDF, Word document, text file or a photo of your resume. GLM-4.6V reads it and sorts
-                    everything into your library sections. You review before anything is saved.
+                    Upload one or more PDFs, Word documents, text files or photos of your resumes. GLM-4.6V reads each one
+                    and sorts everything into your library sections. Duplicates across files are merged, and you review
+                    before anything is saved.
                 </p>
             </div>
 
@@ -95,59 +117,68 @@ export function ResumeImport({ current, onImport, onCancel }: ResumeImportProps)
             <label
                 onDragOver={(e) => { e.preventDefault(); if (!working) setDragOver(true); }}
                 onDragLeave={() => setDragOver(false)}
-                onDrop={(e) => { e.preventDefault(); setDragOver(false); if (!working) pickFile(e.dataTransfer.files?.[0]); }}
-                className={`block cursor-pointer border-2 border-dashed rounded-[2rem] p-10 md:p-16 text-center transition-all ${
+                onDrop={(e) => { e.preventDefault(); setDragOver(false); if (!working) addFiles(e.dataTransfer.files); }}
+                className={`block cursor-pointer border-2 border-dashed rounded-[2rem] p-10 md:p-14 text-center transition-all ${
                     dragOver ? "border-black bg-black/5" : "border-black/10 bg-gray-50/50 hover:border-black/40"
                 } ${working ? "pointer-events-none opacity-60" : ""}`}
             >
-                <input type="file" accept={ACCEPT} className="sr-only" disabled={working} onChange={(e) => pickFile(e.target.files?.[0])} />
+                <input type="file" multiple accept={ACCEPT} className="sr-only" disabled={working} onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
                 <div className="w-16 h-16 bg-black rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-lg shadow-black/20">
                     <UploadIcon className="w-7 h-7 text-white" />
                 </div>
-                {file ? (
-                    <>
-                        <p className="font-black text-lg tracking-tight break-all">{file.name}</p>
-                        <p className="text-black/40 text-sm font-bold mt-1">{(file.size / 1024).toFixed(0)} KB · click to choose a different file</p>
-                    </>
-                ) : (
-                    <>
-                        <p className="font-black text-lg tracking-tight">Drop your resume here, or click to browse</p>
-                        <p className="text-black/40 text-sm font-bold mt-1">PDF · DOCX · TXT · PNG / JPG · up to 10 MB, {MAX_PDF_PAGES} pages</p>
-                    </>
-                )}
+                <p className="font-black text-lg tracking-tight">{queue.length ? "Add another file" : "Drop your resumes here, or click to browse"}</p>
+                <p className="text-black/40 text-sm font-bold mt-1">PDF · DOCX · TXT · PNG / JPG · up to 10 MB and {MAX_PDF_PAGES} pages each · {MAX_FILES} files max</p>
             </label>
 
-            {working && (
-                <div className="flex items-center gap-3 text-sm font-bold text-black/60" aria-live="polite">
-                    <span className="w-5 h-5 border-2 border-black/20 border-t-black rounded-full animate-spin" />
-                    {stage.label}
-                </div>
+            {queue.length > 0 && (
+                <ul className="space-y-2" aria-live="polite">
+                    {queue.map(q => (
+                        <li key={q.file.name} className="flex items-center gap-4 p-4 rounded-2xl border-2 border-black/5 bg-white">
+                            <StatusDot status={q.status} />
+                            <div className="min-w-0 flex-1">
+                                <p className="font-black leading-tight break-all">{q.file.name}</p>
+                                <p className={`text-[11px] font-bold uppercase tracking-widest ${q.status === "failed" ? "text-red-600 normal-case tracking-normal" : "text-black/40"}`}>
+                                    {q.status === "queued" && `${(q.file.size / 1024).toFixed(0)} KB · waiting`}
+                                    {q.status === "rendering" && "Rendering pages…"}
+                                    {q.status === "reading" && "Reading with GLM-4.6V… up to a minute"}
+                                    {q.status === "done" && "Done"}
+                                    {q.status === "failed" && (q.error ?? "Failed")}
+                                </p>
+                            </div>
+                            {!working && (
+                                <button type="button" onClick={() => removeFile(q.file.name)} className="text-black/30 hover:text-red-500 text-xs font-black uppercase tracking-widest">
+                                    Remove
+                                </button>
+                            )}
+                        </li>
+                    ))}
+                </ul>
             )}
 
             <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 pt-6 border-t border-black/5">
                 <Button variant="default" onClick={onCancel} disabled={working}>Cancel</Button>
-                <Button variant="primary" onClick={analyze} disabled={!file} loading={working}>
-                    {working ? "Analyzing" : "Analyze resume"}
+                <Button variant="primary" onClick={analyze} disabled={queue.length === 0} loading={working}>
+                    {working ? "Analyzing" : queue.length > 1 ? `Analyze ${queue.length} files` : "Analyze resume"}
                 </Button>
             </div>
         </div>
     );
 }
 
+function StatusDot({ status }: { status: FileStatus }) {
+    if (status === "rendering" || status === "reading") return <span className="w-5 h-5 border-2 border-black/20 border-t-black rounded-full animate-spin shrink-0" />;
+    const cls = status === "done" ? "bg-emerald-500" : status === "failed" ? "bg-red-500" : "bg-black/15";
+    return <span className={`w-3 h-3 rounded-full shrink-0 ${cls}`} />;
+}
+
 // ---------- Review ----------
 
 interface ReviewStepProps {
-    result: Extract<ImportResponse, { ok: true }>;
+    result: CombinedImport;
     current: ResumeData;
     onConfirm: (sel: ImportSelection) => void;
     onRestart: () => void;
 }
-
-const SECTION_LABEL: Record<ResumeListKey, string> = {
-    workExperience: "Work Experience", education: "Education", skills: "Skill Categories", projects: "Projects",
-    certifications: "Certifications", awards: "Awards & Honors", volunteering: "Volunteering & Leadership",
-    publications: "Publications", languages: "Languages",
-};
 
 const PERSONAL_LABEL: Record<keyof PersonalInfo, string> = {
     firstName: "First name", lastName: "Last name", headline: "Headline", email: "Email", phone: "Phone",
@@ -155,10 +186,18 @@ const PERSONAL_LABEL: Record<keyof PersonalInfo, string> = {
 };
 
 function ReviewStep({ result, current, onConfirm, onRestart }: ReviewStepProps) {
-    const { data, warnings, fileName } = result;
+    const { data, warnings, fileNames, sourceById } = result;
+    const multi = fileNames.length > 1;
+
+    // Classify once per item against the library / open draft.
+    const classes: Record<string, ReturnType<typeof classifyIncoming>> = {};
+    for (const key of RESUME_LIST_KEYS) {
+        for (const item of data[key] as ResumeData[typeof key][number][]) classes[item.id] = classifyIncoming(current, key, item);
+    }
+
     const [checked, setChecked] = useState<Record<string, boolean>>(() => {
         const init: Record<string, boolean> = {};
-        for (const key of RESUME_LIST_KEYS) for (const item of data[key]) init[item.id] = true;
+        for (const key of RESUME_LIST_KEYS) for (const item of data[key]) init[item.id] = classes[item.id]?.kind !== "same";
         return init;
     });
     const parsedPersonal = (Object.keys(PERSONAL_LABEL) as (keyof PersonalInfo)[]).filter(f => data.personalInfo[f].trim());
@@ -167,6 +206,8 @@ function ReviewStep({ result, current, onConfirm, onRestart }: ReviewStepProps) 
 
     const total = RESUME_LIST_KEYS.reduce((n, key) => n + data[key].length, 0);
     const selectedCount = Object.values(checked).filter(Boolean).length;
+    const counts = { new: 0, merge: 0, same: 0 };
+    for (const c of Object.values(classes)) counts[c.kind]++;
     const toggleSection = (key: ResumeListKey, value: boolean) =>
         setChecked(prev => {
             const next = { ...prev };
@@ -183,26 +224,37 @@ function ReviewStep({ result, current, onConfirm, onRestart }: ReviewStepProps) 
         onConfirm({ personalInfo: applyPersonal ? data.personalInfo : null, replacePersonal, items });
     };
 
+    const warningCount = warnings.reduce((n, w) => n + w.warnings.length, 0);
+
     return (
         <div className="bg-white border-2 border-black/5 rounded-[3rem] shadow-2xl shadow-black/5 p-6 md:p-10 space-y-10">
             <div className="space-y-2">
                 <h2 className="text-2xl font-black tracking-tight">Review what we found</h2>
                 <p className="text-black/55 font-medium">
-                    From <span className="font-bold text-black">{fileName}</span>: {total} {total === 1 ? "item" : "items"}
-                    {parsedPersonal.length > 0 ? " plus personal details" : ""}. Untick anything you don&apos;t want. You can edit every field afterwards in the Master Editor.
+                    From <span className="font-bold text-black">{fileNames.join(", ")}</span>: {total} {total === 1 ? "item" : "items"}
+                    {parsedPersonal.length > 0 ? " plus personal details" : ""}.
+                    {counts.new > 0 && ` ${counts.new} new.`}
+                    {counts.merge > 0 && ` ${counts.merge} will add detail to items you already have.`}
+                    {counts.same > 0 && ` ${counts.same} already in your library (unticked).`}
+                    {" "}You can edit every field afterwards in the Master Editor.
                 </p>
             </div>
 
             {total === 0 && parsedPersonal.length === 0 && (
                 <div className="border-2 border-amber-200 bg-amber-50 rounded-2xl p-5 text-amber-900 text-sm font-bold">
-                    Nothing usable was found in that file. Try a clearer scan or a text-based PDF.
+                    Nothing usable was found. Try a clearer scan or a text-based PDF.
                 </div>
             )}
 
-            {warnings.length > 0 && (
+            {warningCount > 0 && (
                 <details className="border-2 border-amber-200 bg-amber-50 rounded-2xl p-5 text-amber-900 text-sm">
-                    <summary className="font-black cursor-pointer">{warnings.length} {warnings.length === 1 ? "entry was" : "entries were"} skipped</summary>
-                    <ul className="list-disc ml-5 mt-3 space-y-1">{warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
+                    <summary className="font-black cursor-pointer">{warningCount} {warningCount === 1 ? "entry was" : "entries were"} skipped</summary>
+                    {warnings.map(w => (
+                        <div key={w.fileName} className="mt-3">
+                            {multi && <p className="font-black text-[11px] uppercase tracking-widest">{w.fileName}</p>}
+                            <ul className="list-disc ml-5 mt-1 space-y-1">{w.warnings.map((x, i) => <li key={i}>{x}</li>)}</ul>
+                        </div>
+                    ))}
                 </details>
             )}
 
@@ -255,15 +307,21 @@ function ReviewStep({ result, current, onConfirm, onRestart }: ReviewStepProps) 
                         </div>
                         <ul className="space-y-2">
                             {items.map(item => {
-                                const { title, subtitle, meta } = summarize(key, item);
+                                const { title, subtitle, meta } = itemLabel(key, item);
+                                const cls = classes[item.id];
                                 return (
                                     <li key={item.id}>
                                         <label className={`flex items-start gap-4 p-4 rounded-2xl border-2 cursor-pointer transition-all ${checked[item.id] ? "border-black/10 bg-white" : "border-transparent bg-gray-50 opacity-60"}`}>
                                             <input type="checkbox" checked={Boolean(checked[item.id])} onChange={(e) => setChecked(prev => ({ ...prev, [item.id]: e.target.checked }))} className="w-5 h-5 mt-0.5 accent-black shrink-0" />
                                             <div className="min-w-0 flex-1">
-                                                <p className="font-black leading-tight break-words">{title || <span className="text-black/30">Untitled</span>}</p>
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <p className="font-black leading-tight break-words">{title || <span className="text-black/30">Untitled</span>}</p>
+                                                    <ClassChip cls={cls} sectionKey={key} />
+                                                </div>
                                                 {subtitle && <p className="text-sm text-black/60 font-medium break-words">{subtitle}</p>}
-                                                {meta && <p className="text-[11px] text-black/40 font-black uppercase tracking-widest mt-1">{meta}</p>}
+                                                <p className="text-[11px] text-black/40 font-black uppercase tracking-widest mt-1">
+                                                    {[meta, multi ? sourceById[item.id] : ""].filter(Boolean).join(" · ")}
+                                                </p>
                                             </div>
                                         </label>
                                     </li>
@@ -284,57 +342,13 @@ function ReviewStep({ result, current, onConfirm, onRestart }: ReviewStepProps) 
     );
 }
 
-function summarize<K extends ResumeListKey>(key: K, item: ResumeData[K][number]): { title: string; subtitle: string; meta: string } {
-    switch (key) {
-        case "workExperience": { const x = item as ResumeData["workExperience"][number]; return { title: x.title, subtitle: x.company, meta: formatDateRange(x.startDate, x.endDate) }; }
-        case "education": { const x = item as ResumeData["education"][number]; return { title: x.degree, subtitle: x.institution, meta: formatDateRange(x.startDate, x.endDate) }; }
-        case "skills": { const x = item as ResumeData["skills"][number]; return { title: x.category, subtitle: x.items, meta: "" }; }
-        case "projects": { const x = item as ResumeData["projects"][number]; return { title: x.title, subtitle: x.stack, meta: formatDateRange(x.startDate, x.endDate) }; }
-        case "certifications": { const x = item as ResumeData["certifications"][number]; return { title: x.name, subtitle: x.issuer, meta: x.year }; }
-        case "awards": { const x = item as ResumeData["awards"][number]; return { title: x.title, subtitle: x.issuer, meta: formatMonthYear(x.date) }; }
-        case "volunteering": { const x = item as ResumeData["volunteering"][number]; return { title: x.role, subtitle: x.organization, meta: formatDateRange(x.startDate, x.endDate) }; }
-        case "publications": { const x = item as ResumeData["publications"][number]; return { title: x.title, subtitle: [x.authors, x.venue].filter(Boolean).join(" · "), meta: formatMonthYear(x.date) }; }
-        case "languages": { const x = item as ResumeData["languages"][number]; return { title: x.language, subtitle: x.proficiency, meta: "" }; }
+function ClassChip({ cls, sectionKey }: { cls: ReturnType<typeof classifyIncoming> | undefined; sectionKey: ResumeListKey }) {
+    if (!cls || cls.kind === "new") return <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase tracking-widest">New</span>;
+    if (cls.kind === "merge") {
+        const into = cls.existing ? itemTitle(sectionKey, cls.existing) : "";
+        return <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[10px] font-black uppercase tracking-widest" title={into ? `Merges into ${into}` : undefined}>Adds detail</span>;
     }
-    return { title: "", subtitle: "", meta: "" };
-}
-
-// ---------- PDF -> page images (browser only) ----------
-
-const isPdf = (f: File) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf");
-
-/** Rasterises up to MAX_PDF_PAGES pages as JPEGs sized for the vision model. */
-async function renderPdfPages(file: File): Promise<Blob[]> {
-    const pdfjs = await import("pdfjs-dist");
-    pdfjs.GlobalWorkerOptions.workerSrc = "/pdfjs/pdf.worker.min.mjs";
-    const task = pdfjs.getDocument({ data: await file.arrayBuffer() });
-    const doc = await task.promise;
-    const blobs: Blob[] = [];
-    try {
-        const count = Math.min(doc.numPages, MAX_PDF_PAGES);
-        for (let i = 1; i <= count; i++) {
-            const page = await doc.getPage(i);
-            const base = page.getViewport({ scale: 1 });
-            const scale = Math.min(2.5, 1600 / base.width); // ~190 dpi for A4/Letter
-            const viewport = page.getViewport({ scale });
-            const canvas = document.createElement("canvas");
-            canvas.width = Math.ceil(viewport.width);
-            canvas.height = Math.ceil(viewport.height);
-            const ctx = canvas.getContext("2d");
-            if (!ctx) throw new Error("Canvas is not available in this browser.");
-            ctx.fillStyle = "#fff";
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            await page.render({ canvasContext: ctx, viewport, canvas }).promise;
-            const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, "image/jpeg", 0.85));
-            if (!blob) throw new Error("Could not render a PDF page.");
-            blobs.push(blob);
-            page.cleanup();
-        }
-    } finally {
-        await task.destroy();
-    }
-    if (blobs.length === 0) throw new Error("That PDF has no pages.");
-    return blobs;
+    return <span className="px-2 py-0.5 rounded-md bg-gray-100 text-black/50 text-[10px] font-black uppercase tracking-widest">Already in library</span>;
 }
 
 function UploadIcon({ className }: { className?: string }) {

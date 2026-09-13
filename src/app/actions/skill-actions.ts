@@ -2,7 +2,8 @@
 
 import { auth } from "@/auth"
 import { db } from "@/lib/firestore"
-import { revalidatePath } from "next/cache";
+import { revalidatePath } from "next/cache"
+import { tagFieldsOf } from "@/lib/db/user-collection";
 import { Timestamp } from "firebase-admin/firestore";
 import type { SkillCategoryItem } from "@/types/db";
 
@@ -24,6 +25,7 @@ export async function getSkills(): Promise<SkillCategoryItem[]> {
             category: data.category ?? "",
             items: data.items ?? "",
             isSelected: Boolean(data.isSelected),
+            ...tagFieldsOf(data),
             updatedAt: data.updatedAt?.toDate().toISOString() ?? null,
             createdAt: data.createdAt?.toDate().toISOString() ?? null,
         };

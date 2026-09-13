@@ -10,11 +10,20 @@ import { getVolunteering } from "@/app/actions/volunteering-actions"
 import { getPublications } from "@/app/actions/publication-actions"
 import { getLanguages } from "@/app/actions/language-actions"
 import { getUserProfile } from "@/app/actions/user-actions"
+import { getLoadedVariantId, getVariants } from "@/app/actions/variant-actions"
+import { variantUsage } from "@/lib/variants"
+import { getJobs, getPreferences } from "@/app/actions/job-actions"
+import { getTagAliases } from "@/app/actions/tag-actions"
+import { DEFAULT_CAPS } from "@/lib/match/types"
 import { toResumeData } from "@/lib/resume-mapper"
 import DashboardClient from "@/components/dashboard-client"
 import { SiteHeader } from "@/components/site-header"
 import { SiteFooter } from "@/components/site-footer"
 import { redirect } from "next/navigation";
+
+// Save & Exit runs the smart-tag extractor (GLM) inside the server action;
+// actions inherit this segment's limit.
+export const maxDuration = 120;
 
 export default async function DashboardPage() {
     const session = await auth();
@@ -23,7 +32,7 @@ export default async function DashboardPage() {
         redirect("/login");
     }
 
-    const [profile, experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages] =
+    const [profile, experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages, variants, loadedVariantId, jobs, preferences, tagAliases] =
         await Promise.all([
             getUserProfile(),
             getExperiences(),
@@ -35,6 +44,11 @@ export default async function DashboardPage() {
             getVolunteering(),
             getPublications(),
             getLanguages(),
+            getVariants(),
+            getLoadedVariantId(),
+            getJobs(),
+            getPreferences(),
+            getTagAliases(),
         ]);
 
     // Build the complete editor model on the server so the preview has
@@ -68,6 +82,12 @@ export default async function DashboardPage() {
                     volunteering={volunteering}
                     publications={publications}
                     languages={languages}
+                    variants={variants}
+                    variantUsage={variantUsage(variants)}
+                    loadedVariantId={loadedVariantId}
+                    jobs={jobs}
+                    preferences={preferences ?? { mutedProposals: [], caps: DEFAULT_CAPS }}
+                    tagAliases={tagAliases}
                     userName={initialResumeData.personalInfo.firstName || session.user.name?.split(" ")[0] || "there"}
                 />
             </main>

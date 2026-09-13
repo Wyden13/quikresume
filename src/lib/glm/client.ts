@@ -8,6 +8,8 @@
 // by every model, so documents are rendered to images or reduced to text before
 // they get here. `response_format: json_object` is text-model only, so JSON is
 // extracted from the reply text (see src/lib/import/parsed-resume.ts).
+// glm-5.x models reject `thinking: disabled` ("please use low, high, or max");
+// they take `reasoning_effort` instead, which `effort` maps to.
 
 import "server-only";
 
@@ -24,9 +26,19 @@ export interface GlmOptions {
     model?: string;
     temperature?: number;
     maxTokens?: number;
-    /** GLM "deep thinking"; off by default for latency. */
+    /** GLM "deep thinking"; off by default for latency. Ignored when `effort` is set. */
     thinking?: boolean;
+    /**
+     * Reasoning effort for models that cannot switch thinking off (glm-5.x):
+     * sends `reasoning_effort` instead of `thinking`. "low" is fast enough for
+     * JSON extraction jobs (~7 s for 20 items on glm-5.3-flash).
+     */
+    effort?: "low" | "high" | "max";
+    /** Ask for `response_format: json_object` (text models only; vision models reject it). */
+    json?: boolean;
     timeoutMs?: number;
+    /** Retries on 429/5xx/network errors (default 1). */
+    retries?: number;
 }
 
 export interface GlmResult {
@@ -42,18 +54,41 @@ export class GlmError extends Error {
     }
 }
 
+/** Vision model: reads resume / job-posting images. */
 export const GLM_DEFAULT_MODEL = "glm-4.6v";
+/** Text model: tag extraction, job-description analysis, proposals (JSON mode). */
+export const GLM_DEFAULT_TEXT_MODEL = "glm-5.3-flash";
 const DEFAULT_BASE_URL = "https://api.z.ai/api/paas/v4";
 
 export function glmModel(): string {
     return process.env.GLM_MODEL?.trim() || GLM_DEFAULT_MODEL;
 }
 
+export function textModel(): string {
+    return process.env.GLM_TEXT_MODEL?.trim() || GLM_DEFAULT_TEXT_MODEL;
+}
+
+const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+const retryable = (err: unknown) =>
+    err instanceof GlmError && (err.status === undefined || err.status === 429 || err.status >= 500);
+
 export function isGlmConfigured(): boolean {
     return Boolean(process.env.GLM_API_KEY?.trim());
 }
 
 export async function chatCompletion(messages: GlmMessage[], opts: GlmOptions = {}): Promise<GlmResult> {
+    const retries = opts.retries ?? 1;
+    for (let attempt = 0; ; attempt++) {
+        try {
+            return await chatCompletionOnce(messages, opts);
+        } catch (err) {
+            if (attempt >= retries || !retryable(err)) throw err;
+            await sleep(1500 * (attempt + 1));
+        }
+    }
+}
+
+async function chatCompletionOnce(messages: GlmMessage[], opts: GlmOptions): Promise<GlmResult> {
     const apiKey = process.env.GLM_API_KEY?.trim();
     if (!apiKey) throw new GlmError("GLM_API_KEY is not configured on the server.");
 
@@ -70,7 +105,10 @@ export async function chatCompletion(messages: GlmMessage[], opts: GlmOptions = 
                 messages,
                 temperature: opts.temperature ?? 0.2,
                 max_tokens: opts.maxTokens ?? 16384,
-                thinking: { type: opts.thinking ? "enabled" : "disabled" },
+                ...(opts.effort
+                    ? { reasoning_effort: opts.effort }
+                    : { thinking: { type: opts.thinking ? "enabled" : "disabled" } }),
+                ...(opts.json ? { response_format: { type: "json_object" } } : {}),
                 stream: false,
             }),
             signal: AbortSignal.timeout(opts.timeoutMs ?? 120_000),

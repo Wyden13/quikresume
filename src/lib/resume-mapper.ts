@@ -61,6 +61,8 @@ export function toResumeData(src: ResumeSources): ResumeData {
             website: s(p?.website),
             summary: s(p?.bio),
         },
+        profileTags: p?.profileTags ?? [],
+        profileTagsHash: p?.profileTagsHash ?? null,
         workExperience: src.experiences.map(e => ({
             id: e.id,
             title: e.position,
@@ -69,6 +71,8 @@ export function toResumeData(src: ResumeSources): ResumeData {
             endDate: endDateOf(e.isActive, e.endDate),
             description: e.description.join("\n"),
             isSelected: e.isSelected,
+            tags: e.tags,
+            tagsHash: e.tagsHash,
         })),
         education: src.educations.map(e => ({
             id: e.id,
@@ -80,12 +84,16 @@ export function toResumeData(src: ResumeSources): ResumeData {
             minor: s(e.minorName),
             details: s(e.details),
             isSelected: e.isSelected,
+            tags: e.tags,
+            tagsHash: e.tagsHash,
         })),
         skills: src.skills.map(k => ({
             id: k.id,
             category: k.category,
             items: k.items,
             isSelected: k.isSelected,
+            tags: k.tags,
+            tagsHash: k.tagsHash,
         })),
         projects: src.projects.map(pr => ({
             id: pr.id,
@@ -96,6 +104,8 @@ export function toResumeData(src: ResumeSources): ResumeData {
             endDate: endDateOf(pr.isActive, pr.endDate),
             description: pr.description.join("\n"),
             isSelected: pr.isSelected,
+            tags: pr.tags,
+            tagsHash: pr.tagsHash,
         })),
         certifications: src.certifications.map(c => ({
             id: c.id,
@@ -103,6 +113,8 @@ export function toResumeData(src: ResumeSources): ResumeData {
             issuer: s(c.issuer),
             year: c.year,
             isSelected: c.isSelected,
+            tags: c.tags,
+            tagsHash: c.tagsHash,
         })),
         awards: src.awards.map(a => ({
             id: a.id,
@@ -111,6 +123,8 @@ export function toResumeData(src: ResumeSources): ResumeData {
             date: toDateInputValue(a.date),
             description: s(a.description),
             isSelected: a.isSelected,
+            tags: a.tags,
+            tagsHash: a.tagsHash,
         })),
         volunteering: src.volunteering.map(v => ({
             id: v.id,
@@ -120,6 +134,8 @@ export function toResumeData(src: ResumeSources): ResumeData {
             endDate: endDateOf(v.isActive, v.endDate),
             description: v.description.join("\n"),
             isSelected: v.isSelected,
+            tags: v.tags,
+            tagsHash: v.tagsHash,
         })),
         publications: src.publications.map(pub => ({
             id: pub.id,
@@ -129,12 +145,16 @@ export function toResumeData(src: ResumeSources): ResumeData {
             link: s(pub.link),
             authors: s(pub.authors),
             isSelected: pub.isSelected,
+            tags: pub.tags,
+            tagsHash: pub.tagsHash,
         })),
         languages: src.languages.map(l => ({
             id: l.id,
             language: l.language,
             proficiency: s(l.proficiency),
             isSelected: l.isSelected,
+            tags: l.tags,
+            tagsHash: l.tagsHash,
         })),
     };
 }

@@ -3,6 +3,7 @@
 import { auth } from "@/auth"
 import { db } from "@/lib/firestore"
 import { revalidatePath } from "next/cache"
+import { tagFieldsOf } from "@/lib/db/user-collection";
 import { Timestamp } from "firebase-admin/firestore";
 import { toUtcDate } from "@/lib/dates";
 import type { ProjectItem } from "@/types/db";
@@ -49,6 +50,7 @@ export async function getProjects(): Promise<ProjectItem[]> {
             isActive: Boolean(data.isActive),
             description: Array.isArray(data.description) ? data.description : [],
             isSelected: Boolean(data.isSelected),
+            ...tagFieldsOf(data),
             createdAt: data.createdAt?.toDate().toISOString() ?? null,
             updatedAt: data.updatedAt?.toDate().toISOString() ?? null,
         };
