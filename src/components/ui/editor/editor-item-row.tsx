@@ -6,8 +6,10 @@ import { ExpandableRow } from "@/components/ui/primitives/expandable-row";
 import { Switch } from "@/components/ui/primitives/switch";
 import { IconButton } from "@/components/ui/primitives/button";
 import { Badge } from "@/components/ui/primitives/badge";
-import { Trash2 } from "@/components/ui/primitives/icons";
+import { Copy, Trash2 } from "@/components/ui/primitives/icons";
 import { WORD_CAUTION, wordCaution } from "@/lib/text/word-count";
+import type { ItemReview } from "@/lib/review/types";
+import { ScoreBadge } from "@/components/ui/review/score-badge";
 
 interface EditorItemRowProps {
     id: string;
@@ -17,7 +19,11 @@ interface EditorItemRowProps {
     isSelected: boolean;
     onToggleSelected: (checked: boolean) => void;
     onRemove: () => void;
+    onDuplicate: () => void;
     usedBy: string[];
+    review: ItemReview | null;
+    /** The text differs from what the review saw. */
+    reviewStale: boolean;
     stale: boolean;
     /** Words across all of the item's text (the size caution). */
     words: number;
@@ -35,7 +41,7 @@ interface EditorItemRowProps {
     children: React.ReactNode;
 }
 
-export function EditorItemRow({ id, title, subtitle, meta, isSelected, onToggleSelected, onRemove, usedBy, stale, words, dateError, open, onToggleOpen, autoFocus, handle, rowRef, style, children }: EditorItemRowProps) {
+export function EditorItemRow({ id, title, subtitle, meta, isSelected, onToggleSelected, onRemove, onDuplicate, usedBy, review, reviewStale, stale, words, dateError, open, onToggleOpen, autoFocus, handle, rowRef, style, children }: EditorItemRowProps) {
     // Ref callback (not an effect on props): scrolls a freshly added row into view exactly once.
     const focused = useRef(false);
     const focusRef = (node: HTMLDivElement | null) => {
@@ -55,6 +61,7 @@ export function EditorItemRow({ id, title, subtitle, meta, isSelected, onToggleS
                 {subtitle && <div className="truncate text-13 text-fg-muted md:hidden">{subtitle}</div>}
             </div>
             <div className="hidden shrink-0 items-center gap-1 sm:flex">
+                {review && <ScoreBadge review={review} outdated={reviewStale} />}
                 {usedBy.length > 0 && <Badge title={usedBy.join(", ")}>{usedBy.length} {usedBy.length === 1 ? "variant" : "variants"}</Badge>}
                 {dateError && <Badge tone="danger" title={dateError}>Check dates</Badge>}
                 {words >= WORD_CAUTION && <Badge tone="warning" title={`Over ${WORD_CAUTION} words: cut this item down`}>Too long · {words} words</Badge>}
@@ -67,7 +74,8 @@ export function EditorItemRow({ id, title, subtitle, meta, isSelected, onToggleS
     const controls = (
         <>
             <Switch checked={isSelected} onChange={onToggleSelected} label={isSelected ? "Included on résumé" : "Not on résumé"} />
-            <IconButton icon={Trash2} aria-label="Delete item" variant="danger" onClick={onRemove} />
+            <IconButton icon={Copy} aria-label={`Duplicate ${title || "item"}`} title="Duplicate" onClick={onDuplicate} className="hidden sm:inline-flex" />
+            <IconButton icon={Trash2} aria-label={`Delete ${title || "item"}`} title="Delete (undone by Discard)" variant="danger" onClick={onRemove} />
         </>
     );
 

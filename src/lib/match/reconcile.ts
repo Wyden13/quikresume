@@ -22,6 +22,7 @@ import { itemTitle } from "@/lib/sections";
 import { toBullets } from "@/lib/typst/doc";
 import { RECONCILE_SYSTEM_PROMPT, reconcileUserMessage, type ProposalPromptItem, type ReconcileTagRow } from "@/lib/match/prompt";
 import type { Requirement } from "@/lib/match/types";
+import type { CandidatePromptContext } from "@/lib/about/types";
 
 const MAX_TAGS = 400;
 const MAX_ITEMS = 120;
@@ -54,7 +55,7 @@ export async function reconcileRequirements(
     resume: ResumeData,
     aliases: AliasMap,
     /** Routes with a time budget pass a shorter timeout and no retry. */
-    opts: { timeoutMs?: number; retries?: number } = {},
+    opts: { timeoutMs?: number; retries?: number; candidate?: CandidatePromptContext | null } = {},
 ): Promise<ReconcileResult> {
     const inventory = aggregateTags(resume, { selectedOnly: false });
     const tagByKey = new Map(inventory.map(t => [t.name, t]));
@@ -74,7 +75,7 @@ export async function reconcileRequirements(
         const result = await chatCompletion(
             [
                 { role: "system", content: RECONCILE_SYSTEM_PROMPT },
-                { role: "user", content: reconcileUserMessage({ requirements, candidateTags, items }) },
+                { role: "user", content: reconcileUserMessage({ requirements, candidateTags, items, candidate: opts.candidate }) },
             ],
             { model: textModel(), json: true, effort: "low", temperature: 0.1, maxTokens: 6000, timeoutMs: opts.timeoutMs ?? 60_000, retries: opts.retries },
         );

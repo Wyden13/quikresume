@@ -17,13 +17,31 @@ import { getUserProfile } from "@/app/actions/user-actions";
 import { getLayout } from "@/app/actions/layout-actions";
 import { toResumeData } from "@/lib/resume-mapper";
 import type { ResumeData } from "@/types/schema";
+import type { ReviewMap } from "@/lib/review/content";
+import type { ItemReview } from "@/lib/review/types";
+
+export interface LibraryWithReviews {
+    data: ResumeData;
+    /** Coach review per item id (null = not reviewed yet). */
+    reviews: ReviewMap;
+    profileReview: ItemReview | null;
+}
 
 /** The get* actions authenticate themselves; `uid` is accepted for symmetry with other helpers. */
-export async function loadResumeData(_uid: string, fallbackName?: string | null): Promise<ResumeData> {
+export async function loadLibraryWithReviews(_uid: string, fallbackName?: string | null): Promise<LibraryWithReviews> {
     const [profile, experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages, layout] =
         await Promise.all([
             getUserProfile(), getExperiences(), getEducations(), getSkills(), getProjects(), getCertifications(),
             getAwards(), getVolunteering(), getPublications(), getLanguages(), getLayout(),
         ]);
-    return toResumeData({ profile, fallbackName, experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages, layout });
+    const rows = [experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages].flat();
+    return {
+        data: toResumeData({ profile, fallbackName, experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages, layout }),
+        reviews: Object.fromEntries(rows.map(r => [r.id, r.review])),
+        profileReview: profile?.profileReview ?? null,
+    };
+}
+
+export async function loadResumeData(uid: string, fallbackName?: string | null): Promise<ResumeData> {
+    return (await loadLibraryWithReviews(uid, fallbackName)).data;
 }

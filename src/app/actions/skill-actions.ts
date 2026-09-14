@@ -55,6 +55,8 @@ export async function updateSkill(skillId: string, formData: FormData) {
     if (!session?.user?.id) throw new Error("Unauthorized")
 
     const patch: Record<string, unknown> = {};
+    if (formData.has("category")) patch.category = String(formData.get("category") ?? "").trim() || "General";
+    if (formData.has("items")) patch.items = String(formData.get("items") ?? "").trim();
     if (formData.has("isSelected")) patch.isSelected = formBool(formData, "isSelected");
     if (formData.has("hidden")) patch.hidden = formStrArray(formData, "hidden");
 

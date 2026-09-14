@@ -15,6 +15,7 @@ import { getLoadedVariantId, getVariants } from "@/app/actions/variant-actions"
 import { variantUsage } from "@/lib/variants"
 import { getJobs, getPreferences } from "@/app/actions/job-actions"
 import { getTagAliases } from "@/app/actions/tag-actions"
+import { getCharacterizationSummary } from "@/app/actions/about-actions"
 import { DEFAULT_CAPS } from "@/lib/match/types"
 import { toResumeData } from "@/lib/resume-mapper"
 import DashboardClient from "@/components/dashboard-client"
@@ -24,15 +25,17 @@ import { redirect } from "next/navigation";
 // actions inherit this segment's limit.
 export const maxDuration = 120;
 
-export default async function DashboardPage() {
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ view?: string }> }) {
     const session = await auth();
 
     if (!session?.user?.id) {
         redirect("/login");
     }
 
-    const [profile, experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages, variants, loadedVariantId, jobs, preferences, tagAliases, layout] =
+    const [sp, about, profile, experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages, variants, loadedVariantId, jobs, preferences, tagAliases, layout] =
         await Promise.all([
+            searchParams,
+            getCharacterizationSummary(),
             getUserProfile(),
             getExperiences(),
             getEducations(),
@@ -50,6 +53,10 @@ export default async function DashboardPage() {
             getTagAliases(),
             getLayout(),
         ]);
+
+    // First run: send new users to the "About you" questionnaire (skippable). Only from the Library landing
+    // (no ?view), so a revalidation while the editor is open can never navigate away from a draft.
+    if (about && about.status === null && !sp.view) redirect("/dashboard/about?first=1");
 
     // Build the complete editor model on the server so the preview has
     // personal info without the client having to fetch anything.
@@ -86,6 +93,9 @@ export default async function DashboardPage() {
             jobs={jobs}
             preferences={preferences ?? { mutedProposals: [], caps: DEFAULT_CAPS, declinedSoftSkills: [] }}
             tagAliases={tagAliases}
+            linkChecks={profile?.linkChecks ?? {}}
+            about={about ?? { status: null, briefHash: null }}
+            profileReview={profile?.profileReview ?? null}
             userName={initialResumeData.personalInfo.firstName || session.user.name?.split(" ")[0] || "there"}
         />
     )

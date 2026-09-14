@@ -8,6 +8,9 @@ import type { UserProfile } from "@/types/db"
 import type { PersonalInfo } from "@/types/schema";
 import { personalInfoToUserDoc } from "@/lib/resume-mapper";
 import { readTags } from "@/lib/tags/types";
+import { contactBlocking, normalizeContact } from "@/lib/contact/normalize";
+import { readLinkChecks } from "@/lib/contact/types";
+import { readReview } from "@/lib/review/types";
 
 const str = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
 
@@ -36,13 +39,26 @@ export async function getUserProfile(): Promise<UserProfile | null> {
         bio: str(data.bio),
         profileTags: readTags(data.profileTags),
         profileTagsHash: str(data.profileTagsHash),
+        linkChecks: readLinkChecks(data.linkChecks),
+        profileReview: readReview(data.profileReview),
     };
 }
 
-/** Profile page save. Writes the same fields as saveResumeData's personal-info block. */
-export async function updateUserProfile(info: PersonalInfo) {
+export type ProfileSaveResult =
+    | { success: true; info: PersonalInfo }
+    | { success: false; error: string; field: "email" };
+
+/**
+ * Profile page save. Writes the same fields as saveResumeData's personal-info block, normalised
+ * (phone format, full link URLs). A malformed email is refused and nothing is written.
+ */
+export async function updateUserProfile(input: PersonalInfo): Promise<ProfileSaveResult> {
     const session = await auth()
     if (!session?.user?.id) throw new Error("Unauthorized")
+
+    const blocking = contactBlocking(input);
+    if (blocking) return { success: false, error: blocking.message, field: "email" };
+    const { info } = normalizeContact(input);
 
     try {
         await db.collection("users").doc(session.user.id).set({
@@ -56,5 +72,19 @@ export async function updateUserProfile(info: PersonalInfo) {
 
     revalidatePath("/dashboard")
     revalidatePath("/dashboard/profile")
-    return { success: true };
+    return { success: true, info };
+}
+
+/** Accepting a coach suggestion on the headline or summary (Profile page, Library). */
+export async function updateProfileFields(patch: { headline?: string; summary?: string }): Promise<void> {
+    const session = await auth()
+    if (!session?.user?.id) throw new Error("Unauthorized")
+    const doc: Record<string, unknown> = { updatedAt: Timestamp.now() };
+    const orNull = (v: string) => (v.trim() ? v.trim() : null);
+    if (typeof patch.headline === "string") doc.headline = orNull(patch.headline);
+    if (typeof patch.summary === "string") doc.bio = orNull(patch.summary);
+    if (Object.keys(doc).length === 1) return;
+    await db.collection("users").doc(session.user.id).update(doc);
+    revalidatePath("/dashboard")
+    revalidatePath("/dashboard/profile")
 }

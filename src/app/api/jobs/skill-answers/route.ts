@@ -20,6 +20,7 @@ import { readPreferences, writePreferences } from "@/lib/db/jobs";
 import { userCol } from "@/lib/db/user-collection";
 import { db } from "@/lib/firestore";
 import { loadResumeData } from "@/lib/db/load-resume";
+import { readCandidateContext } from "@/lib/db/characterization";
 import { SKILL_BULLET_SYSTEM_PROMPT, SKILL_CATEGORY_SYSTEM_PROMPT, skillBulletUserMessage, skillCategoryUserMessage } from "@/lib/match/prompt";
 import type { DeclinedSkill } from "@/lib/match/types";
 import { contentHashOf, itemText, tagContext, type TagInput } from "@/lib/tags/content";
@@ -93,7 +94,7 @@ export async function POST(req: Request) {
         const answers = readAnswers(body.answers);
         if (answers.length === 0) return fail(400, "No answers to save.");
 
-        const [data, prefs, aliases] = await Promise.all([loadResumeData(uid), readPreferences(uid), readTagAliases(uid)]);
+        const [data, prefs, aliases, candidate] = await Promise.all([loadResumeData(uid), readPreferences(uid), readTagAliases(uid), readCandidateContext(uid)]);
         const yes = answers.filter(a => a.have);
         const no = answers.filter(a => !a.have);
         const warnings: string[] = [];
@@ -170,7 +171,7 @@ export async function POST(req: Request) {
                 const result = await chatCompletion(
                     [
                         { role: "system", content: SKILL_BULLET_SYSTEM_PROMPT },
-                        { role: "user", content: skillBulletUserMessage(examples.map(x => ({ key: String(x.i), skill: x.a.display, item: itemTitle(x.target!.key, x.target!.item), example: x.a.example }))) },
+                        { role: "user", content: skillBulletUserMessage(examples.map(x => ({ key: String(x.i), skill: x.a.display, item: itemTitle(x.target!.key, x.target!.item), example: x.a.example })), candidate) },
                     ],
                     { model: textModel(), json: true, effort: "low", temperature: 0.3, maxTokens: 3000, timeoutMs: 40_000, retries: 0 },
                 );

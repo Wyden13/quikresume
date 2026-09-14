@@ -10,7 +10,7 @@
 
 import React, { useState } from "react";
 import type { ResumeData, ResumeListKey } from "@/types/schema";
-import { isTempId } from "@/lib/ids";
+import { isTempId, newTempId } from "@/lib/ids";
 import { isStale } from "@/lib/tags/content";
 import { itemTitle, itemLabel, SECTION_LABEL } from "@/lib/sections";
 import { itemWordCount } from "@/lib/text/word-count";
@@ -18,10 +18,12 @@ import { validateItemDates } from "@/lib/validation/dates";
 import { hasManualOrder, isDatedSection, moveItem, moveSection, orderedItems, resetItemOrder } from "@/lib/layout/order";
 import { ENTRY_SECTIONS } from "@/lib/layout/presets";
 import type { ResumeLayout, SectionId } from "@/lib/layout/types";
+import type { LinkChecks } from "@/lib/contact/types";
+import type { ItemReview } from "@/lib/review/types";
+import { isProfileReviewStale, type ReviewMap } from "@/lib/review/content";
 import { useAdvancedLayout } from "@/lib/ui/advanced-layout-store";
 import type { SectionTab } from "@/components/ui/section-tabs";
 import { SECTION_ICON } from "@/components/ui/library/library-view";
-import { NoticeBanner } from "@/components/ui/primitives/notice-banner";
 import { Button } from "@/components/ui/primitives/button";
 import { ArrowDownWideNarrow, User } from "@/components/ui/primitives/icons";
 import { SortableList, useSortableRow } from "@/components/ui/primitives/sortable";
@@ -29,6 +31,9 @@ import { PersonalInfoSection, SummaryField } from "./personal-info-section";
 import { EditorSection } from "./editor-section";
 import { EditorItemRow } from "./editor-item-row";
 import { SECTION_CONFIG } from "./section-fields";
+import { ReviewPanel } from "@/components/ui/review/review-panel";
+import { fieldSpec, isReviewStale } from "@/lib/review/content";
+import { visibleSuggestions } from "@/lib/review/apply";
 import { ItemLayoutControls, PageLayoutCard, SectionLayoutControls, type LayoutUpdate } from "./layout-controls";
 
 type ItemOf<K extends ResumeListKey> = ResumeData[K][number];
@@ -41,15 +46,20 @@ interface ResumeFormProps {
     variantUsage?: Record<string, string[]>;
     /** Which section to show ("all" shows everything). */
     tab: SectionTab;
-    /** Item to open and scroll to on mount (Action items links remount the form with this). "summary" = the summary field. */
+    /** Item to open and scroll to on mount (Action items links remount the form with this). "summary" = the summary field, "pi-<field>" a personal info field. */
     initialOpenId?: string | null;
+    linkChecks?: LinkChecks;
+    /** Coach review per saved item id (read-only here: it describes the last saved text). */
+    reviews?: ReviewMap;
+    profileReview?: ItemReview | null;
+    /** A saved item was removed from the draft (deleted on save, restored by Discard). */
+    onDeletePersisted: (section: ResumeListKey, id: string) => void;
 }
 
 export const sectionTitle = (id: SectionId) => (id === "summary" ? "Summary" : SECTION_LABEL[id]);
 
-export function ResumeForm({ resumeData, onChange, variantUsage = {}, tab, initialOpenId = null }: ResumeFormProps) {
+export function ResumeForm({ resumeData, onChange, variantUsage = {}, tab, initialOpenId = null, linkChecks, reviews = {}, profileReview = null, onDeletePersisted }: ResumeFormProps) {
     const advanced = useAdvancedLayout();
-    const [deleteError, setDeleteError] = useState<string | null>(null);
     const [openIds, setOpenIds] = useState<ReadonlySet<string>>(() => new Set(initialOpenId ? [initialOpenId] : []));
     const [justAddedId, setJustAddedId] = useState<string | null>(initialOpenId);
     const [draggingSection, setDraggingSection] = useState(false);
@@ -77,19 +87,29 @@ export function ResumeForm({ resumeData, onChange, variantUsage = {}, tab, initi
         }));
     };
 
-    // Deletion is immediate for persisted items; adds/edits persist on Save & Exit.
-    const removeItem = async <K extends ResumeListKey>(key: K, id: string) => {
-        if (!isTempId(id)) {
-            try {
-                await SECTION_CONFIG[key].remove(id);
-                setDeleteError(null);
-            } catch (err) {
-                console.error("Failed to delete item:", err);
-                setDeleteError("Could not delete this item. Please try again.");
-                return;
-            }
-        }
+    // Removal only edits the draft; saved items are deleted by Save & Exit, so Discard brings them back.
+    const removeItem = <K extends ResumeListKey>(key: K, id: string) => {
+        if (!isTempId(id)) onDeletePersisted(key, id);
         onChange(prev => ({ ...prev, [key]: (prev[key] as ItemOf<K>[]).filter(item => item.id !== id) }));
+    };
+
+    /** Copy placed right after the original (also in a manual order), opened for editing. */
+    const duplicateItem = <K extends ResumeListKey>(key: K, id: string) => {
+        const source = (resumeData[key] as ItemOf<K>[]).find(item => item.id === id);
+        if (!source) return;
+        const copy = { ...source, id: newTempId() } as ItemOf<K>;
+        onChange(prev => {
+            const list = prev[key] as ItemOf<K>[];
+            const at = list.findIndex(item => item.id === id);
+            const nextList = [...list.slice(0, at + 1), copy, ...list.slice(at + 1)];
+            const order = prev.layout.itemOrder[key];
+            const layout = order
+                ? { ...prev.layout, itemOrder: { ...prev.layout.itemOrder, [key]: order.flatMap(x => (x === id ? [x, copy.id] : [x])) } }
+                : prev.layout;
+            return { ...prev, [key]: nextList, layout };
+        });
+        setOpenIds(prev => new Set(prev).add(copy.id));
+        setJustAddedId(copy.id);
     };
 
     const sectionProps = { layout, advanced, collapsed: draggingSection, updateLayout };
@@ -98,7 +118,8 @@ export function ResumeForm({ resumeData, onChange, variantUsage = {}, tab, initi
         if (id === "summary") {
             return (
                 <SortableSection key={id} id={id} sortable={sortable} icon={User} {...sectionProps}>
-                    <SummaryField value={resumeData.personalInfo} onChange={updatePersonalInfo} autoFocus={initialOpenId === "summary"} />
+                    <SummaryField value={resumeData.personalInfo} onChange={updatePersonalInfo} autoFocus={initialOpenId === "summary"}
+                        review={profileReview} reviewStale={profileReview ? isProfileReviewStale(resumeData.personalInfo, profileReview) : false} />
                 </SortableSection>
             );
         }
@@ -130,11 +151,13 @@ export function ResumeForm({ resumeData, onChange, variantUsage = {}, tab, initi
                             layout={layout}
                             advanced={advanced && ENTRY_SECTIONS.has(key)}
                             usedBy={variantUsage[item.id] ?? []}
+                            review={reviews[item.id] ?? null}
                             open={openIds.has(item.id)}
                             onToggleOpen={() => toggleOpen(item.id)}
                             autoFocus={item.id === justAddedId}
                             onUpdate={patch => updateItem(key, item.id, patch)}
-                            onRemove={() => void removeItem(key, item.id)}
+                            onRemove={() => removeItem(key, item.id)}
+                            onDuplicate={() => duplicateItem(key, item.id)}
                             updateLayout={updateLayout}
                         />
                     ))}
@@ -147,9 +170,13 @@ export function ResumeForm({ resumeData, onChange, variantUsage = {}, tab, initi
 
     return (
         <div className="space-y-8">
-            {deleteError && <NoticeBanner tone="danger" onDismiss={() => setDeleteError(null)}>{deleteError}</NoticeBanner>}
             {advanced && <PageLayoutCard layout={layout} onChange={updateLayout} />}
-            {showProfile && <PersonalInfoSection value={resumeData.personalInfo} onChange={updatePersonalInfo} />}
+            {showProfile && (
+                <PersonalInfoSection
+                    value={resumeData.personalInfo} onChange={updatePersonalInfo} linkChecks={linkChecks}
+                    focusField={initialOpenId?.startsWith("pi-") ? (initialOpenId.slice(3) as keyof ResumeData["personalInfo"]) : null}
+                />
+            )}
             {tab === "all" ? (
                 <SortableList
                     ids={layout.sectionOrder}
@@ -198,17 +225,19 @@ function SortableSection({ id, sortable, icon, count, addLabel, onAdd, headerAct
     );
 }
 
-function SortableItemRow<K extends ResumeListKey>({ sectionKey, item, layout, advanced, usedBy, open, onToggleOpen, autoFocus, onUpdate, onRemove, updateLayout }: {
+function SortableItemRow<K extends ResumeListKey>({ sectionKey, item, layout, advanced, usedBy, review, open, onToggleOpen, autoFocus, onUpdate, onRemove, onDuplicate, updateLayout }: {
     sectionKey: K;
     item: ItemOf<K>;
     layout: ResumeLayout;
     advanced: boolean;
     usedBy: string[];
+    review: ItemReview | null;
     open: boolean;
     onToggleOpen: () => void;
     autoFocus: boolean;
     onUpdate: (patch: Partial<ItemOf<K>>) => void;
     onRemove: () => void;
+    onDuplicate: () => void;
     updateLayout: LayoutUpdate;
 }) {
     const label = itemLabel(sectionKey, item);
@@ -223,7 +252,10 @@ function SortableItemRow<K extends ResumeListKey>({ sectionKey, item, layout, ad
             isSelected={item.isSelected}
             onToggleSelected={checked => onUpdate({ isSelected: checked } as Partial<ItemOf<K>>)}
             onRemove={onRemove}
+            onDuplicate={onDuplicate}
             usedBy={usedBy}
+            review={review}
+            reviewStale={isReviewStale(sectionKey, item, review)}
             stale={isStale(sectionKey, item)}
             words={itemWordCount(sectionKey, item)}
             dateError={errors.start ?? errors.end ?? errors.date}
@@ -235,6 +267,13 @@ function SortableItemRow<K extends ResumeListKey>({ sectionKey, item, layout, ad
             style={style}
         >
             {SECTION_CONFIG[sectionKey].fields(item, onUpdate, errors)}
+            <ReviewPanel
+                review={review}
+                suggestions={visibleSuggestions(sectionKey, item, review)}
+                stale={review ? isReviewStale(sectionKey, item, review) : false}
+                readOnly
+                fieldLabel={field => fieldSpec(sectionKey, field)?.label ?? field}
+            />
             {advanced && (
                 <div className="space-y-2">
                     <p className="text-13 font-medium text-fg-muted">Layout for this item</p>

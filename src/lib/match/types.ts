@@ -56,6 +56,8 @@ export interface JobRecord {
     proposals: Proposal[];
     proposalsAt: string | null;
     lastScore: number | null;
+    /** Conflicts with the candidate's "About you" answers noticed while analysing (seniority, location, sponsorship). */
+    fitNotes: string[];
     createdAt: string | null;
     updatedAt: string | null;
 }

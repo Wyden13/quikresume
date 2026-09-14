@@ -11,12 +11,15 @@ import type { InvalidDateItem } from "@/lib/validation/dates";
 import { SECTION_LABEL } from "@/lib/sections";
 import { Card, CardBody, CardHeader } from "@/components/ui/primitives/card";
 import { GuidelineRow } from "@/components/ui/primitives/guideline-row";
+import { FLAG_LABEL, LOW_SCORE } from "@/lib/review/types";
+import type { LowScoreItem } from "@/lib/review/content";
 
-export type OpenItem = (section: ResumeListKey | "summary", id: string) => void;
+/** "summary" opens the summary field, "profile" a personal info field (id "pi-<field>"). */
+export type OpenItem = (section: ResumeListKey | "summary" | "profile", id: string) => void;
 
-export function ActionItemsCard({ overCap, invalidDates, onOpen }: { overCap: OverCapItem[]; invalidDates: InvalidDateItem[]; onOpen: OpenItem }) {
-    if (overCap.length === 0 && invalidDates.length === 0) return null;
-    const count = overCap.length + invalidDates.length;
+export function ActionItemsCard({ overCap, invalidDates, lowScore = [], onOpen }: { overCap: OverCapItem[]; invalidDates: InvalidDateItem[]; lowScore?: LowScoreItem[]; onOpen: OpenItem }) {
+    if (overCap.length === 0 && invalidDates.length === 0 && lowScore.length === 0) return null;
+    const count = overCap.length + invalidDates.length + lowScore.length;
     return (
         <Card className="@container border-warning-border bg-warning-bg/40">
             <CardHeader title="Action items" hint={`${count} ${count === 1 ? "thing needs" : "things need"} your attention before this résumé is ready.`} />
@@ -24,6 +27,11 @@ export function ActionItemsCard({ overCap, invalidDates, onOpen }: { overCap: Ov
                 {overCap.length > 0 && (
                     <GuidelineRow tone="warning" label={`Too long (over ${WORD_CAUTION} words)`}>
                         <ItemLinks items={overCap.map(i => ({ ...i, detail: `${i.words} words` }))} onOpen={onOpen} />
+                    </GuidelineRow>
+                )}
+                {lowScore.length > 0 && (
+                    <GuidelineRow tone="warning" label={`Needs work (coach score ${LOW_SCORE} or less)`}>
+                        <ItemLinks items={lowScore.map(i => ({ ...i, detail: [`${i.score}/10`, ...i.flags.slice(0, 2).map(f => FLAG_LABEL[f])].join(" · ") }))} onOpen={onOpen} />
                     </GuidelineRow>
                 )}
                 {invalidDates.length > 0 && (

@@ -7,7 +7,7 @@ import { Timestamp, type DocumentReference, type WriteBatch } from "firebase-adm
 import type { ResumeData } from "@/types/schema"
 import { PRESENT, toUtcDate } from "@/lib/dates";
 import { isTempId, TEMP_ID_PREFIX } from "@/lib/ids";
-import { PLACEHOLDER } from "@/lib/sections";
+import { PLACEHOLDER, SECTION_COLLECTION } from "@/lib/sections";
 import { toBullets } from "@/lib/typst/doc";
 import { bulletEntries, pruneHidden, skillEntries } from "@/lib/sub-items";
 import { personalInfoToUserDoc } from "@/lib/resume-mapper";
@@ -19,6 +19,7 @@ import { RESUME_LIST_KEYS } from "@/types/schema";
 import type { Tag } from "@/lib/tags/types";
 import type { ResumeListKey } from "@/types/schema";
 import { invalidDateItems } from "@/lib/validation/dates";
+import { contactBlocking, normalizeContact } from "@/lib/contact/normalize";
 
 // Firestore allows at most 500 writes per batch.
 const BATCH_LIMIT = 450;
@@ -37,6 +38,8 @@ export interface SaveRejected {
     error: string;
     /** Items whose dates failed validation; nothing was written. */
     invalidIds: string[];
+    /** Set when a personal-info field (the email) failed validation. */
+    field?: "email";
 }
 
 export interface SaveOk {
@@ -51,19 +54,24 @@ export interface SaveOk {
  * Persists the editor draft: personal info onto the user document, and every
  * list item into its subcollection. Items with a temporary id (see
  * src/lib/ids.ts) get a new Firestore document; others are merged by id.
- * Deletions are performed immediately by the editor, not here.
+ * Items removed in the editor arrive in `opts.deleted` and are deleted here, so Discard can undo them.
  *
  * Smart tags: items whose content hash no longer matches `tagsHash` are sent
  * to the GLM tagger first (one batched call per 20 items). A tagging failure
  * never blocks the save; those items simply stay stale.
  */
-export async function saveResumeData(data: ResumeData): Promise<SaveResult> {
+export interface SaveOptions {
+    /** Saved items the user removed in the editor; deleted in the same batches as the writes. */
+    deleted?: { section: ResumeListKey; id: string }[];
+}
+
+export async function saveResumeData(input: ResumeData, opts: SaveOptions = {}): Promise<SaveResult> {
     const session = await auth()
     if (!session?.user?.id) throw new Error("Unauthorized")
     const uid = session.user.id;
 
     // Same rules the editor enforces before enabling Save & Exit.
-    const invalid = invalidDateItems(data);
+    const invalid = invalidDateItems(input);
     if (invalid.length > 0) {
         const first = invalid[0];
         return {
@@ -72,6 +80,9 @@ export async function saveResumeData(data: ResumeData): Promise<SaveResult> {
             invalidIds: invalid.map(i => i.id),
         };
     }
+    const blocking = contactBlocking(input.personalInfo);
+    if (blocking) return { success: false, error: blocking.message, invalidIds: [], field: "email" };
+    const data: ResumeData = { ...input, personalInfo: normalizeContact(input.personalInfo).info };
 
     const userRef = db.collection("users").doc(uid);
     const now = Timestamp.now();
@@ -243,6 +254,14 @@ export async function saveResumeData(data: ResumeData): Promise<SaveResult> {
         }), { merge: true }));
     }
 
+    const kept = new Set(RESUME_LIST_KEYS.flatMap(key => (data[key] as { id: string }[]).map(it => it.id)));
+    for (const d of opts.deleted ?? []) {
+        // Only real documents of a known section that the draft no longer holds.
+        if (!RESUME_LIST_KEYS.includes(d.section) || typeof d.id !== "string" || !d.id || isTempId(d.id) || d.id.includes("/") || kept.has(d.id)) continue;
+        const ref = userRef.collection(SECTION_COLLECTION[d.section]).doc(d.id);
+        writes.push(batch => batch.delete(ref));
+    }
+
     try {
         for (let i = 0; i < writes.length; i += BATCH_LIMIT) {
             const batch = db.batch();
@@ -251,8 +270,7 @@ export async function saveResumeData(data: ResumeData): Promise<SaveResult> {
         }
 
         // Layout ids follow the items: deleted ones drop out, temp ids become their document ids.
-        const ids = new Set(RESUME_LIST_KEYS.flatMap(key => (data[key] as { id: string }[]).map(it => it.id)));
-        const layout = pruneLayout(normalizeLayout(data.layout), ids, id => (isTempId(id) ? id.slice(TEMP_ID_PREFIX.length) : id));
+        const layout = pruneLayout(normalizeLayout(data.layout), kept, id => (isTempId(id) ? id.slice(TEMP_ID_PREFIX.length) : id));
         await replaceMeta(uid, "layout", { ...layout });
 
         await mergeTagAliases(uid, newAliases);

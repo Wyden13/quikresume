@@ -72,6 +72,7 @@ function mapJob(id: string, d: DocumentData): JobRecord {
         proposals: readProposals(d.proposals),
         proposalsAt: isoOf(d.proposalsAt),
         lastScore: typeof d.lastScore === "number" ? d.lastScore : null,
+        fitNotes: strArray(d.fitNotes),
         createdAt: isoOf(d.createdAt),
         updatedAt: isoOf(d.updatedAt),
     };
@@ -110,6 +111,11 @@ export function stripUndefined<T>(value: T): T {
 
 export async function patchJob(uid: string, id: string, patch: Record<string, unknown>): Promise<void> {
     await userCol(uid, "jobs").doc(id).update({ ...stripUndefined(patch), updatedAt: Timestamp.now() });
+}
+
+/** Writes only `lastScore`: no `updatedAt`, so recording a score never reorders the job list. */
+export async function setJobScore(uid: string, id: string, lastScore: number): Promise<void> {
+    await userCol(uid, "jobs").doc(id).update({ lastScore });
 }
 
 export async function deleteJobDoc(uid: string, id: string): Promise<void> {

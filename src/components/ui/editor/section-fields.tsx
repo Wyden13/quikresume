@@ -8,15 +8,6 @@ import type {
     Award, Certification, Education, Language, Project, Publication, ResumeData, ResumeListKey, SkillCategory,
     Volunteering, WorkExperience,
 } from "@/types/schema";
-import { deleteEducation } from "@/app/actions/education-actions";
-import { deleteExperience } from "@/app/actions/experience-actions";
-import { deleteSkill } from "@/app/actions/skill-actions";
-import { deleteProject } from "@/app/actions/project-actions";
-import { deleteCertification } from "@/app/actions/certification-actions";
-import { deleteAward } from "@/app/actions/award-actions";
-import { deleteVolunteering } from "@/app/actions/volunteering-actions";
-import { deletePublication } from "@/app/actions/publication-actions";
-import { deleteLanguage } from "@/app/actions/language-actions";
 import { newTempId } from "@/lib/ids";
 import { toBullets } from "@/lib/typst/doc";
 import { bulletEntries, skillEntries, toggleHidden, type SubItem } from "@/lib/sub-items";
@@ -32,7 +23,6 @@ type Patch<K extends ResumeListKey> = (patch: Partial<ItemOf<K>>) => void;
 export interface SectionConfig<K extends ResumeListKey> {
     addLabel: string;
     create: () => ItemOf<K>;
-    remove: (id: string) => Promise<void>;
     fields: (item: ItemOf<K>, set: Patch<K>, errors: DateErrors) => React.ReactNode;
 }
 
@@ -86,7 +76,6 @@ export const SECTION_CONFIG: { [K in ResumeListKey]: SectionConfig<K> } = {
     workExperience: {
         addLabel: "Add role",
         create: (): WorkExperience => ({ ...base(), hidden: [], title: "", company: "", startDate: "", endDate: "", description: "" }),
-        remove: deleteExperience,
         fields: (x, set, errors) => (
             <>
                 <div className={two}>
@@ -102,7 +91,6 @@ export const SECTION_CONFIG: { [K in ResumeListKey]: SectionConfig<K> } = {
     education: {
         addLabel: "Add education",
         create: (): Education => ({ ...base(), degree: "", institution: "", startDate: "", endDate: "", gpa: "", minor: "", details: "" }),
-        remove: deleteEducation,
         fields: (x, set, errors) => (
             <>
                 <div className={two}>
@@ -121,7 +109,6 @@ export const SECTION_CONFIG: { [K in ResumeListKey]: SectionConfig<K> } = {
     skills: {
         addLabel: "Add category",
         create: (): SkillCategory => ({ ...base(), hidden: [], category: "", items: "" }),
-        remove: deleteSkill,
         fields: (x, set) => (
             <>
                 <div className="grid gap-4 md:grid-cols-[1fr_2fr]">
@@ -135,7 +122,6 @@ export const SECTION_CONFIG: { [K in ResumeListKey]: SectionConfig<K> } = {
     projects: {
         addLabel: "Add project",
         create: (): Project => ({ ...base(), hidden: [], title: "", stack: "", link: "", startDate: "", endDate: "", description: "" }),
-        remove: deleteProject,
         fields: (x, set, errors) => (
             <>
                 <div className={two}>
@@ -152,7 +138,6 @@ export const SECTION_CONFIG: { [K in ResumeListKey]: SectionConfig<K> } = {
     certifications: {
         addLabel: "Add certification",
         create: (): Certification => ({ ...base(), name: "", issuer: "", year: "" }),
-        remove: deleteCertification,
         fields: (x, set, errors) => (
             <div className="grid gap-4 md:grid-cols-3">
                 <Text item={x} set={set} field="name" label="Name" placeholder="AWS Certified Cloud Practitioner" className="md:col-span-2" />
@@ -164,7 +149,6 @@ export const SECTION_CONFIG: { [K in ResumeListKey]: SectionConfig<K> } = {
     volunteering: {
         addLabel: "Add activity",
         create: (): Volunteering => ({ ...base(), hidden: [], role: "", organization: "", startDate: "", endDate: "", description: "" }),
-        remove: deleteVolunteering,
         fields: (x, set, errors) => (
             <>
                 <div className={two}>
@@ -180,7 +164,6 @@ export const SECTION_CONFIG: { [K in ResumeListKey]: SectionConfig<K> } = {
     publications: {
         addLabel: "Add publication",
         create: (): Publication => ({ ...base(), title: "", venue: "", date: "", link: "", authors: "" }),
-        remove: deletePublication,
         fields: (x, set, errors) => (
             <>
                 <Text item={x} set={set} field="title" label="Title" placeholder="Efficient Tracing at Scale" />
@@ -198,7 +181,6 @@ export const SECTION_CONFIG: { [K in ResumeListKey]: SectionConfig<K> } = {
     awards: {
         addLabel: "Add award",
         create: (): Award => ({ ...base(), title: "", issuer: "", date: "", description: "" }),
-        remove: deleteAward,
         fields: (x, set, errors) => (
             <>
                 <div className="grid gap-4 md:grid-cols-3">
@@ -213,7 +195,6 @@ export const SECTION_CONFIG: { [K in ResumeListKey]: SectionConfig<K> } = {
     languages: {
         addLabel: "Add language",
         create: (): Language => ({ ...base(), language: "", proficiency: "" }),
-        remove: deleteLanguage,
         fields: (x, set) => (
             <div className={two}>
                 <Text item={x} set={set} field="language" label="Language" placeholder="French" />

@@ -21,6 +21,7 @@ import { makeTag, type AliasMap } from "@/lib/tags/normalize";
 import { isTagKind } from "@/lib/tags/types";
 import type { Requirement } from "@/lib/match/types";
 import type { ResumeData } from "@/types/schema";
+import { readCandidateContext } from "@/lib/db/characterization";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -84,8 +85,9 @@ export async function POST(req: Request) {
         if (jdText.length < 40) return fail(400, "That job description is too short to analyse.");
         jdText = jdText.slice(0, JD_MAX_CHARS);
 
+        const candidate = await readCandidateContext(uid);
         const result = await chatCompletion(
-            [{ role: "system", content: JD_SYSTEM_PROMPT }, { role: "user", content: jdUserMessage(jdText) }],
+            [{ role: "system", content: JD_SYSTEM_PROMPT }, { role: "user", content: jdUserMessage(jdText, candidate) }],
             { model: textModel(), json: true, effort: "low", temperature: 0.1, maxTokens: 6000 },
         );
         const json = extractJson(result.text) as Record<string, unknown>;
@@ -96,7 +98,7 @@ export async function POST(req: Request) {
         let warning: string | undefined;
         const resume = parseResumeField(form.get("resume"));
         if (resume) {
-            const rec = await reconcileRequirements(requirements, resume, aliases);
+            const rec = await reconcileRequirements(requirements, resume, aliases, { candidate });
             requirements = rec.requirements;
             warning = rec.warning;
         }
@@ -108,6 +110,9 @@ export async function POST(req: Request) {
             source,
             jdText,
             requirements,
+            fitNotes: candidate && Array.isArray(json.fitNotes)
+                ? json.fitNotes.filter((n): n is string => typeof n === "string" && n.trim() !== "").slice(0, 2).map(n => n.trim().slice(0, 200))
+                : [],
         });
         revalidatePath("/dashboard");
         return NextResponse.json({ ok: true, job, warning });

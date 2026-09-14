@@ -19,6 +19,7 @@ import { NoticeBanner } from "@/components/ui/primitives/notice-banner";
 import { Table, Td, Th } from "@/components/ui/primitives/table";
 import { EmptyState } from "@/components/ui/primitives/empty-state";
 import { BarChart3 } from "@/components/ui/primitives/icons";
+import { readJson } from "@/lib/ui/fetch-json";
 
 const Charts = dynamic(() => import("@/components/ui/tag-charts").then(m => ({ default: ChartsBundle(m) })), {
     ssr: false,
@@ -79,7 +80,7 @@ export function InsightsView({ data }: InsightsViewProps) {
         setDone(null);
         try {
             const res = await fetch("/api/tags/backfill", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force }) });
-            const json = await res.json() as { ok: boolean; error?: string; tagged?: number; skipped?: number };
+            const json = await readJson<{ tagged: number; skipped: number }>(res);
             if (!json.ok) throw new Error(json.error ?? "Analysis failed.");
             setDone(`Analysed ${json.tagged ?? 0} ${json.tagged === 1 ? "item" : "items"}${json.skipped ? ` (${json.skipped} skipped, run again)` : ""}.`);
             router.refresh();
@@ -141,7 +142,7 @@ export function InsightsView({ data }: InsightsViewProps) {
             <Card>
                 <CardHeader
                     title={kinds.size === 0 ? "All tags" : `Tags · ${[...kinds].map(k => kindMeta(k).label).join(", ")}`}
-                    action={<Input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search tags or items…" className="h-8 w-full text-13 md:w-64" />}
+                    action={<Input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search tags or items…" aria-label="Search tags or items" className="h-8 w-full text-13 md:w-64" />}
                 />
                 <Table>
                     <thead>

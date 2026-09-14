@@ -17,6 +17,7 @@ import { readTagAliases } from "@/lib/db/meta";
 import { patchJob, readJob, readPreferences, readProposals } from "@/lib/db/jobs";
 import { scoreJob } from "@/lib/match/score";
 import { reconcileRequirements } from "@/lib/match/reconcile";
+import { readCandidateContext } from "@/lib/db/characterization";
 import { isResumeData } from "@/lib/match/resume-body";
 import { recommendSelection } from "@/lib/match/recommend";
 import { isMuted, newProposalId } from "@/lib/match/proposals";
@@ -47,11 +48,11 @@ export async function POST(req: Request) {
     if (typeof body.jobId !== "string" || !isResumeData(body.resume)) return fail(400, "Expected `jobId` and `resume`.");
     const resume = body.resume;
 
-    const [job, prefs, aliases] = await Promise.all([readJob(uid, body.jobId), readPreferences(uid), readTagAliases(uid)]);
+    const [job, prefs, aliases, candidate] = await Promise.all([readJob(uid, body.jobId), readPreferences(uid), readTagAliases(uid), readCandidateContext(uid)]);
     if (!job) return fail(404, "Job not found.");
 
     // Broader-context pass first: semantic matches feed both the score and the set cover.
-    const reconciled = await reconcileRequirements(job.requirements, resume, aliases, { timeoutMs: 45_000, retries: 0 });
+    const reconciled = await reconcileRequirements(job.requirements, resume, aliases, { timeoutMs: 45_000, retries: 0, candidate });
     const requirements = reconciled.requirements;
     if (reconciled.warning) console.warn("[jobs/proposals] reconcile skipped:", reconciled.warning);
 
@@ -84,6 +85,7 @@ export async function POST(req: Request) {
                     items,
                     skillCategories: resume.skills.map(s => ({ id: s.id, category: s.category, items: s.items })),
                     muted,
+                    candidate,
                 }) },
             ],
             { model: textModel(), json: true, effort: "low", temperature: 0.3, maxTokens: 6000 },

@@ -2,7 +2,7 @@
 
 import { auth } from "@/auth"
 import { revalidatePath } from "next/cache"
-import { deleteJobDoc, patchJob, readJob, readJobs, readPreferences, writePreferences } from "@/lib/db/jobs";
+import { deleteJobDoc, patchJob, readJob, readJobs, readPreferences, setJobScore, writePreferences } from "@/lib/db/jobs";
 import { sameRule } from "@/lib/match/proposals";
 import type { Caps, JobRecord, MuteRule, Preferences, ProposalStatus } from "@/lib/match/types";
 
@@ -47,7 +47,8 @@ export async function setProposalStatus(jobId: string, proposalId: string, statu
 
 export async function saveJobScore(jobId: string, score: number) {
     const uid = await requireUid();
-    await patchJob(uid, jobId, { lastScore: Math.max(0, Math.min(100, Math.round(score))) });
+    // No revalidation: the list shows the new number on the next natural refresh.
+    await setJobScore(uid, jobId, Math.max(0, Math.min(100, Math.round(score))));
 }
 
 export async function muteProposal(rule: MuteRule) {

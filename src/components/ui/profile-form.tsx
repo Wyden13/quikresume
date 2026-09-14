@@ -3,39 +3,72 @@
 
 import React, { useState } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import type { PersonalInfo } from "@/types/schema";
-import { updateUserProfile } from "@/app/actions/user-actions";
+import { updateProfileFields, updateUserProfile } from "@/app/actions/user-actions";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/primitives/button";
 import { Field, Input, Textarea } from "@/components/ui/primitives/field";
 import { summaryWordCount, wordCaution } from "@/lib/text/word-count";
 import { Card, CardBody, CardHeader } from "@/components/ui/primitives/card";
 import { NoticeBanner } from "@/components/ui/primitives/notice-banner";
+import { ContactInput } from "@/components/ui/contact-field";
+import { contactBlocking, isContactField } from "@/lib/contact/normalize";
+import type { LinkChecks } from "@/lib/contact/types";
+import { kickLinkCheck } from "@/lib/ui/link-check";
+import type { ItemReview, ReviewSuggestion } from "@/lib/review/types";
+import { applyProfileSuggestion, visibleSuggestions } from "@/lib/review/apply";
+import { fieldSpec, isProfileReviewStale } from "@/lib/review/content";
+import { kickReviews, useReviewRunState } from "@/lib/ui/review-runner";
+import { dismissReviewSuggestion } from "@/app/actions/review-actions";
+import { ReviewPanel } from "@/components/ui/review/review-panel";
+import { PROFILE_ID } from "@/lib/tags/content";
 
 interface ProfileFormProps {
     initial: PersonalInfo;
     account: { name: string; email: string; image: string | null };
+    linkChecks: LinkChecks;
+    review: ItemReview | null;
 }
 
 type Status = "idle" | "saving" | "saved" | "error";
 
-export function ProfileForm({ initial, account }: ProfileFormProps) {
+export function ProfileForm({ initial, account, linkChecks, review }: ProfileFormProps) {
+    const router = useRouter();
+    const runState = useReviewRunState();
+    const [handled, setHandled] = useState<ReadonlySet<string>>(new Set());
     // Local draft seeded once from the server value; never re-synced from props.
     const [info, setInfo] = useState<PersonalInfo>(initial);
     const [status, setStatus] = useState<Status>("idle");
     const [error, setError] = useState<string | null>(null);
 
-    const set = (field: keyof PersonalInfo) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-        setInfo(prev => ({ ...prev, [field]: e.target.value }));
+    const setValue = (field: keyof PersonalInfo, value: string) => {
+        setInfo(prev => ({ ...prev, [field]: value }));
         if (status === "saved") setStatus("idle");
     };
+    const set = (field: keyof PersonalInfo) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setValue(field, e.target.value);
 
-    const handleSave = async () => {
+    const blocking = contactBlocking(info);
+
+    const handleSave = async (e?: React.FormEvent) => {
+        e?.preventDefault();
+        if (blocking) return;
         setStatus("saving");
         setError(null);
         try {
-            await updateUserProfile(info);
+            const result = await updateUserProfile(info);
+            if (!result.success) {
+                setStatus("error");
+                setError(result.error);
+                return;
+            }
+            const linksChanged = (["github", "linkedin", "website"] as const).some(k => result.info[k] !== initial[k]) || Object.keys(linkChecks).length === 0;
+            setInfo(result.info);
             setStatus("saved");
+            if (linksChanged) kickLinkCheck(() => router.refresh());
+            if (result.info.headline !== initial.headline || result.info.summary !== initial.summary) {
+                kickReviews({ ids: [PROFILE_ID], onDone: r => { if (r.reviewed > 0) router.refresh(); } });
+            }
         } catch (err) {
             setStatus("error");
             setError(err instanceof Error ? err.message : "Failed to save your profile.");
@@ -44,10 +77,34 @@ export function ProfileForm({ initial, account }: ProfileFormProps) {
 
     const dirty = JSON.stringify(info) !== JSON.stringify(initial);
 
+    // Coach suggestions apply to the saved headline / summary; accepting one saves it straight away.
+    const savedText = { ...info, headline: initial.headline, summary: initial.summary };
+    const suggestions = visibleSuggestions("profile", savedText, review).filter(s => !handled.has(s.id));
+    const acceptSuggestion = async (s: ReviewSuggestion) => {
+        const patch = applyProfileSuggestion(savedText, s);
+        if (!patch) return;
+        setHandled(prev => new Set(prev).add(s.id));
+        try {
+            await updateProfileFields(patch);
+            setInfo(prev => ({ ...prev, ...patch }));
+            router.refresh();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Couldn't apply the suggestion.");
+        }
+    };
+    const dismissSuggestion = async (s: ReviewSuggestion) => {
+        setHandled(prev => new Set(prev).add(s.id));
+        try { await dismissReviewSuggestion("profile", PROFILE_ID, s.id); } catch { /* stays hidden locally */ }
+    };
+
     const f = (field: keyof PersonalInfo, label: string, placeholder: string, extra?: React.ComponentProps<typeof Input>, className?: string) => (
-        <Field label={label} htmlFor={`profile-${field}`} className={className}>
-            <Input id={`profile-${field}`} value={info[field]} onChange={set(field)} placeholder={placeholder} {...extra} />
-        </Field>
+        isContactField(field) ? (
+            <ContactInput {...(extra as object)} field={field} id={`profile-${field}`} label={label} value={info[field]} onChange={v => setValue(field, v)} placeholder={placeholder} linkChecks={linkChecks} className={className} />
+        ) : (
+            <Field label={label} htmlFor={`profile-${field}`} className={className}>
+                <Input id={`profile-${field}`} value={info[field]} onChange={set(field)} placeholder={placeholder} {...extra} />
+            </Field>
+        )
     );
 
     return (
@@ -72,6 +129,7 @@ export function ProfileForm({ initial, account }: ProfileFormProps) {
             </Card>
 
             <Card>
+                <form onSubmit={handleSave} noValidate>
                 <CardHeader title="Résumé header" hint="These fields appear at the top of every résumé you generate." />
                 <CardBody className="space-y-4">
                     {error && <NoticeBanner tone="danger" onDismiss={() => setError(null)}>{error}</NoticeBanner>}
@@ -82,22 +140,34 @@ export function ProfileForm({ initial, account }: ProfileFormProps) {
                         {f("email", "Professional email", "alex@example.com", { type: "email", autoComplete: "email" })}
                         {f("phone", "Phone", "(123) 456-7890", { type: "tel", autoComplete: "tel" })}
                         {f("location", "Location", "Seattle, WA")}
-                        {f("website", "Website", "alexmorgan.dev")}
+                        {f("website", "Website", "alexmorgan.dev", { inputMode: "url" })}
                         {f("github", "GitHub", "github.com/alexmorgan")}
                         {f("linkedin", "LinkedIn", "linkedin.com/in/alexmorgan")}
                         <Field label="Professional summary" htmlFor="profile-summary" className="md:col-span-2" {...wordCaution(summaryWordCount(info), "your summary")}>
                             <Textarea id="profile-summary" value={info.summary} onChange={set("summary")} placeholder="Brief overview of your professional background and goals…" rows={4} />
                         </Field>
+                        <ReviewPanel
+                            className="md:col-span-2"
+                            review={review}
+                            suggestions={dirty ? [] : suggestions}
+                            stale={review ? isProfileReviewStale(initial, review) : false}
+                            running={runState.running && runState.ids.includes(PROFILE_ID)}
+                            fieldLabel={field => fieldSpec("profile", field)?.label ?? field}
+                            onAccept={s => void acceptSuggestion(s)}
+                            onDismiss={s => void dismissSuggestion(s)}
+                            onReReview={() => kickReviews({ ids: [PROFILE_ID], onDone: r => { if (r.reviewed > 0) router.refresh(); } })}
+                        />
                     </div>
                     <div className="flex flex-col-reverse gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-end">
                         <span className={cn("text-13", status === "saved" ? "text-success" : "text-fg-subtle")} aria-live="polite">
                             {status === "saved" ? "Saved" : dirty ? "Unsaved changes" : ""}
                         </span>
-                        <Button variant="primary" onClick={handleSave} loading={status === "saving"} disabled={!dirty && status !== "error"}>
+                        <Button type="submit" variant="primary" loading={status === "saving"} disabled={Boolean(blocking) || (!dirty && status !== "error")} title={blocking ? blocking.message : undefined}>
                             Save profile
                         </Button>
                     </div>
                 </CardBody>
+                </form>
             </Card>
         </div>
     );

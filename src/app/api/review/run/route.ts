@@ -1,0 +1,125 @@
+// src/app/api/review/run/route.ts
+// POST { ids?: string[], scope?: "stale" | "outdated-brief" } -> { ok, reviewed, skipped, remaining, retagged }.
+// Background career-coach review. Default scope reviews items whose text changed since their last review
+// (reviewHash !== content hash); `ids` forces a re-review of those items; "outdated-brief" also picks
+// reviews written before the current "About you" brief. At most REVIEW_MAX_PER_RUN items per request
+// (selected items first); the client asks again while `remaining > 0`.
+//
+// Items whose smart tags are stale (a coach rewrite accepted in the Library) are re-tagged first, since
+// the Library's instant updates don't run the tagger. A per-user lock (meta/review) keeps two tabs from
+// reviewing at once. Writes use update(), so an item deleted mid-run is never recreated.
+
+import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
+import { Timestamp } from "firebase-admin/firestore";
+import { auth } from "@/auth";
+import { db } from "@/lib/firestore";
+import { isGlmConfigured } from "@/lib/glm/client";
+import { loadLibraryWithReviews } from "@/lib/db/load-resume";
+import { readCandidateContext } from "@/lib/db/characterization";
+import { mergeTagAliases, readTagAliases } from "@/lib/db/meta";
+import { stripUndefined } from "@/lib/db/jobs";
+import { extractTags } from "@/lib/tags/extract";
+import { contentHashOf, hasContent, isStale, itemText, PROFILE_ID, profileHashOf, tagContext, type TagInput } from "@/lib/tags/content";
+import { SECTION_COLLECTION } from "@/lib/sections";
+import { isBriefOutdated, isProfileReviewStale, isReviewStale, profileReviewInput, reviewInputOf, type ReviewInput } from "@/lib/review/content";
+import { acquireReviewLock, releaseReviewLock, REVIEW_MAX_PER_RUN, reviewItems } from "@/lib/review/run";
+import { RESUME_LIST_KEYS, type ResumeData, type ResumeListKey } from "@/types/schema";
+
+export const runtime = "nodejs";
+export const maxDuration = 120;
+
+const fail = (status: number, error: string, extra: Record<string, unknown> = {}) => NextResponse.json({ ok: false, error, ...extra }, { status });
+const notFound = (r: PromiseSettledResult<unknown>) => r.status === "rejected" && (r.reason as { code?: number })?.code === 5;
+
+type AnyItem = ResumeData[ResumeListKey][number];
+
+export async function POST(req: Request) {
+    const session = await auth();
+    if (!session?.user?.id) return fail(401, "You need to be signed in.");
+    if (!isGlmConfigured()) return fail(500, "AI reviews are not configured on this server (GLM_API_KEY missing).", { disabled: true });
+    const uid = session.user.id;
+
+    let body: { ids?: unknown; scope?: unknown } = {};
+    try {
+        body = await req.json();
+    } catch { /* empty body = stale scope */ }
+    const forced = new Set(Array.isArray(body.ids) ? body.ids.filter((x): x is string => typeof x === "string").slice(0, 50) : []);
+    const scope = body.scope === "outdated-brief" ? "outdated-brief" : "stale";
+
+    if (!(await acquireReviewLock(uid))) return fail(409, "A review is already running.", { busy: true });
+    try {
+        const [{ data, reviews, profileReview }, candidate] = await Promise.all([loadLibraryWithReviews(uid, session.user.name), readCandidateContext(uid)]);
+        const briefHash = candidate?.briefHash ?? null;
+
+        // Pick the work: forced ids, stale reviews, and (on request) reviews from an older brief.
+        const picked: { input: ReviewInput; key: ResumeListKey | "profile"; item: AnyItem | null; selected: boolean }[] = [];
+        const want = (review: typeof profileReview, stale: boolean, id: string) =>
+            forced.size > 0 ? forced.has(id) : stale || (scope === "outdated-brief" && isBriefOutdated(review, briefHash));
+        if ((data.personalInfo.headline.trim() || data.personalInfo.summary.trim())
+            && want(profileReview, isProfileReviewStale(data.personalInfo, profileReview), PROFILE_ID)) {
+            picked.push({ input: profileReviewInput(data.personalInfo), key: "profile", item: null, selected: true });
+        }
+        for (const key of RESUME_LIST_KEYS) {
+            for (const item of data[key] as AnyItem[]) {
+                if (!hasContent(key, item)) continue;
+                if (want(reviews[item.id], isReviewStale(key, item, reviews[item.id]), item.id)) {
+                    picked.push({ input: reviewInputOf(key, item), key, item, selected: item.isSelected });
+                }
+            }
+        }
+        picked.sort((a, b) => Number(b.selected) - Number(a.selected));
+        const batch = picked.slice(0, REVIEW_MAX_PER_RUN);
+        if (batch.length === 0) return NextResponse.json({ ok: true, reviewed: 0, skipped: 0, remaining: 0, retagged: 0 });
+
+        const userRef = db.collection("users").doc(uid);
+        const now = Timestamp.now();
+
+        // Re-tag items in this batch whose tags went stale outside a save (bounded; failures only log).
+        let retagged = 0;
+        const tagStale: TagInput[] = batch.flatMap(p => (p.item && p.key !== "profile" && isStale(p.key, p.item) ? [{ id: p.item.id, section: p.key, text: itemText(p.key, p.item) }] : []));
+        const reviewPromise = reviewItems(batch.map(p => p.input), candidate);
+        if (tagStale.length > 0) {
+            try {
+                const res = await extractTags(tagStale, await readTagAliases(uid), { budgetMs: 40_000, context: tagContext(data) });
+                const writes = batch.flatMap(p => {
+                    const tags = p.item && p.key !== "profile" ? res.tagsById[p.item.id] : undefined;
+                    if (!tags || !p.item || p.key === "profile") return [];
+                    const h = contentHashOf(p.key, p.item);
+                    return [userRef.collection(SECTION_COLLECTION[p.key]).doc(p.item.id).update({ tags, contentHash: h, tagsHash: h, taggedAt: now })];
+                });
+                retagged = (await Promise.allSettled(writes)).filter(r => r.status === "fulfilled").length;
+                await mergeTagAliases(uid, res.aliases);
+            } catch (err) {
+                console.error("[review/run] re-tagging failed:", err);
+            }
+        }
+
+        const { byId, skipped } = await reviewPromise;
+        const writes = batch.flatMap(p => {
+            const r = byId[p.input.id];
+            if (!r) return [];
+            // Hash of the text as loaded: an edit made while the model ran shows as outdated and is picked up next time.
+            const reviewHash = p.key === "profile" ? profileHashOf(data.personalInfo) : contentHashOf(p.key, p.item as AnyItem);
+            const review = stripUndefined({ ...r, dismissed: [], reviewHash, briefHash, reviewedAt: now });
+            return [p.key === "profile"
+                ? userRef.update({ profileReview: review })
+                : userRef.collection(SECTION_COLLECTION[p.key]).doc(p.input.id).update({ review })];
+        });
+        const settled = await Promise.allSettled(writes);
+        const failed = settled.filter(r => r.status === "rejected" && !notFound(r));
+        if (failed.length > 0) console.error("[review/run] some writes failed:", (failed[0] as PromiseRejectedResult).reason);
+
+        const reviewed = settled.filter(r => r.status === "fulfilled").length;
+        if (reviewed > 0 || retagged > 0) {
+            revalidatePath("/dashboard");
+            revalidatePath("/dashboard/profile");
+        }
+        return NextResponse.json({ ok: true, reviewed, skipped: skipped.length, remaining: picked.length - batch.length + skipped.length, retagged });
+    } catch (err) {
+        console.error("[review/run] failed:", err);
+        return fail(500, "The review could not run. Try again later.");
+    } finally {
+        await releaseReviewLock(uid).catch(() => {});
+    }
+}

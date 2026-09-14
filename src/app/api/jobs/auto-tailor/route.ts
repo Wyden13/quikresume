@@ -15,6 +15,7 @@ import { extractJson, ImportParseError } from "@/lib/import/parsed-resume";
 import { readTagAliases } from "@/lib/db/meta";
 import { patchJob, readJob, readPreferences } from "@/lib/db/jobs";
 import { reconcileRequirements } from "@/lib/match/reconcile";
+import { readCandidateContext } from "@/lib/db/characterization";
 import { isResumeData } from "@/lib/match/resume-body";
 import { buildTailorPlan, mergeAiReview, tailorPromptInput } from "@/lib/match/auto-tailor";
 import { AUTO_TAILOR_SYSTEM_PROMPT, autoTailorUserMessage } from "@/lib/match/prompt";
@@ -40,10 +41,10 @@ export async function POST(req: Request) {
         if (typeof body.jobId !== "string" || !isResumeData(body.resume)) return fail(400, "Expected `jobId` and `resume`.");
         const resume = body.resume;
 
-        const [job, prefs, aliases] = await Promise.all([readJob(uid, body.jobId), readPreferences(uid), readTagAliases(uid)]);
+        const [job, prefs, aliases, candidate] = await Promise.all([readJob(uid, body.jobId), readPreferences(uid), readTagAliases(uid), readCandidateContext(uid)]);
         if (!job) return fail(404, "Job not found.");
 
-        const reconciled = await reconcileRequirements(job.requirements, resume, aliases, { timeoutMs: 45_000, retries: 0 });
+        const reconciled = await reconcileRequirements(job.requirements, resume, aliases, { timeoutMs: 45_000, retries: 0, candidate });
         const requirements = reconciled.requirements;
         await patchJob(uid, job.id, { requirements });
 
@@ -54,7 +55,7 @@ export async function POST(req: Request) {
             const result = await chatCompletion(
                 [
                     { role: "system", content: AUTO_TAILOR_SYSTEM_PROMPT },
-                    { role: "user", content: autoTailorUserMessage({ job: { title: job.title, company: job.company, summary: job.summary }, ...tailorPromptInput(plan, resume, requirements) }) },
+                    { role: "user", content: autoTailorUserMessage({ job: { title: job.title, company: job.company, summary: job.summary }, ...tailorPromptInput(plan, resume, requirements), candidate }) },
                 ],
                 { model: textModel(), json: true, effort: "low", temperature: 0.2, maxTokens: 8000, timeoutMs: 60_000, retries: 0 },
             );

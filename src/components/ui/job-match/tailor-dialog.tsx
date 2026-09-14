@@ -504,7 +504,7 @@ function ReviewFooter({
 }) {
     const score = scoreJob(requirements, applied, aliases).score;
     const before = scoreJob(requirements, library, aliases).score;
-    const pages = useResumePageCount(applied);
+    const { pages, error: pageError } = useResumePageCount(applied);
     const over = pages !== null && pages > 1;
     const blocked = (over && !allowMultiPage) || pages === null || !name.trim();
     const blockedTitle = over && !allowMultiPage ? "Over one page: fit it, switch something off, or allow more pages" : undefined;
@@ -516,7 +516,7 @@ function ReviewFooter({
                     <ScoreRing score={score} size={36} />
                     <div className="text-xs leading-tight">
                         <p className="font-medium text-fg tabular-nums">{score} <span className="font-normal text-fg-subtle">vs {before} now</span></p>
-                        <p className={cn("tabular-nums", over ? (allowMultiPage ? "text-warning" : "text-danger") : "text-fg-muted")}>{pages === null ? "Counting pages…" : `${pages} ${pages === 1 ? "page" : "pages"}`}</p>
+                        <p className={cn("tabular-nums", over ? (allowMultiPage ? "text-warning" : "text-danger") : "text-fg-muted")}>{pages === null ? (pageError ? "Couldn't count pages" : "Counting pages…") : `${pages} ${pages === 1 ? "page" : "pages"}`}</p>
                     </div>
                 </div>
                 {over && <Button size="sm" onClick={onFit} loading={busy === "fit"} disabled={busy !== null && busy !== "fit"}>Fit to one page</Button>}

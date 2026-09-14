@@ -7,6 +7,7 @@ import { z } from "zod";
 import type { ResumeData, ResumeListKey } from "@/types/schema";
 import { emptyPersonalInfo, emptyResumeData } from "@/types/schema";
 import { newTempId } from "@/lib/ids";
+import { normalizeContact } from "@/lib/contact/normalize";
 import { normalizeDateRange, normalizeImportedDate, normalizeYear } from "@/lib/import/dates";
 
 export class ImportParseError extends Error {
@@ -117,7 +118,11 @@ export function parseModelOutput(text: string): ParsedImport {
         info.firstName = parts[0] ?? "";
         info.lastName = parts.slice(1).join(" ");
     }
-    data.personalInfo = info;
+    // Same normalisation as a save (phone format, full link URLs); what can't be fixed is reported.
+    const contact = normalizeContact(info);
+    data.personalInfo = contact.info;
+    if (contact.issues.email?.level === "error") warnings.push(`The email address "${contact.issues.email.value}" looks invalid; fix it before saving.`);
+    if (contact.issues.phone?.level === "warning") warnings.push(`Check the phone number "${contact.issues.phone.value}".`);
 
     /** `reject` returns a reason to skip the item, or null to keep it. */
     function convert<K extends ResumeListKey, S extends z.ZodTypeAny>(

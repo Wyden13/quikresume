@@ -19,7 +19,8 @@ import { TopBar } from "@/components/ui/primitives/top-bar";
 import { Button, IconButton } from "@/components/ui/primitives/button";
 import { ConfirmDialog, Dialog } from "@/components/ui/primitives/dialog";
 import { NoticeBanner } from "@/components/ui/primitives/notice-banner";
-import { PanelRight, PenLine, Upload } from "@/components/ui/primitives/icons";
+import { PanelRight, PenLine, Search, Upload } from "@/components/ui/primitives/icons";
+import { Input } from "@/components/ui/primitives/field";
 import { parseView, useDashboardView, VIEW_TITLE, viewHref } from "@/lib/ui/use-dashboard-view";
 import { setLeaveGuard } from "@/lib/ui/leave-guard";
 import { useMediaQuery, XL } from "@/lib/ui/use-media-query";
@@ -42,6 +43,15 @@ import { itemTitle } from "@/lib/sections";
 import { cn } from "@/lib/cn";
 import { overCapItems } from "@/lib/text/word-count";
 import { invalidDateItems } from "@/lib/validation/dates";
+import { contactBlocking } from "@/lib/contact/normalize";
+import type { LinkChecks } from "@/lib/contact/types";
+import { kickLinkCheck } from "@/lib/ui/link-check";
+import { dismissAboutNudge, useAboutNudgeDismissed } from "@/lib/ui/about-nudge-store";
+import type { CharacterizationSummary } from "@/app/actions/about-actions";
+import Link from "next/link";
+import type { ItemReview } from "@/lib/review/types";
+import { isBriefOutdated, lowScoreItems, reviewStaleInputs, type ReviewMap } from "@/lib/review/content";
+import { kickReviews, reReviewAll } from "@/lib/ui/review-runner";
 import { ActionItemsCard, type OpenItem } from "@/components/ui/action-items-card";
 import { Switch } from "@/components/ui/primitives/switch";
 import { setAdvancedLayout, useAdvancedLayout } from "@/lib/ui/advanced-layout-store";
@@ -81,9 +91,13 @@ interface DashboardClientProps extends LibraryLists {
     preferences: Preferences;
     tagAliases: AliasMap;
     userName: string;
+    linkChecks: LinkChecks;
+    about: CharacterizationSummary;
+    profileReview: ItemReview | null;
 }
 
 type Notice = { tone: "ok" | "warn"; text: string };
+type PendingDelete = { section: ResumeListKey; id: string };
 
 export default function DashboardClient(props: DashboardClientProps) {
     // useSearchParams (inside useDashboardView) needs a Suspense boundary.
@@ -103,10 +117,14 @@ function DashboardClientInner({
     jobs,
     preferences,
     tagAliases,
+    linkChecks,
+    about,
+    profileReview,
 }: DashboardClientProps) {
     const router = useRouter();
     const [view, setView] = useDashboardView();
     const advancedLayout = useAdvancedLayout();
+    const aboutNudgeDismissed = useAboutNudgeDismissed();
     const wide = useMediaQuery(XL);
     const paneWanted = usePreviewPane();
     const paneOpen = wide && paneWanted && view !== "preview";
@@ -116,6 +134,7 @@ function DashboardClientInner({
     const gridRef = useRef<HTMLDivElement>(null);
 
     const [libraryTab, setLibraryTab] = useState<SectionTab>("all");
+    const [libraryQuery, setLibraryQuery] = useState("");
     const [editorTab, setEditorTab] = useState<SectionTab>("all");
     const [isSaving, setIsSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
@@ -140,9 +159,11 @@ function DashboardClientInner({
     // hide what Job Match / variants just wrote), leaving the editor asks to
     // save or discard, and leaving through browser Back discards it.
     const [draft, setDraft] = useState<ResumeData | null>(null);
+    /** Saved items removed in the editor: deleted by saveResumeData, forgotten on Discard. */
+    const [pendingDeletes, setPendingDeletes] = useState<PendingDelete[]>([]);
     const editorDraft = draft ?? initialResumeData;
     const resumeData = view === "editor" ? editorDraft : initialResumeData;
-    const dirty = draft !== null && JSON.stringify(draft) !== JSON.stringify(initialResumeData);
+    const dirty = draft !== null && (pendingDeletes.length > 0 || JSON.stringify(draft) !== JSON.stringify(initialResumeData));
 
     // Sidebar links ask before leaving an editor with unsaved changes; reload / closing the tab gets the browser prompt.
     useEffect(() => {
@@ -168,6 +189,7 @@ function DashboardClientInner({
             const url = new URL(window.location.href);
             if (url.pathname !== "/dashboard" || parseView(url.searchParams.get("view")) !== "editor") {
                 setDraft(null);
+                setPendingDeletes([]);
                 setSaveError(null);
             }
         };
@@ -175,13 +197,31 @@ function DashboardClientInner({
         return () => window.removeEventListener("popstate", onPop);
     }, [hasDraft]);
 
+    // Coach reviews come with the library rows; the model items decide staleness.
+    const reviews: ReviewMap = Object.fromEntries(
+        [experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages].flat().map(r => [r.id, r.review]),
+    );
+    const refresh = () => router.refresh();
+    // Library: review whatever changed since its last review (Library edits, accepted suggestions, Job Match
+    // answers). Keyed on the ids, so each set of changes is attempted once (see review-runner.ts).
+    const staleReviewSig = view === "library" ? reviewStaleInputs(initialResumeData, reviews, profileReview).map(i => i.id).sort().join(",") : "";
+    useEffect(() => {
+        if (!staleReviewSig) return;
+        kickReviews({ signature: staleReviewSig, onDone: r => { if (r.reviewed > 0) router.refresh(); } });
+    }, [staleReviewSig, router]);
+    const outdatedReviews = about.briefHash
+        ? Object.values(reviews).filter(r => isBriefOutdated(r, about.briefHash)).length + (isBriefOutdated(profileReview, about.briefHash) ? 1 : 0)
+        : 0;
+    const [reReviewing, setReReviewing] = useState(false);
+    const [confirmReReview, setConfirmReReview] = useState(false);
+
     const updateDraft = (updater: (prev: ResumeData) => ResumeData) => {
         setDraft(prev => updater(prev ?? initialResumeData));
     };
 
     const openItem: OpenItem = (section, id) => {
         setFocusItem(prev => ({ id, nonce: (prev?.nonce ?? 0) + 1 }));
-        openEditor(section === "summary" ? "profile" : "all");
+        openEditor(section === "summary" || section === "profile" ? "profile" : "all");
     };
 
     const openEditor = (tab?: SectionTab) => {
@@ -195,6 +235,7 @@ function DashboardClientInner({
     const doDiscard = () => {
         setConfirmDiscard(false);
         setDraft(null);
+        setPendingDeletes([]);
         setSaveError(null);
         setNotice(null);
         setView("library", { replace: true });
@@ -204,10 +245,10 @@ function DashboardClientInner({
         else doDiscard();
     };
 
-    /** Ids of persisted items whose content changed in the draft. */
+    /** Ids of persisted items whose content changed (or that were deleted) in the draft. */
     const changedItemIds = (): string[] => {
         if (!draft) return [];
-        const out: string[] = [];
+        const out: string[] = pendingDeletes.map(d => d.id);
         for (const key of RESUME_LIST_KEYS) {
             const before = new Map((initialResumeData[key] as ResumeData[ResumeListKey][number][]).map(it => [it.id, it]));
             for (const item of draft[key] as ResumeData[ResumeListKey][number][]) {
@@ -221,23 +262,29 @@ function DashboardClientInner({
     /** Saves the draft, then goes to `target` (another page / view) or back to the Library. */
     const doSave = async (target: string | null = null) => {
         if (!draft) return;
-        if (invalidDateItems(draft).length > 0) return;
+        if (invalidDateItems(draft).length > 0 || contactBlocking(draft.personalInfo)) return;
         setConfirmVariants(null);
         setIsSaving(true);
         setSaveError(null);
         try {
-            const result = await saveResumeData(draft);
+            const result = await saveResumeData(draft, { deleted: pendingDeletes });
             if (!result.success) {
                 setSaveError(result.error);
-                if (result.invalidIds[0]) openItem("workExperience", result.invalidIds[0]);
+                if (result.field) { openItem("profile", `pi-${result.field}`); return; }
+                const bad = invalidDateItems(draft).find(i => i.id === result.invalidIds[0]);
+                if (bad) openItem(bad.section, bad.id);
                 return;
             }
+            const before = initialResumeData.personalInfo;
+            if ((["github", "linkedin", "website"] as const).some(k => draft.personalInfo[k] !== before[k])) kickLinkCheck(() => router.refresh());
             setDraft(null);
+            setPendingDeletes([]);
+            kickReviews({ onDone: r => { if (r.reviewed > 0) refresh(); } });
             setNotice(result.tagWarning
                 ? { tone: "warn", text: `Saved. Skill analysis did not finish: ${result.tagWarning}` }
                 : result.tagged > 0
                     ? { tone: "ok", text: `Saved. Analysed skills for ${result.tagged} ${result.tagged === 1 ? "item" : "items"}.` }
-                    : null);
+                    : { tone: "ok", text: "Saved." });
             if (target) router.push(target, { scroll: false });
             else setView("library", { replace: true });
         } catch (error) {
@@ -263,6 +310,7 @@ function DashboardClientInner({
         const href = pendingLeave;
         setPendingLeave(null);
         setDraft(null);
+        setPendingDeletes([]);
         setSaveError(null);
         setNotice(null);
         if (href) router.push(href, { scroll: false });
@@ -311,7 +359,8 @@ function DashboardClientInner({
 
     const overCap = overCapItems(resumeData);
     const invalidDates = invalidDateItems(resumeData);
-    const editorBlocked = view === "editor" && invalidDates.length > 0;
+    const blockingContact = view === "editor" ? contactBlocking(editorDraft.personalInfo) : null;
+    const editorBlocked = view === "editor" && (invalidDates.length > 0 || blockingContact !== null);
 
     const lists: LibraryLists = { experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages };
     const counts = libraryCounts(lists);
@@ -324,26 +373,34 @@ function DashboardClientInner({
     const actions =
         view === "editor" ? (
             <>
-                <span className="hidden items-center gap-2 text-13 text-fg-muted md:flex">
+                <label className="hidden cursor-pointer items-center gap-2 text-13 text-fg-muted md:flex">
                     <Switch checked={advancedLayout} onChange={setAdvancedLayout} label="Advanced layout" />
-                    Advanced layout
-                </span>
+                    <span aria-hidden>Advanced layout</span>
+                </label>
                 <span className={cn("hidden items-center gap-1.5 text-13 sm:flex", dirty ? "text-fg-muted" : "text-fg-subtle")} aria-live="polite">
                     <span className={cn("size-1.5 rounded-full", dirty ? "bg-warning" : "bg-border-strong")} aria-hidden />
                     {dirty ? "Unsaved changes" : "No changes"}
                 </span>
                 <Button variant="ghost" onClick={discardDraft} disabled={isSaving}>Discard</Button>
-                {editorBlocked && (
+                {blockingContact && (
+                    <Button variant="ghost" className="text-danger" onClick={() => openItem("profile", `pi-${blockingContact.field}`)}>Fix email</Button>
+                )}
+                {view === "editor" && invalidDates.length > 0 && (
                     <Button variant="ghost" className="text-danger" onClick={() => openItem(invalidDates[0].section, invalidDates[0].id)}>
                         Fix {invalidDates.length} {invalidDates.length === 1 ? "date" : "dates"}
                     </Button>
                 )}
-                <Button variant="primary" onClick={() => handleSaveAndExit()} loading={isSaving} disabled={editorBlocked} title={editorBlocked ? "Fix the dates marked in red first" : undefined}>
+                <Button variant="primary" onClick={() => handleSaveAndExit()} loading={isSaving} disabled={editorBlocked} title={editorBlocked ? (blockingContact ? blockingContact.message : "Fix the dates marked in red first") : undefined}>
                     {isSaving ? (staleInputs(resumeData).length > 0 ? "Analysing & saving…" : "Saving…") : "Save & Exit"}
                 </Button>
             </>
         ) : view === "library" ? (
             <>
+                {outdatedReviews > 0 && (
+                    <Button variant="ghost" onClick={() => setConfirmReReview(true)} loading={reReviewing} className="hidden lg:inline-flex" title="Some coach reviews were written before your latest About you answers">
+                        Re-review {outdatedReviews}
+                    </Button>
+                )}
                 <Button variant="ghost" icon={Upload} onClick={() => setView("import")} className="hidden sm:inline-flex">Import</Button>
                 <Button variant="primary" icon={PenLine} onClick={() => openEditor(libraryTab)}>Edit</Button>
                 {previewToggle}
@@ -368,6 +425,10 @@ function DashboardClientInner({
                 onChange={updateDraft}
                 variantUsage={variantUsage}
                 tab={editorTab}
+                linkChecks={linkChecks}
+                reviews={reviews}
+                profileReview={profileReview}
+                onDeletePersisted={(section, id) => setPendingDeletes(prev => [...prev, { section, id }])}
             />
         ) : view === "preview" ? (
             <ResumePreview resumeData={resumeData} />
@@ -396,7 +457,13 @@ function DashboardClientInner({
         ) : (
             <div className="space-y-4">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-13 text-fg-muted">Toggle items to include them on your résumé. Click a row for details.</p>
+                    <div className="relative w-full sm:max-w-xs">
+                        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-fg-subtle" aria-hidden />
+                        <Input
+                            type="search" value={libraryQuery} onChange={e => setLibraryQuery(e.target.value)}
+                            placeholder="Search your library…" aria-label="Search library" className="h-8 pl-8 text-13"
+                        />
+                    </div>
                     <VariantToolbar
                         variants={variants}
                         loadedVariantId={loadedVariantId}
@@ -404,7 +471,8 @@ function DashboardClientInner({
                         onNotice={(text, tone = "ok") => setNotice({ tone, text })}
                     />
                 </div>
-                <LibraryView {...lists} tab={libraryTab} variantUsage={variantUsage} resumeData={initialResumeData} onImport={() => setView("import")} onEdit={() => openEditor()} />
+                <p className="text-13 text-fg-muted">Toggle items to include them on your résumé. Click a row for details.</p>
+                <LibraryView {...lists} tab={libraryTab} query={libraryQuery} onError={text => setSaveError(text)} briefHash={about.briefHash} onReviewed={refresh} variantUsage={variantUsage} resumeData={initialResumeData} onImport={() => setView("import")} onEdit={tab => openEditor(tab)} />
             </div>
         );
 
@@ -429,7 +497,13 @@ function DashboardClientInner({
                         {notice && (view === "editor" || view === "library") && (
                             <NoticeBanner tone={notice.tone === "ok" ? "success" : "warning"} onDismiss={() => setNotice(null)}>{notice.text}</NoticeBanner>
                         )}
-                        {(view === "editor" || view === "library") && <ActionItemsCard overCap={overCap} invalidDates={invalidDates} onOpen={openItem} />}
+                        {view === "library" && about.status !== "complete" && !aboutNudgeDismissed && (
+                            <NoticeBanner tone="warning" onDismiss={dismissAboutNudge}>
+                                Tell us about your goals so AI reviews and tailoring fit where you are in your career.{" "}
+                                <Link href="/dashboard/about" className="font-medium underline underline-offset-2">{about.status === "draft" ? "Continue" : "Start"} (2 min)</Link>
+                            </NoticeBanner>
+                        )}
+                        {(view === "editor" || view === "library") && <ActionItemsCard overCap={overCap} invalidDates={invalidDates} lowScore={lowScoreItems(resumeData, reviews, profileReview)} onOpen={openItem} />}
                         {body}
                     </div>
                 </main>
@@ -467,6 +541,24 @@ function DashboardClientInner({
             >
                 <p>You have unsaved changes. Save them first, or they are discarded when you leave.</p>
             </Dialog>
+
+            <ConfirmDialog
+                open={confirmReReview}
+                title={`Re-review ${outdatedReviews} ${outdatedReviews === 1 ? "item" : "items"}?`}
+                confirmLabel="Re-review"
+                onCancel={() => setConfirmReReview(false)}
+                onConfirm={() => {
+                    setConfirmReReview(false);
+                    setReReviewing(true);
+                    let done = 0;
+                    reReviewAll(
+                        r => { done += r.reviewed; setNotice({ tone: "ok", text: `Re-reviewed ${done} ${done === 1 ? "item" : "items"}${r.remaining > 0 ? "…" : "."}` }); },
+                        () => { setReReviewing(false); refresh(); },
+                    );
+                }}
+            >
+                <p>These coach reviews were written before you updated your About you answers. Your coach reads them again with your current goals; it runs in the background.</p>
+            </ConfirmDialog>
 
             <ConfirmDialog
                 open={confirmDiscard}

@@ -43,7 +43,7 @@ typst compile --root public/typst --font-path public/typst/fonts --ignore-system
 
 Required env (`.env.local`): `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_TRUST_HOST`,
 `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` (escaped `\n` newlines are unescaped in code),
-`GLM_API_KEY` (import, tags, Job Match). Optional: `GLM_BASE_URL` (default `https://api.z.ai/api/paas/v4`),
+`GLM_API_KEY` (import, tags, Job Match, reviews, About you). Optional: `GITHUB_TOKEN` (raises the GitHub API limit for link checks), `GLM_BASE_URL` (default `https://api.z.ai/api/paas/v4`),
 `GLM_MODEL` (vision, default `glm-4.6v`), `GLM_TEXT_MODEL` (tags / JD analysis / proposals, default `glm-5.3-flash`).
 
 ## Layout
@@ -59,11 +59,18 @@ src/
   app/api/jobs/{analyze,proposals,reconcile}/route.ts   JD -> requirements (+ reconcile when the form carries `resume`) /
                                              gap -> proposals (re-reconciles first; UI hidden) / re-run the reconcile pass for a saved job
   app/api/jobs/{auto-tailor,skill-answers}/route.ts   tailor plan for suggestions (see Tailor window) / questionnaire answers -> library
+  app/api/about/{prefill,follow-ups,save}/route.ts   About you: suggested answers / coach questions / save + candidate brief
+  app/api/review/run/route.ts                background coach review of changed items (see Item review)
+  app/api/profile/check-links/route.ts       header link verification after a save (see Contact & links)
+  app/(dashboard)/dashboard/about/page.tsx   About you questionnaire; app/(dashboard)/error.tsx error boundary
   app/actions/*-actions.ts                   "use server" CRUD per collection + resume-actions.ts (save + tagging)
                                              + layout-actions.ts (getLayout / updateLayout: meta/layout)
                                              + user-actions.ts (profile), variant-actions.ts, job-actions.ts, tag-actions.ts,
-                                             auth-actions.ts (signOutAction, passed to the client sidebar)
-  lib/db/{user-collection,meta,variants,jobs,load-resume}.ts   server-only Firestore helpers
+                                             auth-actions.ts (signOutAction, passed to the client sidebar),
+                                             about-actions.ts (summary / seen / skip), review-actions.ts (dismiss),
+                                             library-actions.ts (setSectionSelection: Include all / Exclude all)
+  lib/db/{user-collection,meta,variants,jobs,load-resume,characterization}.ts   server-only Firestore helpers
+                                             (loadLibraryWithReviews = loadResumeData + reviews per item)
   components/shell/{app-shell,sidebar-nav,shell-context}.tsx   240px sidebar (>=lg) / drawer (<lg); ShellContext.openDrawer
   components/ui/primitives/*                 the UI kit: Button/IconButton, Field (Label/Input/Textarea/Select/Checkbox),
                                              Switch, Badge/TagChip, Tabs, Segmented, Card/SectionHeader, Table, ExpandableRow,
@@ -78,7 +85,11 @@ src/
                                              the Master Editor: collapsible item rows, per-section field config, drag handles
   components/ui/editor/layout-controls.tsx   advanced layout mode: PageLayoutCard, SectionLayoutControls, ItemLayoutControls
   components/ui/action-items-card.tsx        yellow "Action items" (over-cap items, bad dates) on Library + Editor
-  components/ui/profile-form.tsx             Profile page form -> updateUserProfile
+  components/ui/profile-form.tsx             Profile page form -> updateUserProfile (+ profile review panel)
+  components/ui/contact-field.tsx            ContactInput: normalise on blur, format issue, red broken-link mark
+  components/ui/about/about-form.tsx         About you steps (Core / Targeting / Your story / Follow-ups)
+  components/ui/review/{score-badge,review-panel}.tsx   coach score badge / review with Accept / Dismiss
+  components/marketing-hero-mock.tsx         static landing-page product sketch
   components/ui/resume-import.tsx            multi-file upload (PDF -> page images) + combined review step
   components/ui/variant-toolbar.tsx          Save as / Load / Update variant on the library view
   components/ui/variants-page.tsx            /dashboard/variants: search, labels, rename, duplicate, delete, load
@@ -90,9 +101,12 @@ src/
   components/ui/resume-preview.tsx           Typst preview + PDF download (client only; `compact` for the side pane)
   components/ui/pane-resize-handle.tsx       drag / keyboard splitter for the preview pane (width in preview-pane-store)
   components/ui/sub-item-toggles.tsx         per-bullet checkboxes / per-skill chips (Library: SubItemToggles in library-row, Editor)
+  lib/ui/{review-runner,link-check,fetch-json,about-nudge-store}.ts   background review runs, link check kick, readJson
+                                             (non-JSON replies -> { ok: false }), nudge banner dismissal
   lib/ui/{use-dashboard-view,use-media-query,persisted-store,preview-pane-store,expansion-store,leave-guard}.ts
                                              URL view state, matchMedia hook, useSyncExternalStore stores (pane open in
                                              localStorage, expanded row ids in sessionStorage)
+  components/ui/primitives/chip-input.tsx    free-text list input (Enter / comma adds)
   lib/dates.ts, lib/ids.ts, lib/hash.ts      date-string helpers (month precision), temp ids, stableHash (content hashes)
   lib/validation/dates.ts                    validateItemDates / invalidDateItems (editor gate + server re-check)
   lib/text/word-count.ts                     per-item word counts, WORD_CAUTION, overCapItems
@@ -104,6 +118,9 @@ src/
                                              fuzzy duplicate matching
   lib/import/pdf-pages.ts (browser), document-text.ts (server)   upload -> GLM parts, shared with /api/jobs/analyze
   lib/tags/{types,content,normalize,prompt,extract,aggregate}.ts   smart tags (see Smart tags)
+  lib/about/{types,facts,prompt,library-summary}.ts   About you: answers, dates-based facts, prompts + CANDIDATE_CONTEXT_RULE
+  lib/review/{types,content,apply,prompt,parse,run}.ts   coach review (run.ts server-only)
+  lib/contact/{normalize,types,link-check}.ts   email / phone / link normalisation (pure), link checks (link-check server-only)
   lib/variants.ts                            pure variant helpers (selectedIds, selectedHidden, applyVariant, variantUsage)
   lib/sub-items.ts                           per-bullet / per-skill selection keys (see Sub-item selection)
   lib/match/{types,text,score,coverage,recommend,proposals,prompt,resume-body}.ts   Job Match scoring, coverage, set cover, proposals (pure)
@@ -138,15 +155,20 @@ public/pdfjs/pdf.worker.min.mjs              gitignored, filled by scripts/copy-
    browser prompt; browser Back out of the editor discards the draft (popstate).
    `ResumeData.layout` comes from `users/{uid}/meta/layout` (`getLayout`, normalised in `toResumeData`).
 3. `ResumeForm` edits through a functional `onChange(prev => next)`. New items get `tmp-<uuid>` ids
-   (`src/lib/ids.ts`). Deleting a persisted item calls the delete action immediately; adds/edits persist on save.
-4. `saveResumeData` rejects the draft (`{ success: false, error, invalidIds }`, nothing written) when
-   `invalidDateItems` finds bad dates, then writes personal info to `users/{uid}` and every list item into its
+   (`src/lib/ids.ts`). Deleting a persisted item only removes it from the draft and records it in `pendingDeletes`
+   (dashboard-client); `saveResumeData(draft, { deleted })` deletes it in the same batches, so Discard / Back bring it back.
+   Duplicate inserts a `tmp-` copy after the original (also in a manual `itemOrder`).
+4. `saveResumeData` rejects the draft (`{ success: false, error, invalidIds, field? }`, nothing written) when
+   `invalidDateItems` finds bad dates or the email is malformed (`contactBlocking`), normalises contact fields, then writes personal info to `users/{uid}` and every list item into its
    subcollection, chunked under Firestore's 500-writes-per-batch limit. A `tmp-<uuid>` item is written to doc `<uuid>`
    (not an auto id), so retrying a save that failed part-way can't create duplicates. The layout is written last
    (`replaceMeta`, ids pruned to existing items, temp ids renamed).
-5. Library cards call `update*`/`delete*` actions via `<form action>`; each action revalidates `/dashboard`.
-6. The Profile page (`/dashboard/profile`) edits the same `users/{uid}` fields through `updateUserProfile`;
-   both it and `saveResumeData` go through `personalInfoToUserDoc` so the written shape stays identical.
+5. Library cards call `update*`/`delete*` actions via `<form action>` wrappers that catch failures and report them in the
+   dashboard banner (`onError`; optimistic toggles revert); Delete asks first and names the variants using the item.
+   A plain save shows "Saved.". The Library search (title / subtitle / tags) turns drag off while it has text.
+6. The Profile page (`/dashboard/profile`) edits the same `users/{uid}` fields through `updateUserProfile`
+   (returns `{ success: false, error, field: "email" }` instead of throwing on a bad email; `{ success: true, info }` with the
+   normalised values); both it and `saveResumeData` go through `personalInfoToUserDoc` so the written shape stays identical.
 7. `isSelected` is the **working selection**. A variant (`/dashboard/variants`) is a snapshot of the selected
    ids; loading one rewrites `isSelected` on every item. Editing an item used by variants shows a badge and a
    confirm dialog on Save & Exit (variants are pointers, so the edit shows up in all of them).
@@ -260,6 +282,8 @@ Weight of a tag = number of selected items carrying it (`aggregateTags`, compute
   `{kind, tag | itemId}` rule to `users/{uid}/meta/preferences.mutedProposals`.
 - Apply: include/exclude call the item's `update*` action (or edit the draft when one is open); rewrite /
   add-skill always edit the draft (`applyProposal`) and open the editor.
+- **Job list**: `saveJobScore` writes only `lastScore` (no `updatedAt`, which orders the list) 1.5 s after the working-selection
+  score changes; titles rename inline (`renameJob`); a trash button on each list row deletes.
 - **The Suggestions card is hidden** (`SHOW_SUGGESTIONS = false` in `job-match-view.tsx`); the route, proposal cards and
   mute rules are kept. The job page shows requirements grouped Hard / Soft (by `requirementTier`), a Guidelines card
   (missing must-haves, keyword gaps, declined skills) and the "Tailor résumé" button (the only tailoring flow).
@@ -298,6 +322,63 @@ questions (uncovered hard + soft reqs) -> window on the working selection -> (ba
   skipped when unchanged), so reopening starts where you left off. Save variant -> `createVariantFromPlan` (writes and
   loads the variant). Save variant & download PDF compiles the PDF first, then saves and downloads. Both saves need one
   page or the multi-page tick; Close never does. A Preview toggle swaps the list for the Typst preview.
+
+## About you (characterization)
+
+`users/{uid}/meta/characterization`: the candidate's goals and background, condensed into a **candidate brief** that coaching
+and tailoring prompts receive.
+
+- **First run**: `dashboard/page.tsx` redirects to `/dashboard/about?first=1` when there is no doc at all, and only when `?view` is
+  absent (a revalidation while the editor is open never navigates). Opening the page marks it seen (`status: "skipped"`, so the
+  redirect happens once); a yellow nudge on the Library links back until `status === "complete"` (dismissal in sessionStorage).
+- **Answers** (`lib/about/types.ts`): Core (field, years of experience, education status + graduation, target roles), Targeting
+  (level, industries, locations, work modes, relocation, work authorization), Your story (career change, gaps, strengths,
+  emphasize / play down), plus 3–5 AI follow-up questions. No style preferences.
+- **Prefill** (first visit): dates-based facts at once (`lib/about/facts.ts`: `yearsOfExperience` merges overlapping jobs and
+  excludes internships, `educationStatusOf`, `employmentGaps` counted from the first non-internship job), then
+  `/api/about/prefill` suggests field / roles / level / industries / strengths / career change (never location or authorization).
+  Suggested fields are marked until edited. Follow-ups regenerate only when `coreHash(answers)` changes.
+- **Brief**: `/api/about/save` with `status: "complete"` writes it (plain text, `capBrief` ≤ 1500 chars) when `answersHash` differs
+  from `briefHash`; a failure keeps the old brief and sets `briefStale`. Saving a draft never downgrades a complete doc.
+- **Prompts**: `readCandidateContext(uid)` (server-side, never sent by the client; null without a brief) feeds JD analysis,
+  reconcile, proposals, auto-tailor, skill-bullet wording and the item review, as `candidate` via `candidatePayload`. Every such
+  system prompt appends `CANDIDATE_CONTEXT_RULE`: context for relevance and level, never evidence, never printed. Tags and import
+  do not get it. JD analysis also returns `fitNotes` (seniority / location / sponsorship conflicts) shown in Guidelines.
+
+## Item review (AI career coach)
+
+Every item (all 9 sections) and the profile headline + summary get `review: { score 0–10, flags[], comment, suggestions[{ id, field,
+current, proposed, reason }], dismissed[], reviewHash, briefHash, reviewedAt }` (`users/{uid}.profileReview` for the profile).
+
+- **Hash rule**: stale when `reviewHash !== contentHashOf(...)` / `profileHashOf(...)`, the same hashes as smart tags, computed on the
+  editor model (`lib/review/content.ts`). `tagFieldsOf` returns `review`, so every Library row carries it.
+- **Runs** (`/api/review/run`, `lib/ui/review-runner.ts`): fire-and-forget, never awaited by a save. Kicked after Save & Exit,
+  by a Library effect keyed on the sorted stale ids (each set attempted once per session), by Re-review on a row, and by
+  "Re-review N" (reviews written against an older brief; confirm first, loops while `remaining > 0`). A brief change never
+  re-reviews on its own. The route takes a per-user lock (`meta/review.runningUntil`, 409 when busy; the client retries once),
+  reviews ≤ 36 items per request (selected first) in chunks of 6, 2 in parallel, 100 s budget, and re-tags items in the batch whose
+  tags went stale outside a save (Library accepts don't run the tagger).
+- **Prompt / parse** (`lib/review/prompt.ts`, `parse.ts`): calibrated score anchors, fixed flag ids, ≤ 3 suggestions whose `current`
+  is copied verbatim (one bullet, or the whole field). The parser drops suggestions for unknown fields, a `current` not in the
+  item, empty / unchanged / bracketed rewrites, and rewrites that add digits the original didn't have (brief digits allowed in
+  profile rewrites).
+- **UI**: `ScoreBadge` on the collapsed Library row (greyed when stale), `ReviewPanel` in the expanded row with Accept (the section's
+  `update*` action with `applySuggestionFormData`; a reworded hidden bullet stays hidden) and Dismiss (`dismissReviewSuggestion`,
+  arrayUnion). Read-only badge + panel in editor rows and the summary; Profile page panel accepts through `updateProfileFields`.
+  Up-to-date reviews scoring ≤ `LOW_SCORE` (5) are listed in Action items.
+- `updateSkill` accepts `category` / `items` so skill suggestions can be applied.
+
+## Contact & links
+
+- `lib/contact/normalize.ts` (pure, run on blur in `ContactInput`, again in both save actions, and on import): email must be
+  `local@domain.tld` (the only check that blocks a save: "Fix email" in the editor TopBar); phones with 10 digits (or 11 starting
+  with 1 / `+1`) become `(123) 456-7890` (+ ` x123`), other `+` numbers are kept with a note, anything else warns; LinkedIn ->
+  `https://www.linkedin.com/in/<slug>`, GitHub (`@user`, URL, repo URL) -> `https://github.com/<user>`, websites get `https://`.
+- **Link checks** (`/api/profile/check-links`, kicked after a Profile save or an editor save that changed a link): LinkedIn is
+  never fetched (format only, `format-ok`); GitHub via `api.github.com/users/<name>` (optional `GITHUB_TOKEN`); websites get a
+  HEAD (GET fallback on 403 / 405 / 501) over `node:http(s)` with a DNS `lookup` guard refusing private / loopback / link-local /
+  CGNAT addresses on every hop, ports 80 / 443, ≤ 3 redirects, 5 s timeout. Results on `users/{uid}.linkChecks` (24 h cache per URL,
+  10 s throttle). Only `not-found` (404 / 410 / no such domain) shows the red mark, and only while the field still holds that URL.
 
 ## Resume import
 
@@ -377,10 +458,10 @@ Every list entry also carries `space_after` (pt), `break_before`, `keep` (entrie
 ## Data model (Firestore)
 
 `users/{uid}`: `firstName, lastName, headline, professionalEmail, phoneNumber, location, github, linkedIn,
-website, bio, profileTags, profileContentHash, profileTagsHash, loadedVariantId, updatedAt`
+website, bio, profileTags, profileContentHash, profileTagsHash, profileReview, linkChecks, linkChecksAt, loadedVariantId, updatedAt`
 (+ NextAuth adapter fields such as `email`, `image`).
 
-Subcollections, each item doc has `isSelected`, `tags`, `contentHash`, `tagsHash`, `createdAt`, `updatedAt`:
+Subcollections, each item doc has `isSelected`, `tags`, `contentHash`, `tagsHash`, `review`, `createdAt`, `updatedAt`:
 
 | collection | fields |
 |---|---|
@@ -394,8 +475,10 @@ Subcollections, each item doc has `isSelected`, `tags`, `contentHash`, `tagsHash
 | `publications` | `title, venue, date, link, authors` |
 | `languages` | `language, proficiency` |
 | `variants` | `name, labels: string[], items: {experience: string[], …}, hidden: {itemId: string[]}, layout: ResumeLayout \| null, templateId` (pointers only) |
-| `jobs` | `title, company, source, jdText, summary, requirements[] ({name, display, kind, importance, yearsMin, satisfiedBy[], evidence[], reason}), proposals[], proposalsAt, lastScore` |
+| `jobs` | `title, company, source, jdText, summary, requirements[] ({name, display, kind, importance, yearsMin, satisfiedBy[], evidence[], reason}), proposals[], proposalsAt, lastScore, fitNotes[]` |
 | `meta/tags` | `aliases: Record<alias, canonical>` |
+| `meta/characterization` | `status: draft \| skipped \| complete, answers, followUps[], followUpsHash, answersHash, brief, briefHash, briefAt, briefStale, facts` |
+| `meta/review` | `runningUntil, lastRunAt` (review lock) |
 | `meta/layout` | `sectionOrder, itemOrder, page, sections, items` (see Layout and order) |
 | `meta/preferences` | `mutedProposals: {kind, tag?, itemId?}[], caps: Record<ResumeListKey, number \| null>, declinedSoftSkills: {name, display, at}[]` (hard + soft) |
 
@@ -420,6 +503,11 @@ editor and `string[]` in Firestore.
   in `lib/ui/persisted-store.ts` (server snapshot = initial) rather than reading storage in effects.
 
 ## Gotchas
+
+- Background writers (review run, tag backfill, link checks, dismiss) use `update()`, never `set(..., { merge: true })`: a merge-set on
+  an item deleted while the model ran recreates it as a fields-only document. Ignore NOT_FOUND (`code === 5`).
+- `useResumePageCount` returns `{ pages, error }`; show the error instead of an endless "…".
+- Fetches to route handlers go through `readJson` (`lib/ui/fetch-json.ts`): platform timeouts return HTML, not JSON.
 
 - Firestore `orderBy(field)` silently drops documents missing that field. `experience`/`education`/`volunteering`
   order by `startDate`; `projects`/`certifications`/`awards`/`publications`/`languages` order by `createdAt`.

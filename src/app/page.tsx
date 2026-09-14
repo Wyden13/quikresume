@@ -2,6 +2,7 @@ import React from "react";
 import Link from "next/link";
 import { auth } from "@/auth";
 import { MarketingFooter, MarketingHeader } from "@/components/marketing-header";
+import { MarketingHeroMock } from "@/components/marketing-hero-mock";
 
 const PRIMARY = "inline-flex h-10 items-center justify-center rounded-md bg-accent px-4 text-sm font-medium text-accent-fg transition-colors hover:bg-accent-hover";
 const SECONDARY = "inline-flex h-10 items-center justify-center rounded-md border border-border bg-surface px-4 text-sm font-medium text-fg transition-colors hover:bg-surface-hover";
@@ -34,7 +35,7 @@ export default async function Home() {
                         {!session && <Link href="/login" className={SECONDARY}>Log in</Link>}
                     </div>
                 </div>
-                <div className="mt-14 aspect-[16/8] w-full rounded-lg border border-border bg-surface" aria-hidden />
+                <MarketingHeroMock />
             </section>
 
             <section id="features" className="border-t border-border bg-surface">

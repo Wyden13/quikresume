@@ -18,7 +18,7 @@ export function Label({ children, htmlFor, className }: { children: React.ReactN
     );
 }
 
-export function Input({ className, ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
+export function Input({ className, ...props }: React.ComponentProps<"input">) {
     return <input {...props} className={cn(CONTROL, "h-9", className)} />;
 }
 

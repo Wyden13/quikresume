@@ -12,6 +12,7 @@ import { readTagAliases } from "@/lib/db/meta";
 import { patchJob, readJob } from "@/lib/db/jobs";
 import { reconcileRequirements } from "@/lib/match/reconcile";
 import { isResumeData } from "@/lib/match/resume-body";
+import { readCandidateContext } from "@/lib/db/characterization";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -32,10 +33,10 @@ export async function POST(req: Request) {
     }
     if (typeof body.jobId !== "string" || !isResumeData(body.resume)) return fail(400, "Expected `jobId` and `resume`.");
 
-    const [job, aliases] = await Promise.all([readJob(uid, body.jobId), readTagAliases(uid)]);
+    const [job, aliases, candidate] = await Promise.all([readJob(uid, body.jobId), readTagAliases(uid), readCandidateContext(uid)]);
     if (!job) return fail(404, "Job not found.");
 
-    const rec = await reconcileRequirements(job.requirements, body.resume, aliases);
+    const rec = await reconcileRequirements(job.requirements, body.resume, aliases, { candidate });
     if (rec.warning) return fail(502, rec.warning);
     await patchJob(uid, job.id, { requirements: rec.requirements });
     revalidatePath("/dashboard");

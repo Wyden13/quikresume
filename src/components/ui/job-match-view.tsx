@@ -6,7 +6,7 @@
 // inspect the ATS keyword table, and tailor the résumé (tailor-dialog.tsx). The AI proposals
 // card is hidden (SHOW_SUGGESTIONS).
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import type { ResumeData } from "@/types/schema";
@@ -23,9 +23,9 @@ import { documentFormData } from "@/lib/import/pdf-pages";
 import { MAX_FILE_BYTES, type ImportResponse } from "@/lib/import/types";
 import { RESUME_LIST_KEYS } from "@/types/schema";
 import { SECTION_LABEL } from "@/lib/sections";
-import { deleteJob, muteProposal, setProposalStatus, unmuteProposal, saveCaps } from "@/app/actions/job-actions";
+import { deleteJob, muteProposal, renameJob, saveJobScore, setProposalStatus, unmuteProposal, saveCaps } from "@/app/actions/job-actions";
 import { cn } from "@/lib/cn";
-import { Button } from "@/components/ui/primitives/button";
+import { Button, FOCUS_RING, IconButton } from "@/components/ui/primitives/button";
 import { Input, Select, Textarea } from "@/components/ui/primitives/field";
 import { ConfirmDialog } from "@/components/ui/primitives/dialog";
 import { ProposalCards } from "@/components/ui/proposal-cards";
@@ -40,7 +40,7 @@ import { Table, Td, Th } from "@/components/ui/primitives/table";
 import { ChevronDown, Target } from "@/components/ui/primitives/icons";
 import { useResumePageCount } from "@/components/ui/use-page-count";
 import { Dialog } from "@/components/ui/primitives/dialog";
-import { Wand2 } from "@/components/ui/primitives/icons";
+import { PenLine, Trash2, Wand2 } from "@/components/ui/primitives/icons";
 import { TailorDialog } from "@/components/ui/job-match/tailor-dialog";
 import { SkillQuestions } from "@/components/ui/job-match/skill-questions";
 
@@ -122,20 +122,27 @@ export function JobMatchView(props: JobMatchViewProps) {
                                     {jobs.map(j => {
                                         const active = j.id === selectedJobId;
                                         return (
-                                            <li key={j.id}>
+                                            <li key={j.id} className={cn("group/job flex items-center transition-colors hover:bg-surface-hover", active && "bg-surface-muted")}>
                                                 <button
                                                     type="button"
                                                     onClick={() => onSelectJob(j.id)}
                                                     aria-current={active || undefined}
-                                                    className={cn("flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-surface-hover", active && "bg-surface-muted")}
+                                                    className={cn("flex min-w-0 flex-1 items-center gap-3 py-2.5 pl-3 text-left", FOCUS_RING, "focus-visible:ring-inset focus-visible:ring-offset-0")}
                                                 >
                                                     <span className={cn("h-8 w-0.5 shrink-0 rounded-full", active ? "bg-accent" : "bg-transparent")} aria-hidden />
                                                     <span className="min-w-0 flex-1">
                                                         <span className="block truncate text-sm font-medium text-fg">{j.title}</span>
                                                         <span className="block truncate text-xs text-fg-muted">{j.company || "Unknown company"}</span>
                                                     </span>
-                                                    {j.lastScore !== null && <span className="text-13 tabular-nums text-fg-muted">{j.lastScore}</span>}
+                                                    {j.lastScore !== null && <span className="text-13 tabular-nums text-fg-muted" title="Last score of your working selection">{j.lastScore}</span>}
                                                 </button>
+                                                <IconButton
+                                                    icon={Trash2}
+                                                    variant="ghost"
+                                                    aria-label={`Delete ${j.title}`}
+                                                    onClick={() => setPendingDelete(j)}
+                                                    className="mx-1 opacity-0 group-hover/job:opacity-100 focus-visible:opacity-100"
+                                                />
                                             </li>
                                         );
                                     })}
@@ -274,7 +281,7 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, onApplyPro
         : variant ? applyVariant(resumeData, variant.items, variant.hidden)
         : resumeData;
     const match = scoreJob(job.requirements, resume, aliases);
-    const pages = useResumePageCount(resume);
+    const { pages, error: pageError } = useResumePageCount(resume);
     const reqDisplay = (name: string) => job.requirements.find(r => r.name === name)?.display ?? name;
 
     const uploadResume = async (file: File) => {
@@ -370,6 +377,28 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, onApplyPro
     const declinedNames = new Set(preferences.declinedSoftSkills.map(d => d.name));
     const declinedNeeded = uncoveredRequirements(job.requirements, resumeData, aliases).filter(r => declinedNames.has(r.name));
     const [tailorRun, setTailorRun] = useState(0);
+    const [editingTitle, setEditingTitle] = useState<string | null>(null);
+
+    const commitTitle = async () => {
+        const next = editingTitle?.trim();
+        setEditingTitle(null);
+        if (!next || next === job.title) return;
+        try {
+            await renameJob(job.id, next);
+            router.refresh();
+        } catch (err) {
+            onError(err instanceof Error ? err.message : "Could not rename the job.");
+        }
+    };
+
+    // Remember the working selection's score for the job list (debounced; writes nothing when unchanged).
+    const roundedScore = Math.round(match.score);
+    const scoreToSave = source.kind === "selection" && roundedScore !== job.lastScore ? roundedScore : null;
+    useEffect(() => {
+        if (scoreToSave === null) return;
+        const timer = setTimeout(() => { void saveJobScore(job.id, scoreToSave).catch(() => {}); }, 1500);
+        return () => clearTimeout(timer);
+    }, [job.id, scoreToSave]);
     const [answering, setAnswering] = useState(false);
     const [notice, setNotice] = useState<string | null>(null);
 
@@ -378,7 +407,25 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, onApplyPro
             {/* Header */}
             <Card>
                 <CardHeader
-                    title={job.title}
+                    title={editingTitle !== null ? (
+                        <Input
+                            autoFocus
+                            value={editingTitle}
+                            aria-label="Job title"
+                            className="h-8 text-[15px] font-semibold"
+                            onChange={e => setEditingTitle(e.target.value)}
+                            onBlur={() => void commitTitle()}
+                            onKeyDown={e => {
+                                if (e.key === "Enter") { e.preventDefault(); void commitTitle(); }
+                                if (e.key === "Escape") { e.preventDefault(); setEditingTitle(null); }
+                            }}
+                        />
+                    ) : (
+                        <span className="inline-flex items-center gap-1">
+                            {job.title}
+                            <IconButton icon={PenLine} aria-label="Rename job" onClick={() => setEditingTitle(job.title)} className="size-7" />
+                        </span>
+                    )}
                     hint={<>{job.company || "Unknown company"}{job.source.fileName ? ` · from ${job.source.fileName}` : ""}</>}
                     action={
                         <>
@@ -438,7 +485,7 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, onApplyPro
                                     <dt className="text-fg-subtle">Must-haves</dt><dd className="tabular-nums">{match.must.hit}/{match.must.total} covered</dd>
                                     <dt className="text-fg-subtle">Nice-to-haves</dt><dd className="tabular-nums">{match.nice.hit}/{match.nice.total} covered</dd>
                                     <dt className="text-fg-subtle">Length</dt>
-                                    <dd className={cn("tabular-nums", pages !== null && pages > 1 && "text-warning")}>{pages === null ? "…" : `${pages} ${pages === 1 ? "page" : "pages"}${pages > 1 ? " · over one page" : ""}`}</dd>
+                                    <dd className={cn("tabular-nums", pages !== null && pages > 1 && "text-warning")}>{pages === null ? (pageError ? "Couldn't measure length" : "…") : `${pages} ${pages === 1 ? "page" : "pages"}${pages > 1 ? " · over one page" : ""}`}</dd>
                                 </dl>
                                 <div className="@2xl:ml-auto">
                                     <Button size="sm" onClick={recheck} loading={busy === "recheck"} title="Ask the AI to match requirements against your whole library: equivalent degrees, implied skills, related projects.">
@@ -459,6 +506,7 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, onApplyPro
                 declinedNeeded={declinedNeeded}
                 onAnswerDeclined={() => setAnswering(true)}
                 showScoreSource={source.kind !== "selection"}
+                fitNotes={job.fitNotes}
             />
 
             {/* ATS table */}
@@ -602,21 +650,27 @@ function RequirementGroups({ requirements }: { requirements: Requirement[] }) {
 
 // ---------- guidelines
 
-function GuidelinesCard({ missingMust, keywordGaps, declinedNeeded, onAnswerDeclined, showScoreSource }: {
+function GuidelinesCard({ missingMust, keywordGaps, declinedNeeded, onAnswerDeclined, showScoreSource, fitNotes }: {
     missingMust: Requirement[];
     keywordGaps: Requirement[];
     declinedNeeded: Requirement[];
     onAnswerDeclined: () => void;
     showScoreSource: boolean;
+    fitNotes: string[];
 }) {
     const declined = new Set(declinedNeeded.map(r => r.name));
     const gaps = keywordGaps.filter(r => !declined.has(r.name));
-    const empty = missingMust.length === 0 && gaps.length === 0 && declinedNeeded.length === 0;
+    const empty = missingMust.length === 0 && gaps.length === 0 && declinedNeeded.length === 0 && fitNotes.length === 0;
     return (
         <Card>
             <CardHeader title="Guidelines" hint={showScoreSource ? "For the résumé being scored above." : "For your working selection."} />
             <CardBody className="space-y-3 text-13">
                 {empty && <p className="text-fg-muted">Nothing missing. Every requirement is covered by the résumé above.</p>}
+                {fitNotes.length > 0 && (
+                    <GuidelineRow tone="warning" label="Fit with your goals">
+                        <ul className="space-y-1">{fitNotes.map(n => <li key={n}>{n}</li>)}</ul>
+                    </GuidelineRow>
+                )}
                 {missingMust.length > 0 && (
                     <GuidelineRow tone="danger" label="Missing must-haves">
                         <span className="font-medium">{missingMust.map(r => r.display).join(", ")}</span>

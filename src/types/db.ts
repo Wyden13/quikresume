@@ -6,6 +6,8 @@
 import type { Tag } from "@/lib/tags/types";
 import type { ResumeLayout } from "@/lib/layout/types";
 import type { VariantHidden, VariantItems } from "@/lib/variants";
+import type { LinkChecks } from "@/lib/contact/types";
+import type { ItemReview } from "@/lib/review/types";
 
 /** Smart-tag fields present on every library item row. */
 export interface TagFields {
@@ -14,6 +16,8 @@ export interface TagFields {
     contentHash: string | null;
     /** Hash the tags were extracted from; differs from the content hash when the item is stale. */
     tagsHash: string | null;
+    /** Last AI coach review (null until the first background review). */
+    review: ItemReview | null;
 }
 
 export interface UserProfile {
@@ -32,6 +36,10 @@ export interface UserProfile {
     linkedIn?: string | null;
     website?: string | null;
     bio?: string | null;
+    /** Last link verification per header link (see /api/profile/check-links). */
+    linkChecks?: LinkChecks;
+    /** Coach review of the headline + summary. */
+    profileReview?: ItemReview | null;
 }
 
 export interface ExperienceItem extends TagFields {

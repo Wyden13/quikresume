@@ -12,9 +12,16 @@ import { compileSvg, ensureTypst } from "@/lib/typst/client";
 
 const DEBOUNCE_MS = 600;
 
-export function useResumePageCount(data: ResumeData): number | null {
+export interface PageCount {
+    /** Null while counting, and after a failed compile. */
+    pages: number | null;
+    /** The last compile failed (Typst error, wasm failed to load). */
+    error: boolean;
+}
+
+export function useResumePageCount(data: ResumeData): PageCount {
     const docJson = JSON.stringify(toTypstDoc(data));
-    const [pages, setPages] = useState<number | null>(null);
+    const [state, setState] = useState<PageCount>({ pages: null, error: false });
 
     useEffect(() => {
         let cancelled = false;
@@ -22,9 +29,10 @@ export function useResumePageCount(data: ResumeData): number | null {
             try {
                 await ensureTypst();
                 const result = await compileSvg(JSON.parse(docJson) as TypstResumeDoc);
-                if (!cancelled) setPages(result.pageCount);
-            } catch {
-                if (!cancelled) setPages(null);
+                if (!cancelled) setState({ pages: result.pageCount, error: false });
+            } catch (err) {
+                console.error("[page-count] compile failed:", err);
+                if (!cancelled) setState({ pages: null, error: true });
             }
         }, DEBOUNCE_MS);
         return () => {
@@ -33,5 +41,5 @@ export function useResumePageCount(data: ResumeData): number | null {
         };
     }, [docJson]);
 
-    return pages;
+    return state;
 }

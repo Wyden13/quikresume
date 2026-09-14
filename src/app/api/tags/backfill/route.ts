@@ -41,25 +41,22 @@ export async function POST(req: Request) {
         const result = await extractTags(inputs, await readTagAliases(uid), { budgetMs: 100_000, context: tagContext(data) });
         const now = Timestamp.now();
         const userRef = db.collection("users").doc(uid);
-        let batch = db.batch();
-        let n = 0;
-        const flush = async () => { await batch.commit(); batch = db.batch(); n = 0; };
-
+        // update(), not set(merge): an item deleted while the model ran must not be recreated as a tags-only doc.
+        const writes: Promise<unknown>[] = [];
         if (result.tagsById[PROFILE_ID]) {
             const h = profileHashOf(data.personalInfo);
-            batch.set(userRef, { profileTags: result.tagsById[PROFILE_ID], profileContentHash: h, profileTagsHash: h, profileTaggedAt: now }, { merge: true });
-            n++;
+            writes.push(userRef.update({ profileTags: result.tagsById[PROFILE_ID], profileContentHash: h, profileTagsHash: h, profileTaggedAt: now }));
         }
         for (const key of RESUME_LIST_KEYS) {
             for (const item of data[key]) {
                 const tags = result.tagsById[item.id];
                 if (!tags) continue;
                 const h = contentHashOf(key, item);
-                batch.set(userRef.collection(SECTION_COLLECTION[key]).doc(item.id), { tags, contentHash: h, tagsHash: h, taggedAt: now, updatedAt: now }, { merge: true });
-                if (++n >= 450) await flush();
+                writes.push(userRef.collection(SECTION_COLLECTION[key]).doc(item.id).update({ tags, contentHash: h, tagsHash: h, taggedAt: now, updatedAt: now }));
             }
         }
-        if (n > 0) await flush();
+        const failed = (await Promise.allSettled(writes)).filter(r => r.status === "rejected" && (r.reason as { code?: number })?.code !== 5);
+        if (failed.length > 0) console.error("[tags/backfill] some writes failed:", (failed[0] as PromiseRejectedResult).reason);
         await mergeTagAliases(uid, result.aliases);
         revalidatePath("/dashboard");
         return NextResponse.json({ ok: true, tagged: Object.keys(result.tagsById).length, skipped: result.skipped.length });

@@ -3,13 +3,17 @@
 
 import { TAG_KINDS } from "@/lib/tags/types";
 import type { Requirement } from "@/lib/match/types";
+import { CANDIDATE_CONTEXT_RULE, candidatePayload } from "@/lib/about/prompt";
+import type { CandidatePromptContext } from "@/lib/about/types";
+
+type Candidate = CandidatePromptContext | null | undefined;
 
 export const JD_MAX_CHARS = 30_000;
 
 export const JD_SYSTEM_PROMPT = `You analyse job postings for a resume builder. Turn the posting into structured requirements that can be matched against a candidate's skill tags.
 
 Output ONE JSON object and nothing else:
-{"title":"<job title>","company":"<company or empty>","summary":"<one or two sentences on the role>","requirements":[{"name":"<canonical skill/keyword>","kind":"<kind>","importance":"must"|"nice","yearsMin":<number or null>}]}
+{"title":"<job title>","company":"<company or empty>","summary":"<one or two sentences on the role>","requirements":[{"name":"<canonical skill/keyword>","kind":"<kind>","importance":"must"|"nice","yearsMin":<number or null>}],"fitNotes":["<short note>"]}
 
 Kinds (exact ids): ${TAG_KINDS.map(k => k.id).join(", ")}.
 - technical-skill: languages, frameworks, concepts. tool-platform: products, clouds, tools. domain: industries / problem areas. soft-skill: interpersonal traits and generic abilities ("Analytical Thinking", "Communication", "Problem Solving"). methodology: ways of working and engineering practices ("Agile", "CI/CD", "Software Development Lifecycle", "Documentation", "Software Testing", "Code Review", "Debugging"). credential: degrees, certifications, clearances. language: human languages.
@@ -22,10 +26,14 @@ Rules:
 - Degree requirements become two entries: the level and the field, both credential. Level: "Bachelor's Degree" / "Master's Degree" / "Doctorate" when the posting says bachelor's/master's/PhD generically; the specific degree ("Bachelor of Science") only when the posting names it. Field: "Computer Science". "or a related field" makes the field entry "nice"; "or equivalent experience" makes both "nice".
 - yearsMin only when the posting states a number of years for that requirement (e.g. "5+ years of Go" -> Go with yearsMin 5).
 - Never invent requirements that are not in the posting.
-- Valid JSON only. No markdown.`;
+- Requirements describe the posting only; the candidate never changes them.
+- fitNotes: at most 2 short sentences, ONLY when "candidate" is given and the posting clearly conflicts with it on seniority (e.g. 8+ years required for an entry-level candidate), location / work mode, or visa sponsorship (e.g. "no sponsorship" for a candidate who needs it). Otherwise [].
+- Valid JSON only. No markdown.
+${CANDIDATE_CONTEXT_RULE}`;
 
-export function jdUserMessage(text: string): string {
-    return `Job posting:\n\n${text.slice(0, JD_MAX_CHARS)}`;
+export function jdUserMessage(text: string, candidate?: Candidate): string {
+    const c = candidatePayload(candidate);
+    return `${c ? `Candidate (context only, not part of the posting): ${JSON.stringify(c)}\n\n` : ""}Job posting:\n\n${text.slice(0, JD_MAX_CHARS)}`;
 }
 
 // ---------- reconcile: requirements vs the candidate's actual library
@@ -44,7 +52,9 @@ How to reason (like a human reading the resume, not a keyword matcher):
 - Equivalents and supersets count ("Amazon Web Services" for "Cloud Computing"; "PostgreSQL" for "SQL" and "Relational Databases"; "React" for "Frontend Development"). The reverse does NOT: "Cloud Computing" does not satisfy "Amazon Web Services", "SQL" does not satisfy "PostgreSQL", and one named tool never satisfies a different named tool (React is not Angular, Java is not JavaScript).
 - Cite evidence item ids only for items that genuinely demonstrate the requirement. Prefer satisfiedBy (tag names) when a tag fits; use evidence for cases no tag captures.
 - When nothing in the library supports a requirement, leave it out. Never stretch: a hiring manager must agree with every match.
-- satisfiedBy entries must be copied verbatim from candidateTags names; evidence ids verbatim from items. Valid JSON only, no markdown.`;
+- For a student or new graduate (see "candidate"), coursework, academic and personal projects count as evidence of fundamentals; they still never satisfy a named tool they do not use.
+- satisfiedBy entries must be copied verbatim from candidateTags names; evidence ids verbatim from items. Valid JSON only, no markdown.
+${CANDIDATE_CONTEXT_RULE}`;
 
 export interface ReconcileTagRow { name: string; kind: string; items: number }
 
@@ -52,8 +62,10 @@ export function reconcileUserMessage(input: {
     requirements: Requirement[];
     candidateTags: ReconcileTagRow[];
     items: ProposalPromptItem[];
+    candidate?: Candidate;
 }): string {
     return JSON.stringify({
+        candidate: candidatePayload(input.candidate),
         requirements: input.requirements.map(r => ({ name: r.display, kind: r.kind, importance: r.importance })),
         candidateTags: input.candidateTags,
         items: input.items,
@@ -76,7 +88,9 @@ Rules:
 - add-skill: only when the skill is genuinely evidenced by the candidate's other items (a tag on a work/project item) but missing from the skills section. Use the id of the best-fitting skills category.
 - gap: for requirements nothing in the library supports. Say plainly what would close it (a course, a project, a certification). Do not suggest lying.
 - Do not propose anything for requirements listed as muted.
-- Valid JSON only. No markdown.`;
+- Word rewrites at the level the candidate targets (see "candidate"), and respect what they want emphasized or played down.
+- Valid JSON only. No markdown.
+${CANDIDATE_CONTEXT_RULE}`;
 
 export interface ProposalPromptItem {
     id: string;
@@ -93,8 +107,10 @@ export function proposalUserMessage(input: {
     items: ProposalPromptItem[];
     skillCategories: { id: string; category: string; items: string }[];
     muted: string[];
+    candidate?: Candidate;
 }): string {
     return JSON.stringify({
+        candidate: candidatePayload(input.candidate),
         job: input.job,
         requirements: input.requirements.map(r => ({ name: r.display, importance: r.importance, kind: r.kind })),
         coverage: input.coverage,
@@ -117,10 +133,12 @@ Rules:
 - Start with a strong past-tense verb, 8 to 28 words, no trailing period, no first person.
 - Use the skill's wording (or a natural form of it) so a keyword scan finds it.
 - Keep every fact from the example and add nothing: never invent numbers, tools, team sizes or outcomes.
-- Valid JSON only. No markdown.`;
+- Keep the scope honest for the candidate's stage (see "candidate"): a student's class project is not "led a team" unless the example says so.
+- Valid JSON only. No markdown.
+${CANDIDATE_CONTEXT_RULE}`;
 
-export function skillBulletUserMessage(examples: { key: string; skill: string; item: string; example: string }[]): string {
-    return JSON.stringify({ examples });
+export function skillBulletUserMessage(examples: { key: string; skill: string; item: string; example: string }[], candidate?: Candidate): string {
+    return JSON.stringify({ candidate: candidatePayload(candidate), examples });
 }
 
 // ---------- skill questionnaire: file confirmed hard skills into a category
@@ -159,7 +177,9 @@ How to decide:
 - A resume should fit on one page: prefer fewer, stronger items.
 - Hide bullets (in locked or included candidate items) that are irrelevant to this job. Never hide a bullet or skill marked "protected": it names a hard requirement.
 - Hide skills in skill categories only when they are clearly irrelevant to this job.
-- Do not invent ids or indexes. Valid JSON only, no markdown.`;
+- Break ties among candidates with the candidate's target roles and what they want emphasized or played down (see "candidate").
+- Do not invent ids or indexes. Valid JSON only, no markdown.
+${CANDIDATE_CONTEXT_RULE}`;
 
 export interface TailorPromptBullet { i: number; text: string; protected: boolean }
 
@@ -169,6 +189,8 @@ export function autoTailorUserMessage(input: {
     softRequirements: { name: string; importance: string }[];
     locked: { id: string; section: string; label: string; bullets: TailorPromptBullet[] }[];
     candidates: { id: string; section: string; label: string; proposed: "include" | "exclude"; covers: string[]; bullets: TailorPromptBullet[]; skills: { name: string; protected: boolean }[] }[];
+    candidate?: Candidate;
 }): string {
-    return JSON.stringify(input);
+    const { candidate, ...rest } = input;
+    return JSON.stringify({ candidate: candidatePayload(candidate), ...rest });
 }

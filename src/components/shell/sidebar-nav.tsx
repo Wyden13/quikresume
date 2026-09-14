@@ -10,7 +10,7 @@ import { useMediaQuery, XL } from "@/lib/ui/use-media-query";
 import { togglePreviewPane, usePreviewPane } from "@/lib/ui/preview-pane-store";
 import { interceptNavigation } from "@/lib/ui/leave-guard";
 import { FOCUS_RING } from "@/components/ui/primitives/button";
-import { BarChart3, Eye, Layers, Library, LogOut, PenLine, Target, Upload, User, type LucideIcon } from "@/components/ui/primitives/icons";
+import { BarChart3, Compass, Eye, Layers, Library, LogOut, PenLine, Target, Upload, User, type LucideIcon } from "@/components/ui/primitives/icons";
 
 export interface ShellUser { name: string; email: string; image: string | null }
 
@@ -26,6 +26,7 @@ const PRIMARY: NavItem[] = [
 ];
 const SECONDARY: NavItem[] = [
     { label: "Variants", icon: Layers, href: "/dashboard/variants", match: p => p.startsWith("/dashboard/variants") },
+    { label: "About you", icon: Compass, href: "/dashboard/about", match: p => p.startsWith("/dashboard/about") },
     { label: "Profile", icon: User, href: "/dashboard/profile", match: p => p.startsWith("/dashboard/profile") },
 ];
 
