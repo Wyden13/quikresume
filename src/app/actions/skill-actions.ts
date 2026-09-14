@@ -17,7 +17,7 @@ export async function getSkills(): Promise<SkillCategoryItem[]> {
         .collection("skills")
         .get()
 
-    return snapshot.docs.map(doc => {
+    const rows = snapshot.docs.map(doc => {
         const data = doc.data();
         return {
             id: doc.id,
@@ -29,7 +29,10 @@ export async function getSkills(): Promise<SkillCategoryItem[]> {
             updatedAt: data.updatedAt?.toDate().toISOString() ?? null,
             createdAt: data.createdAt?.toDate().toISOString() ?? null,
         };
-    });
+    })
+    // No orderBy (it would drop documents missing the field): oldest first, so the
+    // manual baseline stays stable until the user drags the section.
+    return rows.sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
 }
 
 export async function deleteSkill(skillId: string) {

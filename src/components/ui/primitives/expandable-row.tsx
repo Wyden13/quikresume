@@ -18,14 +18,20 @@ interface ExpandableRowProps {
     id: string;
     muted?: boolean;
     as?: "li" | "div";
+    /** Rendered before the toggle button, outside it (e.g. a drag handle). */
+    leading?: React.ReactNode;
+    /** For sortable lists: the row element and its transform style. */
+    rowRef?: React.Ref<HTMLLIElement & HTMLDivElement>;
+    style?: React.CSSProperties;
 }
 
 /** A list row whose header toggles a body. Controls are siblings of the button, never inside it. */
-export function ExpandableRow({ open, onToggle, summary, controls, children, className, id, muted, as: Tag = "li" }: ExpandableRowProps) {
+export function ExpandableRow({ open, onToggle, summary, controls, children, className, id, muted, as: Tag = "li", leading, rowRef, style }: ExpandableRowProps) {
     const bodyId = `${id}-body`;
     return (
-        <Tag className={cn("group/row bg-surface transition-colors", open && "bg-surface", className)}>
+        <Tag ref={rowRef} style={style} className={cn("group/row bg-surface transition-colors", open && "bg-surface", className)}>
             <div className="flex min-h-[52px] items-stretch">
+                {leading && <div className="flex shrink-0 items-center pl-2">{leading}</div>}
                 <button
                     type="button"
                     aria-expanded={open}

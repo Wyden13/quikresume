@@ -1,5 +1,6 @@
 // Single import point for the icons used across the app, so the set stays curated.
 export {
+    ArrowDownWideNarrow,
     Award,
     BadgeCheck,
     BarChart3,
@@ -13,6 +14,7 @@ export {
     Eye,
     EyeOff,
     FolderGit2,
+    GripVertical,
     GraduationCap,
     HeartHandshake,
     Languages,
@@ -26,6 +28,7 @@ export {
     PenLine,
     Plus,
     Search,
+    SlidersHorizontal,
     Sparkles,
     Target,
     Trash2,

@@ -1,10 +1,11 @@
 "use client";
 
-import React from "react";
+import React, { useRef } from "react";
 import Link from "next/link";
 import type { PersonalInfo } from "@/types/schema";
 import { Card, CardBody, CardHeader } from "@/components/ui/primitives/card";
 import { Field, Input, Textarea } from "@/components/ui/primitives/field";
+import { summaryWordCount, wordCaution } from "@/lib/text/word-count";
 
 export function PersonalInfoSection({ value, onChange }: { value: PersonalInfo; onChange: (field: keyof PersonalInfo, v: string) => void }) {
     const f = (field: keyof PersonalInfo, label: string, placeholder: string, extra?: React.ComponentProps<typeof Input>) => (
@@ -28,11 +29,27 @@ export function PersonalInfoSection({ value, onChange }: { value: PersonalInfo; 
                 {f("website", "Website", "alexmorgan.dev")}
                 {f("github", "GitHub", "github.com/alexmorgan")}
                 {f("linkedin", "LinkedIn", "linkedin.com/in/alexmorgan")}
-                <div className="md:col-span-2">
-                    <Field label="Professional summary" htmlFor="pi-summary">
-                        <Textarea id="pi-summary" value={value.summary} onChange={e => onChange("summary", e.target.value)} placeholder="Brief overview of your professional background and goals…" rows={4} />
-                    </Field>
-                </div>
+            </CardBody>
+        </Card>
+    );
+}
+
+/** The professional summary: its own (movable) résumé section in the editor. */
+export function SummaryField({ value, onChange, autoFocus }: { value: PersonalInfo; onChange: (field: keyof PersonalInfo, v: string) => void; autoFocus?: boolean }) {
+    // Ref callback (not an effect): an Action items link scrolls here exactly once.
+    const focused = useRef(false);
+    const focusRef = (node: HTMLTextAreaElement | null) => {
+        if (!node || !autoFocus || focused.current) return;
+        focused.current = true;
+        node.scrollIntoView({ block: "center", behavior: "smooth" });
+        node.focus({ preventScroll: true });
+    };
+    return (
+        <Card>
+            <CardBody className="pt-4">
+                <Field label="Professional summary" htmlFor="pi-summary" {...wordCaution(summaryWordCount(value), "your summary")}>
+                    <Textarea ref={focusRef} id="pi-summary" value={value.summary} onChange={e => onChange("summary", e.target.value)} placeholder="Brief overview of your professional background and goals…" rows={4} />
+                </Field>
             </CardBody>
         </Card>
     );

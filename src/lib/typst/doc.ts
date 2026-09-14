@@ -9,7 +9,48 @@
 
 import { formatDateRange, formatMonthYear } from "@/lib/dates";
 import { bulletEntries, bulletLines, skillEntries, visible } from "@/lib/sub-items";
-import type { PersonalInfo, ResumeData } from "@/types/schema";
+import type { PersonalInfo, ResumeData, ResumeListKey } from "@/types/schema";
+import { orderedItems } from "@/lib/layout/order";
+import { defaultLayout, itemLayout, sectionSpacing } from "@/lib/layout/presets";
+import type { ResumeLayout, SectionId } from "@/lib/layout/types";
+
+/** Per-entry layout, present on every list entry (pt / booleans). */
+export interface TypstItemLayout {
+    space_after: number;
+    break_before: boolean;
+    keep: boolean;
+}
+
+export interface TypstSectionLayout {
+    above: number;
+    below: number;
+    gap: number;
+    indent: number;
+}
+
+export interface TypstLayout {
+    /** Template section keys in print order (header is always first). */
+    order: TypstSectionKey[];
+    page: { margin: number; size: number; leading: number };
+    sections: Record<TypstSectionKey, TypstSectionLayout>;
+}
+
+export type TypstSectionKey =
+    | "summary" | "education" | "skills" | "projects" | "experience" | "volunteering" | "publications" | "awards" | "certifications" | "languages";
+
+/** Editor section id -> template key. */
+export const TYPST_SECTION_KEY: Record<SectionId, TypstSectionKey> = {
+    summary: "summary",
+    workExperience: "experience",
+    education: "education",
+    skills: "skills",
+    projects: "projects",
+    certifications: "certifications",
+    awards: "awards",
+    volunteering: "volunteering",
+    publications: "publications",
+    languages: "languages",
+};
 
 export interface TypstHeader {
     name: string;
@@ -84,18 +125,34 @@ export interface TypstLanguage {
     proficiency: string;
 }
 
+type WithLayout<T> = T & TypstItemLayout;
+
 export interface TypstResumeDoc {
     header: TypstHeader;
     summary: string;
-    education: TypstEducation[];
-    skills: TypstSkill[];
-    projects: TypstProject[];
-    experience: TypstExperience[];
-    volunteering: TypstVolunteering[];
-    publications: TypstPublication[];
-    awards: TypstAward[];
-    certifications: TypstCertification[];
-    languages: TypstLanguage[];
+    education: WithLayout<TypstEducation>[];
+    skills: WithLayout<TypstSkill>[];
+    projects: WithLayout<TypstProject>[];
+    experience: WithLayout<TypstExperience>[];
+    volunteering: WithLayout<TypstVolunteering>[];
+    publications: WithLayout<TypstPublication>[];
+    awards: WithLayout<TypstAward>[];
+    certifications: WithLayout<TypstCertification>[];
+    languages: WithLayout<TypstLanguage>[];
+    layout: TypstLayout;
+}
+
+function typstLayout(layout: ResumeLayout): TypstLayout {
+    const sections = {} as Record<TypstSectionKey, TypstSectionLayout>;
+    for (const id of Object.keys(TYPST_SECTION_KEY) as SectionId[]) {
+        const sp = sectionSpacing(layout, id);
+        sections[TYPST_SECTION_KEY[id]] = { above: sp.above, below: sp.below, gap: sp.itemGap, indent: sp.indent };
+    }
+    return {
+        order: layout.sectionOrder.map(id => TYPST_SECTION_KEY[id]),
+        page: { margin: layout.page.marginMm, size: layout.page.fontPt, leading: layout.page.leadingEm },
+        sections,
+    };
 }
 
 const s = (v: string | null | undefined): string => (v ?? "").trim();
@@ -111,6 +168,14 @@ const shownBullets = (text: string, hidden: readonly string[] | undefined) =>
 
 export function toTypstDoc(data: ResumeData): TypstResumeDoc {
     const p = data.personalInfo;
+    const layout = data.layout ?? defaultLayout();
+    /** Selected items of a section in print order, each with its layout fields. */
+    const pick = <K extends ResumeListKey>(key: K) =>
+        orderedItems(key, data[key] as ResumeData[K][number][], layout).filter(x => x.isSelected);
+    const lay = (id: string): TypstItemLayout => {
+        const l = itemLayout(layout, id);
+        return { space_after: l.spaceAfter, break_before: l.breakBefore, keep: l.keepTogether };
+    };
     return {
         header: {
             name: [s(p.firstName), s(p.lastName)].filter(Boolean).join(" "),
@@ -123,72 +188,61 @@ export function toTypstDoc(data: ResumeData): TypstResumeDoc {
             website: s(p.website),
         },
         summary: s(p.summary),
-        education: data.education
-            .filter(e => e.isSelected)
-            .map(e => ({
-                title: s(e.degree),
-                institution: s(e.institution),
-                date: formatDateRange(e.startDate, e.endDate),
-                gpa: s(e.gpa),
-                minor: s(e.minor),
-                details: s(e.details),
-            })),
-        skills: data.skills
-            .filter(k => k.isSelected)
-            .flatMap(k => {
-                const all = skillEntries(k.items);
-                const shown = visible(all, k.hidden);
-                // A category whose skills are all switched off disappears.
-                return all.length > 0 && shown.length === 0 ? [] : [{ label: s(k.category), value: shown.map(e => e.label).join(", ") }];
-            }),
-        projects: data.projects
-            .filter(pr => pr.isSelected)
-            .map(pr => ({
-                title: s(pr.title),
-                stack: s(pr.stack),
-                date: formatDateRange(pr.startDate, pr.endDate),
-                link: s(pr.link),
-                bullets: shownBullets(pr.description, pr.hidden),
-            })),
-        experience: data.workExperience
-            .filter(x => x.isSelected)
-            .map(x => ({
-                title: s(x.title),
-                company: s(x.company),
-                date: formatDateRange(x.startDate, x.endDate),
-                bullets: shownBullets(x.description, x.hidden),
-            })),
-        volunteering: data.volunteering
-            .filter(v => v.isSelected)
-            .map(v => ({
-                title: s(v.role),
-                organization: s(v.organization),
-                date: formatDateRange(v.startDate, v.endDate),
-                bullets: shownBullets(v.description, v.hidden),
-            })),
-        publications: data.publications
-            .filter(pub => pub.isSelected)
-            .map(pub => ({
-                title: s(pub.title),
-                venue: s(pub.venue),
-                date: formatMonthYear(pub.date),
-                link: s(pub.link),
-                authors: s(pub.authors),
-            })),
-        awards: data.awards
-            .filter(a => a.isSelected)
-            .map(a => ({
-                title: s(a.title),
-                issuer: s(a.issuer),
-                date: formatMonthYear(a.date),
-                description: s(a.description),
-            })),
-        certifications: data.certifications
-            .filter(c => c.isSelected)
-            .map(c => ({ name: s(c.name), issuer: s(c.issuer), year: s(c.year) })),
-        languages: data.languages
-            .filter(l => l.isSelected)
-            .map(l => ({ language: s(l.language), proficiency: s(l.proficiency) })),
+        education: pick("education").map(e => ({
+            title: s(e.degree),
+            institution: s(e.institution),
+            date: formatDateRange(e.startDate, e.endDate),
+            gpa: s(e.gpa),
+            minor: s(e.minor),
+            details: s(e.details),
+            ...lay(e.id),
+        })),
+        skills: pick("skills").flatMap(k => {
+            const all = skillEntries(k.items);
+            const shown = visible(all, k.hidden);
+            // A category whose skills are all switched off disappears.
+            return all.length > 0 && shown.length === 0 ? [] : [{ label: s(k.category), value: shown.map(e => e.label).join(", "), ...lay(k.id) }];
+        }),
+        projects: pick("projects").map(pr => ({
+            title: s(pr.title),
+            stack: s(pr.stack),
+            date: formatDateRange(pr.startDate, pr.endDate),
+            link: s(pr.link),
+            bullets: shownBullets(pr.description, pr.hidden),
+            ...lay(pr.id),
+        })),
+        experience: pick("workExperience").map(x => ({
+            title: s(x.title),
+            company: s(x.company),
+            date: formatDateRange(x.startDate, x.endDate),
+            bullets: shownBullets(x.description, x.hidden),
+            ...lay(x.id),
+        })),
+        volunteering: pick("volunteering").map(v => ({
+            title: s(v.role),
+            organization: s(v.organization),
+            date: formatDateRange(v.startDate, v.endDate),
+            bullets: shownBullets(v.description, v.hidden),
+            ...lay(v.id),
+        })),
+        publications: pick("publications").map(pub => ({
+            title: s(pub.title),
+            venue: s(pub.venue),
+            date: formatMonthYear(pub.date),
+            link: s(pub.link),
+            authors: s(pub.authors),
+            ...lay(pub.id),
+        })),
+        awards: pick("awards").map(a => ({
+            title: s(a.title),
+            issuer: s(a.issuer),
+            date: formatMonthYear(a.date),
+            description: s(a.description),
+            ...lay(a.id),
+        })),
+        certifications: pick("certifications").map(c => ({ name: s(c.name), issuer: s(c.issuer), year: s(c.year), ...lay(c.id) })),
+        languages: pick("languages").map(l => ({ language: s(l.language), proficiency: s(l.proficiency), ...lay(l.id) })),
+        layout: typstLayout(layout),
     };
 }
 

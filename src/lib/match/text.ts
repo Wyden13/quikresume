@@ -12,7 +12,10 @@ export function renderedText(doc: TypstResumeDoc): string {
         else if (Array.isArray(v)) v.forEach(push);
         else if (v && typeof v === "object") Object.values(v).forEach(push);
     };
-    push(doc);
+    // Layout is spacing and section keys, never printed.
+    const { layout: _layout, ...printed } = doc;
+    void _layout;
+    push(printed);
     return out.join("\n");
 }
 

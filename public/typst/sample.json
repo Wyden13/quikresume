@@ -144,5 +144,86 @@
       "language": "French",
       "proficiency": "B2"
     }
-  ]
+  ],
+  "layout": {
+    "order": [
+      "summary",
+      "education",
+      "skills",
+      "projects",
+      "experience",
+      "volunteering",
+      "publications",
+      "awards",
+      "certifications",
+      "languages"
+    ],
+    "page": {
+      "margin": 16,
+      "size": 10.5,
+      "leading": 0.55
+    },
+    "sections": {
+      "summary": {
+        "above": 4,
+        "below": 6,
+        "gap": 6,
+        "indent": 0
+      },
+      "education": {
+        "above": 4,
+        "below": 6,
+        "gap": 6,
+        "indent": 0
+      },
+      "skills": {
+        "above": 4,
+        "below": 6,
+        "gap": 6,
+        "indent": 0
+      },
+      "projects": {
+        "above": 4,
+        "below": 6,
+        "gap": 6,
+        "indent": 0
+      },
+      "experience": {
+        "above": 4,
+        "below": 6,
+        "gap": 6,
+        "indent": 0
+      },
+      "volunteering": {
+        "above": 4,
+        "below": 6,
+        "gap": 6,
+        "indent": 0
+      },
+      "publications": {
+        "above": 4,
+        "below": 6,
+        "gap": 6,
+        "indent": 0
+      },
+      "awards": {
+        "above": 4,
+        "below": 6,
+        "gap": 6,
+        "indent": 0
+      },
+      "certifications": {
+        "above": 4,
+        "below": 6,
+        "gap": 6,
+        "indent": 0
+      },
+      "languages": {
+        "above": 4,
+        "below": 6,
+        "gap": 6,
+        "indent": 0
+      }
+    }
+  }
 }

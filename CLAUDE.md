@@ -17,6 +17,7 @@ Resume builder. Users keep their full professional history in a **Master Library
 - Resume import: Z.ai GLM-4.6V (vision) via plain `fetch` (`src/lib/glm/client.ts`), `pdfjs-dist` (browser PDF
   rasterising), `mammoth` (DOCX text), `zod` (lenient output parsing)
 - Smart tags + Job Match: Z.ai text model `glm-5.3-flash` in JSON mode (same client); `recharts` for the charts
+- Drag to reorder: `@dnd-kit/core` + `@dnd-kit/sortable` behind `components/ui/primitives/sortable.tsx`
 - No test framework, no CI. Lint is `eslint-config-next` (core-web-vitals + typescript).
 
 ## Commands
@@ -59,6 +60,7 @@ src/
                                              gap -> proposals (re-reconciles first; UI hidden) / re-run the reconcile pass for a saved job
   app/api/jobs/{auto-tailor,skill-answers}/route.ts   tailor plan for suggestions (see Tailor window) / questionnaire answers -> library
   app/actions/*-actions.ts                   "use server" CRUD per collection + resume-actions.ts (save + tagging)
+                                             + layout-actions.ts (getLayout / updateLayout: meta/layout)
                                              + user-actions.ts (profile), variant-actions.ts, job-actions.ts, tag-actions.ts,
                                              auth-actions.ts (signOutAction, passed to the client sidebar)
   lib/db/{user-collection,meta,variants,jobs,load-resume}.ts   server-only Firestore helpers
@@ -70,9 +72,12 @@ src/
   components/dashboard-client.tsx            view from `?view=` (lib/ui/use-dashboard-view.ts); TopBar per view; draft state
                                              + editor leave guard (lib/ui/leave-guard.ts, used by the sidebar links); preview pane grid
   components/ui/section-tabs.tsx             "All | Profile | <sections with counts>" filter strip (Library + Editor)
-  components/ui/library/{library-view,library-section,library-row}.tsx   dense expandable rows; server-action forms
+  components/ui/library/{library-view,library-section,library-row}.tsx   dense expandable rows; server-action forms;
+                                             sections / rows in layout order, draggable (saves instantly)
   components/ui/editor/{resume-form,editor-section,editor-item-row,section-fields,personal-info-section,date-range-fields}.tsx
-                                             the Master Editor: collapsible item rows, per-section field config
+                                             the Master Editor: collapsible item rows, per-section field config, drag handles
+  components/ui/editor/layout-controls.tsx   advanced layout mode: PageLayoutCard, SectionLayoutControls, ItemLayoutControls
+  components/ui/action-items-card.tsx        yellow "Action items" (over-cap items, bad dates) on Library + Editor
   components/ui/profile-form.tsx             Profile page form -> updateUserProfile
   components/ui/resume-import.tsx            multi-file upload (PDF -> page images) + combined review step
   components/ui/variant-toolbar.tsx          Save as / Load / Update variant on the library view
@@ -88,11 +93,15 @@ src/
   lib/ui/{use-dashboard-view,use-media-query,persisted-store,preview-pane-store,expansion-store,leave-guard}.ts
                                              URL view state, matchMedia hook, useSyncExternalStore stores (pane open in
                                              localStorage, expanded row ids in sessionStorage)
-  lib/dates.ts, lib/ids.ts, lib/hash.ts      date-string helpers, temp ids, stableHash (content hashes)
+  lib/dates.ts, lib/ids.ts, lib/hash.ts      date-string helpers (month precision), temp ids, stableHash (content hashes)
+  lib/validation/dates.ts                    validateItemDates / invalidDateItems (editor gate + server re-check)
+  lib/text/word-count.ts                     per-item word counts, WORD_CAUTION, overCapItems
+  lib/layout/{types,presets,order}.ts        ResumeLayout, presets / normalizeLayout / pruneLayout, orderedItems / move*
   lib/sections.ts                            ResumeListKey <-> Firestore collection names, item labels
   lib/resume-mapper.ts                       Firestore rows -> ResumeData (server); personalInfoToUserDoc
   lib/glm/client.ts                          chatCompletion() for Z.ai (server-only): vision + text models, JSON mode
-  lib/import/{prompt,dates,parsed-resume,merge,types}.ts   import prompt, date normaliser, zod parser, union merge
+  lib/import/{prompt,dates,parsed-resume,merge,match,types}.ts   import prompt, date normaliser, zod parser, union merge,
+                                             fuzzy duplicate matching
   lib/import/pdf-pages.ts (browser), document-text.ts (server)   upload -> GLM parts, shared with /api/jobs/analyze
   lib/tags/{types,content,normalize,prompt,extract,aggregate}.ts   smart tags (see Smart tags)
   lib/variants.ts                            pure variant helpers (selectedIds, selectedHidden, applyVariant, variantUsage)
@@ -127,16 +136,55 @@ public/pdfjs/pdf.worker.min.mjs              gitignored, filled by scripts/copy-
    after server actions cannot clobber unsaved edits. Leaving the editor with unsaved changes through the sidebar
    opens "Save & leave / Discard / Keep editing" (`setLeaveGuard` + `interceptNavigation`); reload / tab close get the
    browser prompt; browser Back out of the editor discards the draft (popstate).
+   `ResumeData.layout` comes from `users/{uid}/meta/layout` (`getLayout`, normalised in `toResumeData`).
 3. `ResumeForm` edits through a functional `onChange(prev => next)`. New items get `tmp-<uuid>` ids
    (`src/lib/ids.ts`). Deleting a persisted item calls the delete action immediately; adds/edits persist on save.
-4. `saveResumeData` writes personal info to `users/{uid}` and every list item into its subcollection
-   (`isTempId` -> new doc, else merge by id), chunked under Firestore's 500-writes-per-batch limit.
+4. `saveResumeData` rejects the draft (`{ success: false, error, invalidIds }`, nothing written) when
+   `invalidDateItems` finds bad dates, then writes personal info to `users/{uid}` and every list item into its
+   subcollection, chunked under Firestore's 500-writes-per-batch limit. A `tmp-<uuid>` item is written to doc `<uuid>`
+   (not an auto id), so retrying a save that failed part-way can't create duplicates. The layout is written last
+   (`replaceMeta`, ids pruned to existing items, temp ids renamed).
 5. Library cards call `update*`/`delete*` actions via `<form action>`; each action revalidates `/dashboard`.
 6. The Profile page (`/dashboard/profile`) edits the same `users/{uid}` fields through `updateUserProfile`;
    both it and `saveResumeData` go through `personalInfoToUserDoc` so the written shape stays identical.
 7. `isSelected` is the **working selection**. A variant (`/dashboard/variants`) is a snapshot of the selected
    ids; loading one rewrites `isSelected` on every item. Editing an item used by variants shows a badge and a
    confirm dialog on Save & Exit (variants are pointers, so the edit shows up in all of them).
+
+## Layout and order
+
+`ResumeLayout` (`lib/layout/types.ts`): `sectionOrder` (summary + 9 list sections; the header is always first),
+`itemOrder` (manual order per section, absent = by date), `page` (margin mm / font pt / leading em), `sections`
+(per-section above / below / itemGap / indent pt), `items` (per-item spaceAfter / breakBefore / keepTogether).
+One global working layout in `meta/layout`; variants snapshot it.
+
+- **Order** (`lib/layout/order.ts`): `orderedItems` is the one ordering used by the Editor, the Library, the Tailor window and
+  `toTypstDoc`. Default is newest first: current ("Present") first, then latest end (a lone start counts as the end), then latest
+  start, undated last. Awards / publications by `date`, certifications by `year`. Skills and languages have no dates and keep load
+  order (skills are sorted by `createdAt` in memory). Dragging stores the displayed order in `itemOrder[key]`; items missing from
+  it (added later) slot in after the last newer item. "Sort by date" deletes the manual order.
+- **Dragging**: Editor edits `draft.layout` (saved on Save & Exit); Library calls `updateLayout` (optimistic); Tailor puts the
+  layout on `TailorSelection.layout`, Close passes it to `applyWorkingSelection`, Save variant to `createVariantFromPlan`.
+  The Library hides the Summary but keeps its position in the order. Section tabs follow `sectionOrder`.
+- **Variants**: `layout` is snapshotted by create / update / save-from-plan and copied on duplicate; loading writes it to
+  `meta/layout`. Variants saved before layouts (`layout: null`) leave the working layout alone.
+- **Advanced layout mode** (editor TopBar switch, localStorage `advanced-layout-store`): page card on top, section spacing under
+  each section header, "Layout for this item" inside item rows. Each is Compact / Normal / Relaxed / Custom (exact values,
+  clamped by `RANGES`). Normal = the template's original values, so an untouched layout renders exactly as before.
+  Item gap and item overrides only exist for entry sections (`ENTRY_SECTIONS`: experience, education, projects,
+  volunteering, publications, awards); skills / certifications / languages print as one grid or line.
+- Writes use `replaceMeta` (plain `set`): `writeMeta` merges nested maps, so reset keys would survive.
+
+## Word cap and dates
+
+- **Word cap** (`lib/text/word-count.ts`): per item, all text fields including hidden bullets, warn only. Counter from 400
+  words, caution at `WORD_CAUTION = 500` (badge on the editor row, yellow note in the item, summary field caution). Listed in
+  the Action items card, whose links remount the editor with that row open (`initialOpenId`).
+- **Dates** are month precision: `MonthField` (month + year selects; `<input type="month">` is missing in Firefox / Safari)
+  stores `"YYYY-MM-01"`; `toDateInputValue` drops stored days, the next save writes day 01. Rules (`lib/validation/dates.ts`):
+  everything optional; end without start is an error; end before start is an error (same month is fine); a start or single
+  date after the current month is an error; future end dates are allowed; certification year must be `YYYY`, not future.
+  Errors show inline, disable Save & Exit ("Fix N dates" jumps to the first), and the import review flags them.
 
 ## Sub-item selection
 
@@ -270,7 +318,12 @@ file --(browser)--> PDF? render pages to JPEG with pdf.js : send as-is
 - Parsing is lenient on purpose: the envelope never fails, each item is validated on its own with zod, and
   rejects go into `warnings` (shown in the review step). Dates like `2021`, `Jan 2021`, `03/2021`,
   `Spring 2020`, `Present` are normalised in `lib/import/dates.ts`.
-- `mergeImport` appends new items and **merges** duplicates (same `itemKey`): bullets and skill lists are
+- Duplicates are found by `findMatch` (`lib/import/match.ts`, fuzzy, deterministic): `canon` lowercases, strips accents /
+  punctuation, expands abbreviations (Sr., B.S., Ph.D.…), drops company suffixes (`canonOrg`) and treats save placeholders
+  (`PLACEHOLDER` in `lib/sections.ts`: "Unknown Company", "General"…) as empty; titles match on token Dice ≥ 0.8; work
+  experience also needs the same start *year* (or a missing one). The review labels against `draft ?? initialResumeData`,
+  the same base the merge uses.
+- `mergeImport` appends new items and **merges** duplicates: bullets and skill lists are
   unioned, empty scalar fields filled. The review step labels rows New / Adds detail / Already in library.
   Several files can be queued in one session (`combineParsedFiles` dedupes across files). Personal info fills
   only empty fields unless the user ticks "Replace my existing details".
@@ -283,9 +336,9 @@ file --(browser)--> PDF? render pages to JPEG with pdf.js : send as-is
 ResumeData --toTypstDoc()--> TypstResumeDoc (JSON) --sys.inputs.resume--> main.typ --> templates/<id>.typ render(data)
 ```
 
-- `toTypstDoc` (`src/lib/typst/doc.ts`) is the **only** place data is shaped for Typst: it filters
-  `isSelected` and `hidden` sub-items, formats date ranges, splits bullets, and guarantees every field is a string or array
-  (never null). Templates are pure styling: they do no filtering or date logic and never receive markup.
+- `toTypstDoc` (`src/lib/typst/doc.ts`) is the **only** place data is shaped for Typst: it orders items (`orderedItems`),
+  filters `isSelected` and `hidden` sub-items, formats date ranges, splits bullets, adds `layout` and per-entry layout fields,
+  and guarantees every field is a string or array (never null). `renderedText` (ATS check) skips `layout`. Templates are pure styling: they do no filtering or date logic and never receive markup.
   User text is displayed as plain strings, so `# * _ $ [ \` etc. need no escaping.
 - `src/lib/typst/client.ts` lazily inits typst.ts once (wasm via URL from `/typst/wasm`, default remote
   font assets disabled, Inter preloaded, `main.typ` + templates registered with `addSource`), and
@@ -296,7 +349,9 @@ ResumeData --toTypstDoc()--> TypstResumeDoc (JSON) --sys.inputs.resume--> main.t
   SVG visible while recompiling and shows Typst diagnostics on error.
 - **Adding a template:** write `public/typst/templates/<id>.typ` exporting `#let render(data) = { ... }`;
   import it in `public/typst/main.typ` and add it to the `templates` dict; add an entry to
-  `TEMPLATES` in `src/lib/typst/templates.ts`. Section macros in `ledger.typ`
+  `TEMPLATES` in `src/lib/typst/templates.ts`. A template should iterate `data.layout.order` and honour the page /
+  section / entry layout values (see `render` and `stack-entries` in `ledger.typ`, which fall back to defaults when absent).
+  Section macros in `ledger.typ`
   (`header`, `summary`, `education`, `skills`, `projects`, `experience`, `certifications`) are the
   reference for what each section receives.
 
@@ -315,6 +370,9 @@ ResumeData --toTypstDoc()--> TypstResumeDoc (JSON) --sys.inputs.resume--> main.t
 | `awards[]` | `{ title, issuer, date, description }` |
 | `certifications[]` | `{ name, issuer, year }` |
 | `languages[]` | `{ language, proficiency }` |
+| `layout` | `{ order: sectionKey[], page: { margin (mm), size (pt), leading (em) }, sections: { <key>: { above, below, gap, indent } } }` |
+
+Every list entry also carries `space_after` (pt), `break_before`, `keep` (entries are unbreakable unless `keep` is false).
 
 ## Data model (Firestore)
 
@@ -335,13 +393,14 @@ Subcollections, each item doc has `isSelected`, `tags`, `contentHash`, `tagsHash
 | `volunteering` | `role, organization, startDate, endDate, isActive, description: string[], hidden: string[]` |
 | `publications` | `title, venue, date, link, authors` |
 | `languages` | `language, proficiency` |
-| `variants` | `name, labels: string[], items: {experience: string[], …}, hidden: {itemId: string[]}, templateId` (pointers only) |
+| `variants` | `name, labels: string[], items: {experience: string[], …}, hidden: {itemId: string[]}, layout: ResumeLayout \| null, templateId` (pointers only) |
 | `jobs` | `title, company, source, jdText, summary, requirements[] ({name, display, kind, importance, yearsMin, satisfiedBy[], evidence[], reason}), proposals[], proposalsAt, lastScore` |
 | `meta/tags` | `aliases: Record<alias, canonical>` |
+| `meta/layout` | `sectionOrder, itemOrder, page, sections, items` (see Layout and order) |
 | `meta/preferences` | `mutedProposals: {kind, tag?, itemId?}[], caps: Record<ResumeListKey, number \| null>, declinedSoftSkills: {name, display, at}[]` (hard + soft) |
 
-Dates are stored as Firestore `Timestamp` at **UTC midnight** (`toUtcDate`). In the editor model
-`startDate` is `"YYYY-MM-DD" | ""` and `endDate` is `"YYYY-MM-DD" | "Present" | ""`; `"Present"`
+Dates are stored as Firestore `Timestamp` at **UTC midnight** (`toUtcDate`), month precision (day 01). In the editor model
+`startDate` is `"YYYY-MM-01" | ""` and `endDate` is `"YYYY-MM-01" | "Present" | ""`; `"Present"`
 round-trips to `isActive: true` / `endDate: null`. `description` is newline-separated bullets in the
 editor and `string[]` in Firestore.
 
@@ -387,3 +446,7 @@ editor and `string[]` in Firestore.
 - ESLint ignores `public/pdfjs/**` and `public/typst/wasm/**` (vendored bundles).
 - No `typst` CLI locally: `pip install typst` in a venv gives `typst.compile(...)` with `sys_inputs`, which is
   enough to check the templates against `sample.json`.
+- `schema.ts` imports `defaultLayout` from `lib/layout/presets.ts`, so `presets.ts` must not import values from
+  `@/types/schema` (types only) or the modules form a runtime cycle.
+- Nested `SortableList`s (sections containing item lists) are separate `DndContext`s; only handles start a drag, so row
+  toggles and inputs keep working. Single-section tabs still wrap rows in a `SortableList` (useSortable needs a context).

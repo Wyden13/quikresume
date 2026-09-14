@@ -48,6 +48,21 @@ export const SECTION_LABEL: Record<ResumeListKey, string> = {
     languages: "Languages",
 };
 
+/** What saveResumeData writes for empty required fields. Import matching treats these as empty. */
+export const PLACEHOLDER = {
+    role: "Untitled Role",
+    company: "Unknown Company",
+    program: "Untitled Program",
+    institution: "Unknown Institution",
+    skillCategory: "General",
+    project: "Untitled Project",
+    certification: "Untitled Certification",
+    award: "Untitled Award",
+    organization: "Unknown Organization",
+    publication: "Untitled Publication",
+    language: "Unknown Language",
+} as const;
+
 export interface ItemLabel { title: string; subtitle: string; meta: string }
 
 /** Title / subtitle / date-ish meta for any list item, for compact rows. */

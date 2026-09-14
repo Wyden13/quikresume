@@ -12,6 +12,7 @@ import { classifyIncoming, combineParsedFiles, type CombinedImport, type ImportS
 import { MAX_FILE_BYTES, MAX_PDF_PAGES, type ImportResponse } from "@/lib/import/types";
 import { documentFormData } from "@/lib/import/pdf-pages";
 import { itemLabel, itemTitle, SECTION_LABEL } from "@/lib/sections";
+import { validateItemDates } from "@/lib/validation/dates";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/primitives/button";
 import { Checkbox } from "@/components/ui/primitives/field";
@@ -303,6 +304,8 @@ function ReviewStep({ result, current, onConfirm, onRestart }: ReviewStepProps) 
                                 {items.map(item => {
                                     const { title, subtitle, meta } = itemLabel(key, item);
                                     const cls = classes[item.id];
+                                    const dateErrors = validateItemDates(key, item);
+                                    const dateError = dateErrors.start ?? dateErrors.end ?? dateErrors.date;
                                     return (
                                         <li key={item.id}>
                                             <label className={cn("flex cursor-pointer items-start gap-3 px-3 py-2.5 transition-colors", !checked[item.id] && "opacity-60")}>
@@ -311,6 +314,7 @@ function ReviewStep({ result, current, onConfirm, onRestart }: ReviewStepProps) 
                                                     <div className="flex flex-wrap items-center gap-2">
                                                         <p className="break-words text-sm font-medium text-fg">{title || <span className="text-fg-subtle">Untitled</span>}</p>
                                                         <ClassChip cls={cls} sectionKey={key} />
+                                                        {dateError && <Badge tone="danger" title={`${dateError} You can fix it in the editor.`}>Check dates</Badge>}
                                                     </div>
                                                     {subtitle && <p className="break-words text-13 text-fg-muted">{subtitle}</p>}
                                                     {(meta || multi) && <p className="mt-0.5 text-xs text-fg-subtle">{[meta, multi ? sourceById[item.id] : ""].filter(Boolean).join(" · ")}</p>}

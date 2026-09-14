@@ -3,8 +3,12 @@
 // It receives the resume document produced by src/lib/typst/doc.ts
 // (see TypstResumeDoc there for the exact shape). Every field is a string
 // (possibly empty) or an array; the app has already filtered out unselected
-// items and pre-formatted date ranges. Templates never see raw markup:
-// all user text is displayed as plain strings, so no escaping is needed.
+// items, sorted them and pre-formatted date ranges. Templates never see raw
+// markup: all user text is displayed as plain strings, so no escaping is needed.
+//
+// `data.layout` (optional) carries the section order, page settings and
+// per-section spacing; every list entry carries space_after / break_before /
+// keep. Missing values fall back to the defaults below (the original look).
 //
 // Exported entry point: `render(data)`.
 // Fonts: Inter (vendored in public/typst/fonts). Falls back to Helvetica/Arial.
@@ -16,6 +20,12 @@
 #let accent = rgb("#9184d9")
 #let accent-deep = rgb("#5d5294")
 #let rule = rgb("#cfd3e5")
+
+// ---------- Layout defaults ----------
+#let default-order = ("summary", "education", "skills", "projects", "experience", "volunteering", "publications", "awards", "certifications", "languages")
+#let default-page = (margin: 16, size: 10.5, leading: 0.55)
+#let default-sp = (above: 4, below: 6, gap: 6, indent: 0)
+#let default-item = (space_after: 0, break_before: false, keep: true)
 
 // ---------- Helpers ----------
 #let opt(x) = x != none and x != ""
@@ -44,20 +54,22 @@
 )
 
 // Section heading + body. Returns nothing when the body is empty.
-#let section(title, body) = {
+// `sp`: (above, below, gap, indent) in pt.
+#let section(title, body, sp: default-sp) = {
   if body == none { return }
-  v(4pt)
+  v(sp.above * 1pt)
   block(breakable: false, below: 6pt, grid(
     columns: (auto, 1fr), column-gutter: 8pt, align: horizon,
     text(size: 8.5pt, weight: 500, tracking: 0.14em, fill: accent-deep, upper(title)),
     fade-rule(),
   ))
-  body
-  v(6pt)
+  if sp.indent > 0 { pad(x: sp.indent * 1pt, body) } else { body }
+  v(sp.below * 1pt)
 }
 
 // Entry with a right-aligned date (education, projects, experience).
-#let entry(title, meta: "", date: "", body) = block(breakable: false, {
+// `keep: false` lets a long entry split across pages.
+#let entry(title, meta: "", date: "", keep: true, body) = block(breakable: not keep, {
   grid(
     columns: (1fr, auto), column-gutter: 12pt,
     [#text(weight: 500, title)#if opt(meta) [ #text(fill: muted)[· #meta]]],
@@ -74,11 +86,14 @@
 
 #let bullets(items) = if items.len() > 0 { list(..items) }
 
-// Stacks entries with a small gap between them.
-#let stack-entries(items, render-one) = {
+// Stacks entries with the section's gap between them and applies each entry's
+// overrides. `render-one(item, keep)` draws one entry.
+#let stack-entries(items, render-one, sp: default-sp) = {
   for (i, item) in items.enumerate() {
-    if i > 0 { v(6pt) }
-    render-one(item)
+    let l = default-item + item
+    if l.break_before { pagebreak(weak: true) } else if i > 0 { v(sp.gap * 1pt) }
+    render-one(item, l.keep)
+    if l.space_after > 0 { v(l.space_after * 1pt) }
   }
 }
 
@@ -113,14 +128,14 @@
 
 #let summary(s) = if opt(s) { par(s) }
 
-#let education(items) = if items.len() > 0 {
-  stack-entries(items, e => {
+#let education(items, sp) = if items.len() > 0 {
+  stack-entries(sp: sp, items, (e, keep) => {
     let facts = join-present((
       if opt(e.gpa) { "GPA " + e.gpa } else { "" },
       if opt(e.minor) { "Minor in " + e.minor } else { "" },
     ), " · ")
     let title = join-present((e.institution, e.title), " — ")
-    entry(title, date: e.date, {
+    entry(title, date: e.date, keep: keep, {
       if opt(facts) or opt(e.details) {
         text(fill: muted)[
           #if opt(facts) [#facts #if opt(e.details) [\ ]]
@@ -131,43 +146,43 @@
   })
 }
 
-#let skills(items) = if items.len() > 0 {
+#let skills(items, sp) = if items.len() > 0 {
   kv(items.map(i => (i.label, i.value)))
 }
 
-#let projects(items) = if items.len() > 0 {
-  stack-entries(items, p => {
+#let projects(items, sp) = if items.len() > 0 {
+  stack-entries(sp: sp, items, (p, keep) => {
     let title = if opt(p.link) { link(as-url(p.link))[#p.title] } else { p.title }
-    entry(title, meta: p.stack, date: p.date, bullets(p.bullets))
+    entry(title, meta: p.stack, date: p.date, keep: keep, bullets(p.bullets))
   })
 }
 
-#let experience(items) = if items.len() > 0 {
-  stack-entries(items, x => entry(x.title, meta: x.company, date: x.date, bullets(x.bullets)))
+#let experience(items, sp) = if items.len() > 0 {
+  stack-entries(sp: sp, items, (x, keep) => entry(x.title, meta: x.company, date: x.date, keep: keep, bullets(x.bullets)))
 }
 
-#let volunteering(items) = if items.len() > 0 {
-  stack-entries(items, v => entry(v.title, meta: v.organization, date: v.date, bullets(v.bullets)))
+#let volunteering(items, sp) = if items.len() > 0 {
+  stack-entries(sp: sp, items, (v, keep) => entry(v.title, meta: v.organization, date: v.date, keep: keep, bullets(v.bullets)))
 }
 
-#let publications(items) = if items.len() > 0 {
-  stack-entries(items, p => {
+#let publications(items, sp) = if items.len() > 0 {
+  stack-entries(sp: sp, items, (p, keep) => {
     let title = if opt(p.link) { link(as-url(p.link))[#p.title] } else { p.title }
     let byline = join-present((p.authors, p.venue), " · ")
-    entry(title, date: p.date, if opt(byline) { text(fill: muted, byline) })
+    entry(title, date: p.date, keep: keep, if opt(byline) { text(fill: muted, byline) })
   })
 }
 
-#let awards(items) = if items.len() > 0 {
-  stack-entries(items, a => entry(a.title, meta: a.issuer, date: a.date,
+#let awards(items, sp) = if items.len() > 0 {
+  stack-entries(sp: sp, items, (a, keep) => entry(a.title, meta: a.issuer, date: a.date, keep: keep,
     if opt(a.description) { text(fill: muted, a.description) }))
 }
 
-#let languages(items) = if items.len() > 0 {
+#let languages(items, sp) = if items.len() > 0 {
   items.map(l => if opt(l.proficiency) { l.language + " (" + l.proficiency + ")" } else { l.language }).join(" · ")
 }
 
-#let certifications(items) = if items.len() > 0 {
+#let certifications(items, sp) = if items.len() > 0 {
   block(breakable: false, grid(
     columns: (1fr, auto), column-gutter: 12pt, row-gutter: 4pt,
     ..items.map(c => (
@@ -179,21 +194,36 @@
 
 // ---------- Entry point ----------
 #let render(data) = {
-  set page(paper: "a4", margin: 16mm)
-  set text(font: ("Inter", "Helvetica", "Arial"), size: 10.5pt, fill: ink)
-  set par(leading: 0.55em, justify: false)
+  let layout = data.at("layout", default: (:))
+  let pg = default-page + layout.at("page", default: (:))
+  let spacing = layout.at("sections", default: (:))
+  let sp(key) = default-sp + spacing.at(key, default: (:))
+
+  set page(paper: "a4", margin: pg.margin * 1mm)
+  set text(font: ("Inter", "Helvetica", "Arial"), size: pg.size * 1pt, fill: ink)
+  set par(leading: pg.leading * 1em, justify: false)
   show link: set text(fill: accent-deep)
   set list(indent: 4pt, body-indent: 6pt, marker: text(fill: muted)[•])
 
+  // key -> (heading, body renderer)
+  let sections = (
+    summary: ("Summary", s => summary(data.summary)),
+    education: ("Education", s => education(data.education, s)),
+    skills: ("Skills", s => skills(data.skills, s)),
+    projects: ("Projects", s => projects(data.projects, s)),
+    experience: ("Experience", s => experience(data.experience, s)),
+    volunteering: ("Volunteering & Leadership", s => volunteering(data.at("volunteering", default: ()), s)),
+    publications: ("Publications", s => publications(data.at("publications", default: ()), s)),
+    awards: ("Awards & Honors", s => awards(data.at("awards", default: ()), s)),
+    certifications: ("Certifications", s => certifications(data.certifications, s)),
+    languages: ("Languages", s => languages(data.at("languages", default: ()), s)),
+  )
+
   header(data.header)
-  section("Summary", summary(data.summary))
-  section("Education", education(data.education))
-  section("Skills", skills(data.skills))
-  section("Projects", projects(data.projects))
-  section("Experience", experience(data.experience))
-  section("Volunteering & Leadership", volunteering(data.at("volunteering", default: ())))
-  section("Publications", publications(data.at("publications", default: ())))
-  section("Awards & Honors", awards(data.at("awards", default: ())))
-  section("Certifications", certifications(data.certifications))
-  section("Languages", languages(data.at("languages", default: ())))
+  for key in layout.at("order", default: default-order) {
+    if key in sections {
+      let (title, body) = sections.at(key)
+      section(title, body(sp(key)), sp: sp(key))
+    }
+  }
 }

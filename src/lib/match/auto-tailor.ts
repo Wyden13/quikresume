@@ -16,6 +16,7 @@
 //      as the working selection, and the plan (plus trims) is shown as
 //      suggestions (diffSuggestions) the user accepts, dismisses or ignores.
 
+import type { ResumeLayout } from "@/lib/layout/types";
 import type { ResumeData, ResumeListKey } from "@/types/schema";
 import { RESUME_LIST_KEYS } from "@/types/schema";
 import type { AliasMap } from "@/lib/tags/normalize";
@@ -64,6 +65,8 @@ export interface TailorPlan {
 export interface TailorSelection {
     include: Record<string, boolean>;
     hidden: Record<string, string[]>;
+    /** Section / item order reordered in the tailor window; absent = the library's layout. Suggestions ignore it. */
+    layout?: ResumeLayout;
 }
 
 export type TrimStep = { kind: "bullet"; id: string; key: string } | { kind: "item"; id: string };
@@ -237,7 +240,7 @@ export function selectionOf(resume: ResumeData): TailorSelection {
             if (keys.length) hidden[it.id] = keys;
         }
     }
-    return { include, hidden };
+    return { include, hidden, layout: resume.layout };
 }
 
 /** The selection a plan suggests. */
@@ -248,9 +251,9 @@ export function planSelection(plan: TailorPlan): TailorSelection {
     };
 }
 
-/** The résumé with the selection's `isSelected` and hidden sub-items. */
+/** The résumé with the selection's `isSelected`, hidden sub-items and (when set) layout. */
 export function applySelection(resume: ResumeData, sel: TailorSelection): ResumeData {
-    const next: ResumeData = { ...resume };
+    const next: ResumeData = { ...resume, layout: sel.layout ?? resume.layout };
     for (const key of RESUME_LIST_KEYS) {
         (next[key] as unknown[]) = (resume[key] as AnyItem[]).map(it => {
             const base = { ...it, isSelected: sel.include[it.id] ?? false };

@@ -22,7 +22,10 @@ import {
 import { selectedHidden, selectedIds, selectionEquals } from "@/lib/variants";
 import { pdfFileName, toTypstDoc } from "@/lib/typst/doc";
 import { compilePdf, compileSvg, ensureTypst, formatTypstError } from "@/lib/typst/client";
-import { SECTION_LABEL } from "@/lib/sections";
+import { itemTitle, SECTION_LABEL } from "@/lib/sections";
+import { moveItem, moveSection, orderedItems } from "@/lib/layout/order";
+import type { SectionId } from "@/lib/layout/types";
+import { SortableList, useSortableRow } from "@/components/ui/primitives/sortable";
 import { applyWorkingSelection, createVariantFromPlan } from "@/app/actions/variant-actions";
 import { cn } from "@/lib/cn";
 import { Dialog } from "@/components/ui/primitives/dialog";
@@ -113,7 +116,7 @@ export function TailorDialog({ job, resumeData, declined: initialDeclined, alias
 
         try {
             await ensureTypst();
-            const target = planSelection(reviewed);
+            const target = { ...planSelection(reviewed), layout: base.layout };
             const fitted = await fitToOnePage(reviewed, target, lib, pagesOf(lib));
             if (runId.current !== id) return;
             setAi({
@@ -151,7 +154,7 @@ export function TailorDialog({ job, resumeData, declined: initialDeclined, alias
         try {
             await ensureTypst();
             const result = await fitToOnePage(plan, sel, library, pagesOf(library));
-            setSel(result.selection);
+            setSel({ ...result.selection, layout: sel.layout });
             setTrimNotes(prev => {
                 const next: TrimNotes = { items: { ...prev.items }, keys: { ...prev.keys } };
                 for (const id of result.trim.items) next.items[id] = TRIM_ITEM_REASON;
@@ -171,11 +174,12 @@ export function TailorDialog({ job, resumeData, declined: initialDeclined, alias
     const close = async () => {
         if (busy) return;
         runId.current++;
-        if (step !== "review" || selectionEquals(library, selectedIds(applied), selectedHidden(applied))) { onClose(); return; }
+        const layoutChanged = JSON.stringify(applied.layout) !== JSON.stringify(library.layout);
+        if (step !== "review" || (!layoutChanged && selectionEquals(library, selectedIds(applied), selectedHidden(applied)))) { onClose(); return; }
         setBusy("close");
         setError(null);
         try {
-            await applyWorkingSelection({ items: selectedIds(applied), hidden: selectedHidden(applied) });
+            await applyWorkingSelection({ items: selectedIds(applied), hidden: selectedHidden(applied), layout: layoutChanged ? applied.layout : undefined });
             router.refresh();
             onClose("Applied your changes to the working selection.");
         } catch (err) {
@@ -190,7 +194,7 @@ export function TailorDialog({ job, resumeData, declined: initialDeclined, alias
         try {
             // Compile first so a Typst error leaves nothing half-saved.
             const bytes = download ? await compilePdf(toTypstDoc(applied)) : null;
-            const r = await createVariantFromPlan({ name, labels: [job.company].filter(Boolean), items: selectedIds(applied), hidden: selectedHidden(applied) });
+            const r = await createVariantFromPlan({ name, labels: [job.company].filter(Boolean), items: selectedIds(applied), hidden: selectedHidden(applied), layout: applied.layout });
             if (bytes) {
                 const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "application/pdf" }));
                 const a = document.createElement("a");
@@ -356,6 +360,13 @@ function ReviewList({ plan, library, sel, onChange, pending, onAccept, onDismiss
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
     const itemOf = (id: string, section: ResumeListKey) => (library[section] as ResumeData[ResumeListKey][number][]).find(it => it.id === id);
     const included = plan.items.filter(d => sel.include[d.id]).length;
+    // Order is part of the selection: dragging here reorders the résumé that Close / Save write.
+    const layout = sel.layout ?? library.layout;
+    const sectionKeys = layout.sectionOrder.filter((id): id is ResumeListKey => id !== "summary" && plan.items.some(d => d.section === id));
+    const rowsOf = (key: ResumeListKey) => {
+        const decisions = new Map(plan.items.filter(d => d.section === key).map(d => [d.id, d]));
+        return orderedItems(key, library[key] as ResumeData[ResumeListKey][number][], layout).flatMap(it => decisions.get(it.id) ?? []);
+    };
 
     return (
         <div className="space-y-5">
@@ -363,14 +374,26 @@ function ReviewList({ plan, library, sel, onChange, pending, onAccept, onDismiss
                 {included} of {plan.items.length} items included.
                 <span className="inline-flex items-center gap-1 pl-2 text-fg-subtle"><Lock className="size-3" aria-hidden /> marks items that cover hard requirements.</span>
             </p>
-            {RESUME_LIST_KEYS.map(key => {
-                const rows = plan.items.filter(d => d.section === key);
-                if (rows.length === 0) return null;
+            <SortableList
+                ids={sectionKeys}
+                labelOf={id => SECTION_LABEL[id as ResumeListKey]}
+                onMove={(activeId, overId) => onChange({ ...sel, layout: moveSection(layout, activeId as SectionId, overId as SectionId) })}
+            >
+            <div className="space-y-5">
+            {sectionKeys.map(key => {
+                const rows = rowsOf(key);
+                const rowIds = rows.map(d => d.id);
                 return (
-                    <section key={key} className="space-y-2">
-                        <h3 className="text-13 font-medium text-fg">
-                            {SECTION_LABEL[key]} <span className="text-fg-subtle tabular-nums">{rows.filter(d => sel.include[d.id]).length}/{rows.length}</span>
+                    <SortableBlock key={key} id={key} label={SECTION_LABEL[key]} as="section" className="space-y-2 bg-surface">
+                        {handle => (<>
+                        <h3 className="flex items-center gap-1 text-13 font-medium text-fg">
+                            {handle}{SECTION_LABEL[key]} <span className="text-fg-subtle tabular-nums">{rows.filter(d => sel.include[d.id]).length}/{rows.length}</span>
                         </h3>
+                        <SortableList
+                            ids={rowIds}
+                            labelOf={id => { const d = rows.find(r => r.id === id); const it = d && itemOf(d.id, d.section); return it ? itemTitle(key, it) : "item"; }}
+                            onMove={(activeId, overId) => onChange({ ...sel, layout: moveItem(layout, key, rowIds, activeId, overId) })}
+                        >
                         <ul className="divide-y divide-border rounded-lg border border-border">
                             {rows.map(d => {
                                 const on = sel.include[d.id] ?? false;
@@ -384,8 +407,10 @@ function ReviewList({ plan, library, sel, onChange, pending, onAccept, onDismiss
                                 const noun = d.section === "skills" ? "Skills" : "Bullets";
                                 const labelOf = (k: string) => entries.find(e => e.key === k)?.label ?? k;
                                 return (
-                                    <li key={d.id} className={cn("px-3 py-2.5", !on && "bg-surface-muted/50", itemSuggestion && "relative rounded-md ring-2 ring-inset ring-accent")}>
+                                    <SortableBlock key={d.id} id={d.id} label={d.label} as="li" className={cn("bg-surface px-3 py-2.5", !on && "bg-surface-muted/50", itemSuggestion && "rounded-md ring-2 ring-inset ring-accent")}>
+                                        {handle => (<>
                                         <div className="flex items-start gap-3">
+                                            <span className="-my-1 -ml-2">{handle}</span>
                                             <Switch checked={on} onChange={v => onChange(setInclude(sel, d.id, v))} label={on ? "Included" : "Excluded"} className="mt-0.5" />
                                             <div className="min-w-0 flex-1">
                                                 <div className="flex flex-wrap items-center gap-1.5">
@@ -448,15 +473,26 @@ function ReviewList({ plan, library, sel, onChange, pending, onAccept, onDismiss
                                                 )}
                                             </div>
                                         )}
-                                    </li>
+                                        </>)}
+                                    </SortableBlock>
                                 );
                             })}
                         </ul>
-                    </section>
+                        </SortableList>
+                        </>)}
+                    </SortableBlock>
                 );
             })}
+            </div>
+            </SortableList>
         </div>
     );
+}
+
+/** A sortable element whose drag handle is placed by the render prop. */
+function SortableBlock({ id, label, as: Tag, className, children }: { id: string; label: string; as: "li" | "section"; className?: string; children: (handle: React.ReactNode) => React.ReactNode }) {
+    const { rowRef, style, handle } = useSortableRow(id, label);
+    return <Tag ref={rowRef} style={style} className={className}>{children(handle)}</Tag>;
 }
 
 function ReviewFooter({

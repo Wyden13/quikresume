@@ -14,15 +14,16 @@ import { getVolunteering } from "@/app/actions/volunteering-actions";
 import { getPublications } from "@/app/actions/publication-actions";
 import { getLanguages } from "@/app/actions/language-actions";
 import { getUserProfile } from "@/app/actions/user-actions";
+import { getLayout } from "@/app/actions/layout-actions";
 import { toResumeData } from "@/lib/resume-mapper";
 import type { ResumeData } from "@/types/schema";
 
 /** The get* actions authenticate themselves; `uid` is accepted for symmetry with other helpers. */
 export async function loadResumeData(_uid: string, fallbackName?: string | null): Promise<ResumeData> {
-    const [profile, experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages] =
+    const [profile, experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages, layout] =
         await Promise.all([
             getUserProfile(), getExperiences(), getEducations(), getSkills(), getProjects(), getCertifications(),
-            getAwards(), getVolunteering(), getPublications(), getLanguages(),
+            getAwards(), getVolunteering(), getPublications(), getLanguages(), getLayout(),
         ]);
-    return toResumeData({ profile, fallbackName, experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages });
+    return toResumeData({ profile, fallbackName, experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages, layout });
 }

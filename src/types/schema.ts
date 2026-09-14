@@ -13,6 +13,8 @@
 // from; when it differs from the current content hash the item is "stale".
 
 import type { Tag } from "@/lib/tags/types";
+import type { ResumeLayout } from "@/lib/layout/types";
+import { defaultLayout } from "@/lib/layout/presets";
 
 export interface PersonalInfo {
     firstName: string;
@@ -158,10 +160,12 @@ export interface ResumeData {
     volunteering: Volunteering[];
     publications: Publication[];
     languages: Language[];
+    /** Section order, manual item order and spacing (users/{uid}/meta/layout). */
+    layout: ResumeLayout;
 }
 
 /** The list-valued keys of ResumeData. */
-export type ResumeListKey = Exclude<keyof ResumeData, "personalInfo" | "profileTags" | "profileTagsHash">;
+export type ResumeListKey = Exclude<keyof ResumeData, "personalInfo" | "profileTags" | "profileTagsHash" | "layout">;
 
 export const RESUME_LIST_KEYS: ResumeListKey[] = [
     "workExperience",
@@ -204,5 +208,6 @@ export function emptyResumeData(): ResumeData {
         volunteering: [],
         publications: [],
         languages: [],
+        layout: defaultLayout(),
     };
 }

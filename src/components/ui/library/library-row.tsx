@@ -40,11 +40,15 @@ export interface LibraryRowProps {
     onDelete: (id: string) => Promise<void>;
     /** Expanded content (bullets, details). */
     children?: React.ReactNode;
+    /** Sortable wiring (drag handle, row element, transform). */
+    handle?: React.ReactNode;
+    rowRef?: React.Ref<HTMLLIElement & HTMLDivElement>;
+    style?: React.CSSProperties;
 }
 
 const MAX_SUMMARY_TAGS = 3;
 
-export function LibraryRow({ id, title, subtitle, meta, hiddenCount = 0, isSelected, active, tags = [], usedBy = [], onUpdate, onDelete, children }: LibraryRowProps) {
+export function LibraryRow({ id, title, subtitle, meta, hiddenCount = 0, isSelected, active, tags = [], usedBy = [], onUpdate, onDelete, children, handle, rowRef, style }: LibraryRowProps) {
     const open = useExpandedIds().has(id);
 
     const summary = (
@@ -80,7 +84,7 @@ export function LibraryRow({ id, title, subtitle, meta, hiddenCount = 0, isSelec
     );
 
     return (
-        <ExpandableRow id={`row-${id}`} open={open} onToggle={() => expansion.toggle(id)} summary={summary} controls={controls} muted={!isSelected}>
+        <ExpandableRow id={`row-${id}`} open={open} onToggle={() => expansion.toggle(id)} summary={summary} controls={controls} muted={!isSelected} leading={handle} rowRef={rowRef} style={style}>
             <div className="space-y-3 text-13">
                 {children}
                 {tags.length > 0 && (

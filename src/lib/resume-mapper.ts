@@ -17,6 +17,7 @@ import type {
     VolunteeringItem,
 } from "@/types/db";
 import type { PersonalInfo, ResumeData } from "@/types/schema";
+import { normalizeLayout } from "@/lib/layout/presets";
 
 export interface ResumeSources {
     profile: UserProfile | null;
@@ -31,6 +32,8 @@ export interface ResumeSources {
     volunteering: VolunteeringItem[];
     publications: PublicationItem[];
     languages: LanguageItem[];
+    /** Raw users/{uid}/meta/layout document (normalised here). */
+    layout?: unknown;
 }
 
 const s = (v: string | null | undefined): string => v ?? "";
@@ -160,6 +163,7 @@ export function toResumeData(src: ResumeSources): ResumeData {
             tags: l.tags,
             tagsHash: l.tagsHash,
         })),
+        layout: normalizeLayout(src.layout),
     };
 }
 

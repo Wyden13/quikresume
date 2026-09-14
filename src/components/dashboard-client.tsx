@@ -40,6 +40,11 @@ import { contentHashOf, staleInputs } from "@/lib/tags/content";
 import { applyProposal } from "@/lib/match/proposals";
 import { itemTitle } from "@/lib/sections";
 import { cn } from "@/lib/cn";
+import { overCapItems } from "@/lib/text/word-count";
+import { invalidDateItems } from "@/lib/validation/dates";
+import { ActionItemsCard, type OpenItem } from "@/components/ui/action-items-card";
+import { Switch } from "@/components/ui/primitives/switch";
+import { setAdvancedLayout, useAdvancedLayout } from "@/lib/ui/advanced-layout-store";
 
 // The preview compiles Typst in the browser (wasm), so it must never render on the server.
 const ResumePreview = dynamic(
@@ -101,6 +106,7 @@ function DashboardClientInner({
 }: DashboardClientProps) {
     const router = useRouter();
     const [view, setView] = useDashboardView();
+    const advancedLayout = useAdvancedLayout();
     const wide = useMediaQuery(XL);
     const paneWanted = usePreviewPane();
     const paneOpen = wide && paneWanted && view !== "preview";
@@ -119,6 +125,8 @@ function DashboardClientInner({
     const [confirmDiscard, setConfirmDiscard] = useState(false);
     /** In-app navigation away from the editor with unsaved changes, waiting for Save / Discard / Keep editing. */
     const [pendingLeave, setPendingLeave] = useState<string | null>(null);
+    /** Item to open when the editor (re)mounts from an Action items link; the nonce remounts the form. */
+    const [focusItem, setFocusItem] = useState<{ id: string; nonce: number } | null>(null);
 
     // Job Match state
     const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
@@ -171,6 +179,11 @@ function DashboardClientInner({
         setDraft(prev => updater(prev ?? initialResumeData));
     };
 
+    const openItem: OpenItem = (section, id) => {
+        setFocusItem(prev => ({ id, nonce: (prev?.nonce ?? 0) + 1 }));
+        openEditor(section === "summary" ? "profile" : "all");
+    };
+
     const openEditor = (tab?: SectionTab) => {
         // Keep an in-progress draft (e.g. one seeded by an import) if there is one.
         setDraft(prev => prev ?? initialResumeData);
@@ -208,21 +221,25 @@ function DashboardClientInner({
     /** Saves the draft, then goes to `target` (another page / view) or back to the Library. */
     const doSave = async (target: string | null = null) => {
         if (!draft) return;
+        if (invalidDateItems(draft).length > 0) return;
         setConfirmVariants(null);
         setIsSaving(true);
         setSaveError(null);
         try {
             const result = await saveResumeData(draft);
-            if (result.success) {
-                setDraft(null);
-                setNotice(result.tagWarning
-                    ? { tone: "warn", text: `Saved. Skill analysis did not finish: ${result.tagWarning}` }
-                    : result.tagged > 0
-                        ? { tone: "ok", text: `Saved. Analysed skills for ${result.tagged} ${result.tagged === 1 ? "item" : "items"}.` }
-                        : null);
-                if (target) router.push(target, { scroll: false });
-                else setView("library", { replace: true });
+            if (!result.success) {
+                setSaveError(result.error);
+                if (result.invalidIds[0]) openItem("workExperience", result.invalidIds[0]);
+                return;
             }
+            setDraft(null);
+            setNotice(result.tagWarning
+                ? { tone: "warn", text: `Saved. Skill analysis did not finish: ${result.tagWarning}` }
+                : result.tagged > 0
+                    ? { tone: "ok", text: `Saved. Analysed skills for ${result.tagged} ${result.tagged === 1 ? "item" : "items"}.` }
+                    : null);
+            if (target) router.push(target, { scroll: false });
+            else setView("library", { replace: true });
         } catch (error) {
             console.error("Failed to save:", error);
             setSaveError(error instanceof Error ? error.message : "Failed to save your library changes.");
@@ -292,6 +309,10 @@ function DashboardClientInner({
         setView("editor");
     };
 
+    const overCap = overCapItems(resumeData);
+    const invalidDates = invalidDateItems(resumeData);
+    const editorBlocked = view === "editor" && invalidDates.length > 0;
+
     const lists: LibraryLists = { experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages };
     const counts = libraryCounts(lists);
     const draftCounts = Object.fromEntries(RESUME_LIST_KEYS.map(k => [k, editorDraft[k].length])) as Record<ResumeListKey, number>;
@@ -303,12 +324,21 @@ function DashboardClientInner({
     const actions =
         view === "editor" ? (
             <>
+                <span className="hidden items-center gap-2 text-13 text-fg-muted md:flex">
+                    <Switch checked={advancedLayout} onChange={setAdvancedLayout} label="Advanced layout" />
+                    Advanced layout
+                </span>
                 <span className={cn("hidden items-center gap-1.5 text-13 sm:flex", dirty ? "text-fg-muted" : "text-fg-subtle")} aria-live="polite">
                     <span className={cn("size-1.5 rounded-full", dirty ? "bg-warning" : "bg-border-strong")} aria-hidden />
                     {dirty ? "Unsaved changes" : "No changes"}
                 </span>
                 <Button variant="ghost" onClick={discardDraft} disabled={isSaving}>Discard</Button>
-                <Button variant="primary" onClick={() => handleSaveAndExit()} loading={isSaving}>
+                {editorBlocked && (
+                    <Button variant="ghost" className="text-danger" onClick={() => openItem(invalidDates[0].section, invalidDates[0].id)}>
+                        Fix {invalidDates.length} {invalidDates.length === 1 ? "date" : "dates"}
+                    </Button>
+                )}
+                <Button variant="primary" onClick={() => handleSaveAndExit()} loading={isSaving} disabled={editorBlocked} title={editorBlocked ? "Fix the dates marked in red first" : undefined}>
                     {isSaving ? (staleInputs(resumeData).length > 0 ? "Analysing & saving…" : "Saving…") : "Save & Exit"}
                 </Button>
             </>
@@ -325,13 +355,15 @@ function DashboardClientInner({
         );
 
     const tabs =
-        view === "library" ? <SectionTabs counts={counts} value={libraryTab} onChange={setLibraryTab} />
-        : view === "editor" ? <SectionTabs counts={draftCounts} value={editorTab} onChange={setEditorTab} showEmpty withProfile />
+        view === "library" ? <SectionTabs counts={counts} value={libraryTab} onChange={setLibraryTab} order={initialResumeData.layout.sectionOrder} />
+        : view === "editor" ? <SectionTabs counts={draftCounts} value={editorTab} onChange={setEditorTab} showEmpty withProfile order={editorDraft.layout.sectionOrder} />
         : undefined;
 
     const body =
         view === "editor" ? (
             <ResumeForm
+                key={focusItem?.nonce ?? 0}
+                initialOpenId={focusItem?.id ?? null}
                 resumeData={editorDraft}
                 onChange={updateDraft}
                 variantUsage={variantUsage}
@@ -340,7 +372,7 @@ function DashboardClientInner({
         ) : view === "preview" ? (
             <ResumePreview resumeData={resumeData} />
         ) : view === "import" ? (
-            <ResumeImport current={resumeData} onImport={handleImport} onCancel={() => setView("library")} />
+            <ResumeImport current={draft ?? initialResumeData} onImport={handleImport} onCancel={() => setView("library")} />
         ) : view === "insights" ? (
             <InsightsView data={resumeData} />
         ) : view === "jobs" ? (
@@ -372,7 +404,7 @@ function DashboardClientInner({
                         onNotice={(text, tone = "ok") => setNotice({ tone, text })}
                     />
                 </div>
-                <LibraryView {...lists} tab={libraryTab} variantUsage={variantUsage} onImport={() => setView("import")} onEdit={() => openEditor()} />
+                <LibraryView {...lists} tab={libraryTab} variantUsage={variantUsage} resumeData={initialResumeData} onImport={() => setView("import")} onEdit={() => openEditor()} />
             </div>
         );
 
@@ -397,6 +429,7 @@ function DashboardClientInner({
                         {notice && (view === "editor" || view === "library") && (
                             <NoticeBanner tone={notice.tone === "ok" ? "success" : "warning"} onDismiss={() => setNotice(null)}>{notice.text}</NoticeBanner>
                         )}
+                        {(view === "editor" || view === "library") && <ActionItemsCard overCap={overCap} invalidDates={invalidDates} onOpen={openItem} />}
                         {body}
                     </div>
                 </main>

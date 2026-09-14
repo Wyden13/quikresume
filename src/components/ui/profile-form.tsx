@@ -8,6 +8,7 @@ import { updateUserProfile } from "@/app/actions/user-actions";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/primitives/button";
 import { Field, Input, Textarea } from "@/components/ui/primitives/field";
+import { summaryWordCount, wordCaution } from "@/lib/text/word-count";
 import { Card, CardBody, CardHeader } from "@/components/ui/primitives/card";
 import { NoticeBanner } from "@/components/ui/primitives/notice-banner";
 
@@ -84,7 +85,7 @@ export function ProfileForm({ initial, account }: ProfileFormProps) {
                         {f("website", "Website", "alexmorgan.dev")}
                         {f("github", "GitHub", "github.com/alexmorgan")}
                         {f("linkedin", "LinkedIn", "linkedin.com/in/alexmorgan")}
-                        <Field label="Professional summary" htmlFor="profile-summary" className="md:col-span-2">
+                        <Field label="Professional summary" htmlFor="profile-summary" className="md:col-span-2" {...wordCaution(summaryWordCount(info), "your summary")}>
                             <Textarea id="profile-summary" value={info.summary} onChange={set("summary")} placeholder="Brief overview of your professional background and goals…" rows={4} />
                         </Field>
                     </div>

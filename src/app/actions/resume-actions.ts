@@ -6,15 +6,19 @@ import { revalidatePath } from "next/cache"
 import { Timestamp, type DocumentReference, type WriteBatch } from "firebase-admin/firestore";
 import type { ResumeData } from "@/types/schema"
 import { PRESENT, toUtcDate } from "@/lib/dates";
-import { isTempId } from "@/lib/ids";
+import { isTempId, TEMP_ID_PREFIX } from "@/lib/ids";
+import { PLACEHOLDER } from "@/lib/sections";
 import { toBullets } from "@/lib/typst/doc";
 import { bulletEntries, pruneHidden, skillEntries } from "@/lib/sub-items";
 import { personalInfoToUserDoc } from "@/lib/resume-mapper";
 import { contentHashOf, PROFILE_ID, profileHashOf, staleInputs, tagContext } from "@/lib/tags/content";
 import { extractTags, TagError } from "@/lib/tags/extract";
-import { mergeTagAliases, readTagAliases } from "@/lib/db/meta";
+import { mergeTagAliases, readTagAliases, replaceMeta } from "@/lib/db/meta";
+import { normalizeLayout, pruneLayout } from "@/lib/layout/presets";
+import { RESUME_LIST_KEYS } from "@/types/schema";
 import type { Tag } from "@/lib/tags/types";
 import type { ResumeListKey } from "@/types/schema";
+import { invalidDateItems } from "@/lib/validation/dates";
 
 // Firestore allows at most 500 writes per batch.
 const BATCH_LIMIT = 450;
@@ -26,7 +30,16 @@ const toTimestamp = (s: string | null | undefined): Timestamp | null => {
 
 const orNull = (s: string | null | undefined): string | null => (s && s.trim() !== "" ? s.trim() : null);
 
-export interface SaveResult {
+export type SaveResult = SaveOk | SaveRejected;
+
+export interface SaveRejected {
+    success: false;
+    error: string;
+    /** Items whose dates failed validation; nothing was written. */
+    invalidIds: string[];
+}
+
+export interface SaveOk {
     success: true;
     /** Number of items whose smart tags were (re)extracted. */
     tagged: number;
@@ -48,6 +61,17 @@ export async function saveResumeData(data: ResumeData): Promise<SaveResult> {
     const session = await auth()
     if (!session?.user?.id) throw new Error("Unauthorized")
     const uid = session.user.id;
+
+    // Same rules the editor enforces before enabling Save & Exit.
+    const invalid = invalidDateItems(data);
+    if (invalid.length > 0) {
+        const first = invalid[0];
+        return {
+            success: false,
+            error: `Some dates don't add up (${first.label}: ${first.message}). Fix them and save again.`,
+            invalidIds: invalid.map(i => i.id),
+        };
+    }
 
     const userRef = db.collection("users").doc(uid);
     const now = Timestamp.now();
@@ -84,8 +108,10 @@ export async function saveResumeData(data: ResumeData): Promise<SaveResult> {
     };
 
     const writes: Array<(batch: WriteBatch) => void> = [];
+    // A new item's document id is its temp id's uuid, so retrying a save that failed part-way
+    // overwrites the documents already written instead of creating duplicates.
     const docFor = (collection: string, id: string): DocumentReference =>
-        isTempId(id) ? userRef.collection(collection).doc() : userRef.collection(collection).doc(id);
+        userRef.collection(collection).doc(isTempId(id) ? id.slice(TEMP_ID_PREFIX.length) : id);
     const withMeta = (id: string, fields: Record<string, unknown>) => ({
         ...fields,
         updatedAt: now,
@@ -102,8 +128,8 @@ export async function saveResumeData(data: ResumeData): Promise<SaveResult> {
         const ref = docFor("experience", exp.id);
         writes.push(batch => batch.set(ref, withMeta(exp.id, {
             ...tagFields("workExperience", exp),
-            position: exp.title.trim() || "Untitled Role",
-            company: exp.company.trim() || "Unknown Company",
+            position: exp.title.trim() || PLACEHOLDER.role,
+            company: exp.company.trim() || PLACEHOLDER.company,
             startDate: toTimestamp(exp.startDate),
             endDate: exp.endDate === PRESENT ? null : toTimestamp(exp.endDate),
             isActive: exp.endDate === PRESENT,
@@ -117,8 +143,8 @@ export async function saveResumeData(data: ResumeData): Promise<SaveResult> {
         const ref = docFor("education", edu.id);
         writes.push(batch => batch.set(ref, withMeta(edu.id, {
             ...tagFields("education", edu),
-            programName: edu.degree.trim() || "Untitled Program",
-            schoolName: edu.institution.trim() || "Unknown Institution",
+            programName: edu.degree.trim() || PLACEHOLDER.program,
+            schoolName: edu.institution.trim() || PLACEHOLDER.institution,
             startDate: toTimestamp(edu.startDate),
             endDate: edu.endDate === PRESENT ? null : toTimestamp(edu.endDate),
             isActive: edu.endDate === PRESENT,
@@ -133,7 +159,7 @@ export async function saveResumeData(data: ResumeData): Promise<SaveResult> {
         const ref = docFor("skills", skill.id);
         writes.push(batch => batch.set(ref, withMeta(skill.id, {
             ...tagFields("skills", skill),
-            category: skill.category.trim() || "General",
+            category: skill.category.trim() || PLACEHOLDER.skillCategory,
             items: skill.items.trim(),
             hidden: pruneHidden(skill.hidden, skillEntries(skill.items)),
             isSelected: skill.isSelected ?? true,
@@ -144,7 +170,7 @@ export async function saveResumeData(data: ResumeData): Promise<SaveResult> {
         const ref = docFor("projects", project.id);
         writes.push(batch => batch.set(ref, withMeta(project.id, {
             ...tagFields("projects", project),
-            title: project.title.trim() || "Untitled Project",
+            title: project.title.trim() || PLACEHOLDER.project,
             stack: orNull(project.stack),
             link: orNull(project.link),
             startDate: toTimestamp(project.startDate),
@@ -160,7 +186,7 @@ export async function saveResumeData(data: ResumeData): Promise<SaveResult> {
         const ref = docFor("certifications", cert.id);
         writes.push(batch => batch.set(ref, withMeta(cert.id, {
             ...tagFields("certifications", cert),
-            name: cert.name.trim() || "Untitled Certification",
+            name: cert.name.trim() || PLACEHOLDER.certification,
             issuer: orNull(cert.issuer),
             year: cert.year.trim(),
             isSelected: cert.isSelected ?? true,
@@ -171,7 +197,7 @@ export async function saveResumeData(data: ResumeData): Promise<SaveResult> {
         const ref = docFor("awards", award.id);
         writes.push(batch => batch.set(ref, withMeta(award.id, {
             ...tagFields("awards", award),
-            title: award.title.trim() || "Untitled Award",
+            title: award.title.trim() || PLACEHOLDER.award,
             issuer: orNull(award.issuer),
             date: toTimestamp(award.date),
             description: orNull(award.description),
@@ -183,8 +209,8 @@ export async function saveResumeData(data: ResumeData): Promise<SaveResult> {
         const ref = docFor("volunteering", vol.id);
         writes.push(batch => batch.set(ref, withMeta(vol.id, {
             ...tagFields("volunteering", vol),
-            role: vol.role.trim() || "Untitled Role",
-            organization: vol.organization.trim() || "Unknown Organization",
+            role: vol.role.trim() || PLACEHOLDER.role,
+            organization: vol.organization.trim() || PLACEHOLDER.organization,
             startDate: toTimestamp(vol.startDate),
             endDate: vol.endDate === PRESENT ? null : toTimestamp(vol.endDate),
             isActive: vol.endDate === PRESENT,
@@ -198,7 +224,7 @@ export async function saveResumeData(data: ResumeData): Promise<SaveResult> {
         const ref = docFor("publications", pub.id);
         writes.push(batch => batch.set(ref, withMeta(pub.id, {
             ...tagFields("publications", pub),
-            title: pub.title.trim() || "Untitled Publication",
+            title: pub.title.trim() || PLACEHOLDER.publication,
             venue: orNull(pub.venue),
             date: toTimestamp(pub.date),
             link: orNull(pub.link),
@@ -211,7 +237,7 @@ export async function saveResumeData(data: ResumeData): Promise<SaveResult> {
         const ref = docFor("languages", lang.id);
         writes.push(batch => batch.set(ref, withMeta(lang.id, {
             ...tagFields("languages", lang),
-            language: lang.language.trim() || "Unknown Language",
+            language: lang.language.trim() || PLACEHOLDER.language,
             proficiency: orNull(lang.proficiency),
             isSelected: lang.isSelected ?? true,
         }), { merge: true }));
@@ -223,6 +249,11 @@ export async function saveResumeData(data: ResumeData): Promise<SaveResult> {
             for (const write of writes.slice(i, i + BATCH_LIMIT)) write(batch);
             await batch.commit();
         }
+
+        // Layout ids follow the items: deleted ones drop out, temp ids become their document ids.
+        const ids = new Set(RESUME_LIST_KEYS.flatMap(key => (data[key] as { id: string }[]).map(it => it.id)));
+        const layout = pruneLayout(normalizeLayout(data.layout), ids, id => (isTempId(id) ? id.slice(TEMP_ID_PREFIX.length) : id));
+        await replaceMeta(uid, "layout", { ...layout });
 
         await mergeTagAliases(uid, newAliases);
         revalidatePath("/dashboard");

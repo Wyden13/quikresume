@@ -23,11 +23,37 @@ export function parseDateParts(s: string | null | undefined): DateParts | null {
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-/** ISO timestamp or date string -> "YYYY-MM-DD" for <input type="date">, "" if absent/unparseable. */
+/**
+ * ISO timestamp or date string -> the editor's month value "YYYY-MM-01", "" if absent/unparseable.
+ * Dates are month precision: a stored day (older data) is dropped and written back as 01 on the next save.
+ */
 export function toDateInputValue(s: string | null | undefined): string {
     const p = parseDateParts(s);
-    return p ? `${p.y}-${pad(p.m)}-${pad(p.d)}` : "";
+    return p ? `${p.y}-${pad(p.m)}-01` : "";
 }
+
+/** "YYYY-MM-01" from a year and month (1-12). */
+export function monthValue(y: number, m: number): string {
+    return `${y}-${pad(m)}-01`;
+}
+
+/** Comparable month index (y*12 + m-1), or null. "Present" and junk give null. */
+export function monthKey(s: string | null | undefined): number | null {
+    const p = parseDateParts(s);
+    return p ? p.y * 12 + (p.m - 1) : null;
+}
+
+export function currentMonthKey(now: Date = new Date()): number {
+    return now.getFullYear() * 12 + now.getMonth();
+}
+
+/** A free-text certification year ("2025") -> 2025, or null when it is not a plain 4-digit year. */
+export function parseYear(s: string | null | undefined): number | null {
+    const m = /^\s*(\d{4})\s*$/.exec(s ?? "");
+    return m ? Number(m[1]) : null;
+}
+
+export const MONTH_NAMES = MONTHS;
 
 /** "2020-05-01" -> "May 2020". "Present" passes through. Unparseable -> "". */
 export function formatMonthYear(s: string | null | undefined): string {

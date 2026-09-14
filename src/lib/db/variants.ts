@@ -10,6 +10,9 @@ import { emptyVariantItems, readVariantHidden, readVariantItems, type VariantHid
 import { bulletEntries, bulletLines, pruneHidden, skillEntries } from "@/lib/sub-items";
 import type { ResumeVariant } from "@/types/db";
 import { DEFAULT_TEMPLATE } from "@/lib/typst/templates";
+import { normalizeLayout } from "@/lib/layout/presets";
+import { readMeta } from "@/lib/db/meta";
+import type { ResumeLayout } from "@/lib/layout/types";
 
 const BATCH_LIMIT = 450;
 
@@ -23,6 +26,7 @@ export async function readVariants(uid: string): Promise<ResumeVariant[]> {
             labels: strArray(d.labels),
             items: readVariantItems(d.items as Record<string, string[]> | undefined),
             hidden: readVariantHidden(d.hidden),
+            layout: d.layout ? normalizeLayout(d.layout) : null,
             templateId: strOf(d.templateId) || DEFAULT_TEMPLATE,
             createdAt: isoOf(d.createdAt),
             updatedAt: isoOf(d.updatedAt),
@@ -33,6 +37,11 @@ export async function readVariants(uid: string): Promise<ResumeVariant[]> {
 export async function readVariant(uid: string, id: string): Promise<ResumeVariant | null> {
     const all = await readVariants(uid);
     return all.find(v => v.id === id) ?? null;
+}
+
+/** The working layout, for variant snapshots. */
+export async function readWorkingLayout(uid: string): Promise<ResumeLayout> {
+    return normalizeLayout(await readMeta(uid, "layout"));
 }
 
 /** Ids of every existing item per collection (ids only, cheap). */

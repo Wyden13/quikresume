@@ -4,6 +4,7 @@
 // modules so client code and pure mappers can import the types freely.
 
 import type { Tag } from "@/lib/tags/types";
+import type { ResumeLayout } from "@/lib/layout/types";
 import type { VariantHidden, VariantItems } from "@/lib/variants";
 
 /** Smart-tag fields present on every library item row. */
@@ -157,6 +158,8 @@ export interface ResumeVariant {
     items: VariantItems;
     /** Hidden bullet / skill keys per selected item; null for variants saved before per-bullet selection. */
     hidden: VariantHidden | null;
+    /** Section / item order and spacing at snapshot time; null for variants saved before layouts (loading leaves the layout alone). */
+    layout: ResumeLayout | null;
     templateId: string;
     createdAt: string | null;
     updatedAt: string | null;

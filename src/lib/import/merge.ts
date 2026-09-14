@@ -8,6 +8,7 @@
 import type { PersonalInfo, ResumeData, ResumeListKey } from "@/types/schema";
 import { RESUME_LIST_KEYS } from "@/types/schema";
 import { toBullets } from "@/lib/typst/doc";
+import { canon, findMatch } from "./match";
 
 export interface ImportSelection {
     personalInfo: PersonalInfo | null;
@@ -28,23 +29,7 @@ export interface MergeResult {
 
 export type IncomingClass = "new" | "merge" | "same";
 
-const norm = (v: string) => v.trim().toLowerCase().replace(/\s+/g, " ");
-
-/** Identity key used to detect that an incoming item already exists in the library. */
-export function itemKey<K extends ResumeListKey>(key: K, item: ResumeData[K][number]): string {
-    switch (key) {
-        case "workExperience": { const x = item as ResumeData["workExperience"][number]; return norm(`${x.title}|${x.company}|${x.startDate}`); }
-        case "education": { const x = item as ResumeData["education"][number]; return norm(`${x.degree}|${x.institution}`); }
-        case "skills": { const x = item as ResumeData["skills"][number]; return norm(x.category); }
-        case "projects": { const x = item as ResumeData["projects"][number]; return norm(x.title); }
-        case "certifications": { const x = item as ResumeData["certifications"][number]; return norm(x.name); }
-        case "awards": { const x = item as ResumeData["awards"][number]; return norm(`${x.title}|${x.issuer}`); }
-        case "volunteering": { const x = item as ResumeData["volunteering"][number]; return norm(`${x.role}|${x.organization}`); }
-        case "publications": { const x = item as ResumeData["publications"][number]; return norm(x.title); }
-        case "languages": { const x = item as ResumeData["languages"][number]; return norm(x.language); }
-    }
-    return "";
-}
+const norm = (v: string) => canon(v);
 
 /** Union of newline-separated bullet lists (case-insensitive dedupe, existing order first). */
 export function unionBullets(existing: string, incoming: string): string {
@@ -112,9 +97,10 @@ export function classifyIncoming<K extends ResumeListKey>(
     key: K,
     item: ResumeData[K][number],
 ): { kind: IncomingClass; existing?: ResumeData[K][number] } {
-    const k = itemKey(key, item);
-    const existing = (base[key] as ResumeData[K][number][]).find(it => itemKey(key, it) === k);
-    if (!existing) return { kind: "new" };
+    const list = base[key] as ResumeData[K][number][];
+    const at = findMatch(key, list, item);
+    if (at < 0) return { kind: "new" };
+    const existing = list[at];
     return { kind: mergeItem(key, existing, item).changed ? "merge" : "same", existing };
 }
 
@@ -127,12 +113,9 @@ export function mergeImport(base: ResumeData, sel: ImportSelection): MergeResult
         const incoming = sel.items[key];
         if (!incoming || incoming.length === 0) continue;
         const list = [...(base[key] as ResumeData[typeof key][number][])];
-        const index = new Map(list.map((it, i) => [itemKey(key, it), i]));
         for (const item of incoming as ResumeData[typeof key][number][]) {
-            const k = itemKey(key, item);
-            const at = index.get(k);
-            if (at === undefined) {
-                index.set(k, list.length);
+            const at = findMatch(key, list, item);
+            if (at < 0) {
                 list.push(item);
                 added++;
                 continue;

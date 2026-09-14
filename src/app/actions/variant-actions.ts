@@ -5,7 +5,10 @@ import { revalidatePath } from "next/cache"
 import { Timestamp } from "firebase-admin/firestore";
 import { db } from "@/lib/firestore";
 import { userCol } from "@/lib/db/user-collection";
-import { applyVariantSelection, listItemIds, readVariant, readVariants, snapshotSelection } from "@/lib/db/variants";
+import { applyVariantSelection, listItemIds, readVariant, readVariants, readWorkingLayout, snapshotSelection } from "@/lib/db/variants";
+import { replaceMeta } from "@/lib/db/meta";
+import { normalizeLayout } from "@/lib/layout/presets";
+import type { ResumeLayout } from "@/lib/layout/types";
 import { COLLECTION_NAMES } from "@/lib/sections";
 import { readVariantHidden, readVariantItems, type VariantHidden, type VariantItems } from "@/lib/variants";
 import { DEFAULT_TEMPLATE } from "@/lib/typst/templates";
@@ -47,10 +50,10 @@ export async function getLoadedVariantId(): Promise<string | null> {
 export async function createVariant(input: { name: string; labels?: string[] }): Promise<{ id: string }> {
     const uid = await requireUid();
     const name = cleanName(input.name) || "Untitled resume";
-    const { items, hidden } = await snapshotSelection(uid);
+    const [{ items, hidden }, layout] = await Promise.all([snapshotSelection(uid), readWorkingLayout(uid)]);
     const now = Timestamp.now();
     const ref = await userCol(uid, "variants").add({
-        name, labels: cleanLabels(input.labels ?? []), items, hidden, templateId: DEFAULT_TEMPLATE, createdAt: now, updatedAt: now,
+        name, labels: cleanLabels(input.labels ?? []), items, hidden, layout, templateId: DEFAULT_TEMPLATE, createdAt: now, updatedAt: now,
     });
     await db.collection("users").doc(uid).set({ loadedVariantId: ref.id, updatedAt: now }, { merge: true });
     revalidate();
@@ -69,9 +72,9 @@ export async function updateVariant(id: string, patch: { name?: string; labels?:
 /** Replaces the variant's pointers (and hidden sub-items) with the current working selection. */
 export async function resnapshotVariant(id: string) {
     const uid = await requireUid();
-    const { items, hidden } = await snapshotSelection(uid);
+    const [{ items, hidden }, layout] = await Promise.all([snapshotSelection(uid), readWorkingLayout(uid)]);
     const now = Timestamp.now();
-    await userCol(uid, "variants").doc(id).update({ items, hidden, updatedAt: now });
+    await userCol(uid, "variants").doc(id).update({ items, hidden, layout, updatedAt: now });
     await db.collection("users").doc(uid).set({ loadedVariantId: id, updatedAt: now }, { merge: true });
     revalidate();
 }
@@ -82,7 +85,7 @@ export async function duplicateVariant(id: string): Promise<{ id: string }> {
     if (!src) throw new Error("Variant not found");
     const now = Timestamp.now();
     const ref = await userCol(uid, "variants").add({
-        name: cleanName(`${src.name} (copy)`), labels: src.labels, items: src.items, hidden: src.hidden, templateId: src.templateId, createdAt: now, updatedAt: now,
+        name: cleanName(`${src.name} (copy)`), labels: src.labels, items: src.items, hidden: src.hidden, layout: src.layout, templateId: src.templateId, createdAt: now, updatedAt: now,
     });
     revalidate();
     return { id: ref.id };
@@ -103,6 +106,8 @@ export async function loadVariant(id: string): Promise<{ missing: number }> {
     const v = await readVariant(uid, id);
     if (!v) throw new Error("Variant not found");
     const { applied, missing } = await applyVariantSelection(uid, v.items, v.hidden);
+    // Variants saved before layouts (null) leave the working layout alone.
+    if (v.layout) await replaceMeta(uid, "layout", { ...v.layout });
     const now = Timestamp.now();
     if (missing > 0) await userCol(uid, "variants").doc(id).update({ items: applied, updatedAt: now });
     await db.collection("users").doc(uid).set({ loadedVariantId: id, updatedAt: now }, { merge: true });
@@ -115,10 +120,11 @@ export async function loadVariant(id: string): Promise<{ missing: number }> {
  * selection without creating a variant. The loaded variant pointer is kept; the
  * toolbar shows it as out of sync when the selection differs.
  */
-export async function applyWorkingSelection(input: { items: VariantItems; hidden: VariantHidden }): Promise<{ missing: number }> {
+export async function applyWorkingSelection(input: { items: VariantItems; hidden: VariantHidden; layout?: ResumeLayout }): Promise<{ missing: number }> {
     const uid = await requireUid();
     const items = readVariantItems(input.items as unknown as Record<string, string[]>);
     const { missing } = await applyVariantSelection(uid, items, readVariantHidden(input.hidden) ?? {});
+    if (input.layout) await replaceMeta(uid, "layout", { ...normalizeLayout(input.layout) });
     revalidate();
     return { missing };
 }
@@ -127,7 +133,7 @@ export async function applyWorkingSelection(input: { items: VariantItems; hidden
  * Saves a selection built in the browser (tailor window) as a new variant and
  * loads it as the working selection. Ids that no longer exist are dropped.
  */
-export async function createVariantFromPlan(input: { name: string; labels?: string[]; items: VariantItems; hidden: VariantHidden }): Promise<{ id: string; missing: number }> {
+export async function createVariantFromPlan(input: { name: string; labels?: string[]; items: VariantItems; hidden: VariantHidden; layout?: ResumeLayout }): Promise<{ id: string; missing: number }> {
     const uid = await requireUid();
     const existing = await listItemIds(uid);
     const requested = readVariantItems(input.items as unknown as Record<string, string[]>);
@@ -136,11 +142,14 @@ export async function createVariantFromPlan(input: { name: string; labels?: stri
     const kept = new Set(COLLECTION_NAMES.flatMap(c => items[c]));
     const hidden = Object.fromEntries(Object.entries(readVariantHidden(input.hidden) ?? {}).filter(([id, keys]) => kept.has(id) && keys.length > 0));
 
+    const layout = input.layout ? normalizeLayout(input.layout) : await readWorkingLayout(uid);
+
     const now = Timestamp.now();
     const ref = await userCol(uid, "variants").add({
-        name: cleanName(input.name) || "Tailored resume", labels: cleanLabels(input.labels ?? []), items, hidden, templateId: DEFAULT_TEMPLATE, createdAt: now, updatedAt: now,
+        name: cleanName(input.name) || "Tailored resume", labels: cleanLabels(input.labels ?? []), items, hidden, layout, templateId: DEFAULT_TEMPLATE, createdAt: now, updatedAt: now,
     });
     const { missing } = await applyVariantSelection(uid, items, hidden);
+    await replaceMeta(uid, "layout", { ...layout });
     await db.collection("users").doc(uid).set({ loadedVariantId: ref.id, updatedAt: now }, { merge: true });
     revalidate();
     return { id: ref.id, missing };

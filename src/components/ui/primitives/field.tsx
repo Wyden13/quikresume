@@ -22,7 +22,7 @@ export function Input({ className, ...props }: React.InputHTMLAttributes<HTMLInp
     return <input {...props} className={cn(CONTROL, "h-9", className)} />;
 }
 
-export function Textarea({ className, ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+export function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
     return <textarea {...props} className={cn(CONTROL, "py-2 resize-y min-h-[2.25rem] leading-relaxed", className)} />;
 }
 
@@ -38,12 +38,14 @@ export function Select({ className, selectClassName, children, ...props }: React
 }
 
 /** Label + control + optional hint/error, stacked. */
-export function Field({ label, htmlFor, hint, error, children, className }: { label: string; htmlFor?: string; hint?: string; error?: string; children: React.ReactNode; className?: string }) {
+export function Field({ label, htmlFor, hint, warning, error, children, className }: { label: string; htmlFor?: string; hint?: string; warning?: string; error?: string; children: React.ReactNode; className?: string }) {
     return (
         <div className={className}>
             <Label htmlFor={htmlFor}>{label}</Label>
             {children}
-            {error ? <p className="mt-1 text-13 text-danger">{error}</p> : hint ? <p className="mt-1 text-13 text-fg-subtle">{hint}</p> : null}
+            {error ? <p className="mt-1 text-13 text-danger">{error}</p>
+                : warning ? <p className="mt-1 text-13 text-warning">{warning}</p>
+                : hint ? <p className="mt-1 text-13 text-fg-subtle">{hint}</p> : null}
         </div>
     );
 }

@@ -10,6 +10,7 @@ import { getVolunteering } from "@/app/actions/volunteering-actions"
 import { getPublications } from "@/app/actions/publication-actions"
 import { getLanguages } from "@/app/actions/language-actions"
 import { getUserProfile } from "@/app/actions/user-actions"
+import { getLayout } from "@/app/actions/layout-actions"
 import { getLoadedVariantId, getVariants } from "@/app/actions/variant-actions"
 import { variantUsage } from "@/lib/variants"
 import { getJobs, getPreferences } from "@/app/actions/job-actions"
@@ -30,7 +31,7 @@ export default async function DashboardPage() {
         redirect("/login");
     }
 
-    const [profile, experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages, variants, loadedVariantId, jobs, preferences, tagAliases] =
+    const [profile, experiences, educations, skills, projects, certifications, awards, volunteering, publications, languages, variants, loadedVariantId, jobs, preferences, tagAliases, layout] =
         await Promise.all([
             getUserProfile(),
             getExperiences(),
@@ -47,6 +48,7 @@ export default async function DashboardPage() {
             getJobs(),
             getPreferences(),
             getTagAliases(),
+            getLayout(),
         ]);
 
     // Build the complete editor model on the server so the preview has
@@ -63,6 +65,7 @@ export default async function DashboardPage() {
         volunteering,
         publications,
         languages,
+        layout,
     });
 
     return (

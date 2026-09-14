@@ -30,6 +30,11 @@ export async function readMeta(uid: string, name: string): Promise<Record<string
     return (snap.data() as Record<string, unknown> | undefined) ?? {};
 }
 
+/** Replaces the whole document (nested maps are not merged, so removed keys disappear). */
+export async function replaceMeta(uid: string, name: string, doc: Record<string, unknown>): Promise<void> {
+    await metaDoc(uid, name).set({ ...doc, updatedAt: Timestamp.now() });
+}
+
 export async function writeMeta(uid: string, name: string, patch: Record<string, unknown>): Promise<void> {
     await metaDoc(uid, name).set({ ...patch, updatedAt: Timestamp.now() }, { merge: true });
 }

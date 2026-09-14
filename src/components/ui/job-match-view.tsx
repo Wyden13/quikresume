@@ -31,6 +31,7 @@ import { ConfirmDialog } from "@/components/ui/primitives/dialog";
 import { ProposalCards } from "@/components/ui/proposal-cards";
 import { ScoreRing } from "@/components/ui/primitives/score-ring";
 import { Segmented } from "@/components/ui/primitives/segmented";
+import { GuidelineRow } from "@/components/ui/primitives/guideline-row";
 import { Card, CardBody, CardHeader } from "@/components/ui/primitives/card";
 import { Badge } from "@/components/ui/primitives/badge";
 import { NoticeBanner } from "@/components/ui/primitives/notice-banner";
@@ -634,15 +635,6 @@ function GuidelinesCard({ missingMust, keywordGaps, declinedNeeded, onAnswerDecl
                 )}
             </CardBody>
         </Card>
-    );
-}
-
-function GuidelineRow({ tone, label, children }: { tone: "danger" | "warning"; label: string; children: React.ReactNode }) {
-    return (
-        <div className="grid gap-1 @xl:grid-cols-[12rem_minmax(0,1fr)] @xl:gap-3">
-            <p className={cn("text-xs font-medium", tone === "danger" ? "text-danger" : "text-warning")}>{label}</p>
-            <div className="text-fg">{children}</div>
-        </div>
     );
 }
 
