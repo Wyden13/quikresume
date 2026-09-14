@@ -52,7 +52,7 @@ export async function POST(req: Request) {
     if (!job) return fail(404, "Job not found.");
 
     // Broader-context pass first: semantic matches feed both the score and the set cover.
-    const reconciled = await reconcileRequirements(job.requirements, resume, aliases, { timeoutMs: 45_000, retries: 0, candidate });
+    const reconciled = await reconcileRequirements(job.requirements, resume, aliases, { timeoutMs: 45_000, retries: 0, candidate, effort: "low" });
     const requirements = reconciled.requirements;
     if (reconciled.warning) console.warn("[jobs/proposals] reconcile skipped:", reconciled.warning);
 

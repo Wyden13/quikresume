@@ -58,9 +58,25 @@ export interface JobRecord {
     lastScore: number | null;
     /** Conflicts with the candidate's "About you" answers noticed while analysing (seniority, location, sponsorship). */
     fitNotes: string[];
+    /** State of the background reconcile pass (lib/match/reconcile.ts `runReconcileJob`). */
+    match: JobMatchState;
     createdAt: string | null;
     updatedAt: string | null;
 }
+
+export type JobMatchStatus = "idle" | "running" | "done" | "failed";
+
+export interface JobMatchState {
+    /** "idle" = never run in the background (jobs analysed before it existed). A run past `runningUntil` reads as "failed". */
+    status: JobMatchStatus;
+    runningUntil: string | null;
+    checkedAt: string | null;
+    /** `reconcileLibraryHash` of the resume the verdicts were made against; lets Tailor reuse them. */
+    libraryHash: string | null;
+    warning: string;
+}
+
+export const IDLE_MATCH: JobMatchState = { status: "idle", runningUntil: null, checkedAt: null, libraryHash: null, warning: "" };
 
 export interface MuteRule {
     kind: ProposalKind;

@@ -2,11 +2,11 @@
 // POST multipart: `text` (pasted job description) OR the upload contract from
 // /api/import (`file` / `pages` / `fileName`). Images are transcribed with
 // GLM-4.6V, then the text model extracts structured requirements. When the
-// form also carries `resume` (ResumeData as JSON), a second text-model pass
-// reconciles the requirements against that resume (lib/match/reconcile.ts).
-// Saves the job under users/{uid}/jobs and returns it.
+// form also carries `resume` (ResumeData as JSON), the job is saved as
+// `match.status: "running"` and returned right away; the reconcile pass
+// (lib/match/reconcile.ts, max effort) runs after the response and writes its verdicts.
 
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { chatCompletion, GlmError, isGlmConfigured, textModel } from "@/lib/glm/client";
@@ -14,7 +14,7 @@ import { formToDocument, isDocumentError, transcribeImages } from "@/lib/import/
 import { extractJson, ImportParseError } from "@/lib/import/parsed-resume";
 import { readTagAliases } from "@/lib/db/meta";
 import { createJob } from "@/lib/db/jobs";
-import { reconcileRequirements } from "@/lib/match/reconcile";
+import { reconcileRunningMs, reconcileTimeoutMs, runReconcileJob } from "@/lib/match/reconcile";
 import { isResumeData } from "@/lib/match/resume-body";
 import { JD_MAX_CHARS, JD_SYSTEM_PROMPT, jdUserMessage } from "@/lib/match/prompt";
 import { makeTag, type AliasMap } from "@/lib/tags/normalize";
@@ -24,7 +24,8 @@ import type { ResumeData } from "@/types/schema";
 import { readCandidateContext } from "@/lib/db/characterization";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+// The reconcile pass runs after the response (after()) at max reasoning effort, inside this limit.
+export const maxDuration = 300;
 
 const fail = (status: number, error: string) => NextResponse.json({ ok: false, error }, { status });
 
@@ -60,6 +61,7 @@ function parseResumeField(v: FormDataEntryValue | null): ResumeData | null {
 }
 
 export async function POST(req: Request) {
+    const startedAt = Date.now();
     const session = await auth();
     if (!session?.user?.id) return fail(401, "You need to be signed in.");
     if (!isGlmConfigured()) return fail(500, "Job Match is not configured on this server (GLM_API_KEY missing).");
@@ -92,16 +94,11 @@ export async function POST(req: Request) {
         );
         const json = extractJson(result.text) as Record<string, unknown>;
         const aliases = await readTagAliases(uid);
-        let requirements = parseRequirements(json.requirements, aliases);
+        const requirements = parseRequirements(json.requirements, aliases);
         if (requirements.length === 0) return fail(502, "No requirements could be extracted from that text. Try pasting the full posting.");
 
-        let warning: string | undefined;
         const resume = parseResumeField(form.get("resume"));
-        if (resume) {
-            const rec = await reconcileRequirements(requirements, resume, aliases, { candidate });
-            requirements = rec.requirements;
-            warning = rec.warning;
-        }
+        const reconcileTimeout = reconcileTimeoutMs(startedAt);
 
         const job = await createJob(uid, {
             title: String(json.title ?? "").trim().slice(0, 120) || "Untitled job",
@@ -113,9 +110,12 @@ export async function POST(req: Request) {
             fitNotes: candidate && Array.isArray(json.fitNotes)
                 ? json.fitNotes.filter((n): n is string => typeof n === "string" && n.trim() !== "").slice(0, 2).map(n => n.trim().slice(0, 200))
                 : [],
-        });
+        }, { runningForMs: resume ? reconcileRunningMs(reconcileTimeout) : undefined });
+        // The job opens at once, scored on exact tags; the broader-context pass fills in behind it
+        // (the client polls while job.match.status is "running").
+        if (resume) after(() => runReconcileJob(uid, job, resume, aliases, candidate, reconcileTimeout));
         revalidatePath("/dashboard");
-        return NextResponse.json({ ok: true, job, warning });
+        return NextResponse.json({ ok: true, job });
     } catch (err) {
         if (err instanceof ImportParseError) {
             console.error("[jobs/analyze] unparseable reply:", err.raw.slice(0, 500));

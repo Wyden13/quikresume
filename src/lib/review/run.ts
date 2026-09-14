@@ -6,6 +6,7 @@ import "server-only";
 import { Timestamp } from "firebase-admin/firestore";
 import { db } from "@/lib/firestore";
 import { chatCompletion, textModel } from "@/lib/glm/client";
+import { effortFor, maxTokensFor, type Effort } from "@/lib/glm/effort";
 import { extractJson } from "@/lib/import/parsed-resume";
 import type { CandidatePromptContext } from "@/lib/about/types";
 import type { ReviewInput } from "./content";
@@ -15,20 +16,22 @@ import { REVIEW_SYSTEM_PROMPT, reviewUserMessage } from "./prompt";
 export const REVIEW_CHUNK = 6;
 export const REVIEW_CONCURRENCY = 2;
 /** Items reviewed per request; the client asks again while `remaining > 0`. */
-export const REVIEW_MAX_PER_RUN = 36;
-const DEFAULT_BUDGET_MS = 100_000;
-const CHUNK_TIMEOUT_MS = 45_000;
-const LOCK_TTL_MS = 130_000;
+export const REVIEW_MAX_PER_RUN = 24;
+// Sized for high reasoning effort inside the route's 300 s maxDuration.
+const DEFAULT_BUDGET_MS = 260_000;
+const CHUNK_TIMEOUT_MS = 120_000;
+const LOCK_TTL_MS = 310_000;
 
 export async function reviewItems(
     inputs: ReviewInput[],
     candidate: CandidatePromptContext | null,
-    opts: { budgetMs?: number } = {},
+    opts: { budgetMs?: number; effort?: Effort } = {},
 ): Promise<{ byId: Record<string, ParsedReview>; skipped: string[] }> {
     const deadline = Date.now() + (opts.budgetMs ?? DEFAULT_BUDGET_MS);
     const chunks: ReviewInput[][] = [];
     for (let i = 0; i < inputs.length; i += REVIEW_CHUNK) chunks.push(inputs.slice(i, i + REVIEW_CHUNK));
 
+    const effort = opts.effort ?? effortFor("review");
     const byId: Record<string, ParsedReview> = {};
     const skipped: string[] = [];
     let next = 0;
@@ -36,11 +39,11 @@ export async function reviewItems(
         while (next < chunks.length) {
             const chunk = chunks[next++];
             const left = deadline - Date.now();
-            if (left < 5_000) { skipped.push(...chunk.map(c => c.id)); continue; }
+            if (left < 20_000) { skipped.push(...chunk.map(c => c.id)); continue; }
             try {
                 const result = await chatCompletion(
                     [{ role: "system", content: REVIEW_SYSTEM_PROMPT }, { role: "user", content: reviewUserMessage(chunk, candidate) }],
-                    { model: textModel(), json: true, effort: "low", temperature: 0.3, maxTokens: 8000, timeoutMs: Math.min(CHUNK_TIMEOUT_MS, left), retries: 0 },
+                    { model: textModel(), json: true, effort, temperature: 0.3, maxTokens: maxTokensFor(effort, 8000), timeoutMs: Math.min(CHUNK_TIMEOUT_MS, left), retries: 0 },
                 );
                 const parsed = parseReviewReply(extractJson(result.text), chunk, candidate ? `${candidate.brief} ${candidate.facts.graduation ?? ""}` : "");
                 for (const c of chunk) {

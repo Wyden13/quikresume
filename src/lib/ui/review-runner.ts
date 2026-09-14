@@ -39,7 +39,7 @@ async function post(body: { ids?: string[]; scope?: Scope }, retried = false): P
     if (reply.ok) return { reviewed: reply.reviewed ?? 0, remaining: reply.remaining ?? 0 };
     if (reply.busy && !retried) {
         // Another tab is reviewing: try once more after it has had time to finish.
-        await new Promise(r => setTimeout(r, 20_000));
+        await new Promise(r => setTimeout(r, 60_000));
         return post(body, true);
     }
     if (reply.disabled) disabled = true;

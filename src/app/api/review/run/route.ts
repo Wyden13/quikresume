@@ -27,7 +27,7 @@ import { acquireReviewLock, releaseReviewLock, REVIEW_MAX_PER_RUN, reviewItems }
 import { RESUME_LIST_KEYS, type ResumeData, type ResumeListKey } from "@/types/schema";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 const fail = (status: number, error: string, extra: Record<string, unknown> = {}) => NextResponse.json({ ok: false, error, ...extra }, { status });
 const notFound = (r: PromiseSettledResult<unknown>) => r.status === "rejected" && (r.reason as { code?: number })?.code === 5;

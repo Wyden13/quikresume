@@ -8,7 +8,7 @@ import { readMeta, writeMeta } from "@/lib/db/meta";
 import { isTagKind } from "@/lib/tags/types";
 import { RESUME_LIST_KEYS, type ResumeListKey } from "@/types/schema";
 import {
-    DEFAULT_CAPS, type Caps, type DeclinedSkill, type JobRecord, type MuteRule, type Preferences, type Proposal, type ProposalKind,
+    DEFAULT_CAPS, IDLE_MATCH, type Caps, type DeclinedSkill, type JobMatchState, type JobRecord, type MuteRule, type Preferences, type Proposal, type ProposalKind,
     type ProposalStatus, type Requirement,
 } from "@/lib/match/types";
 
@@ -59,6 +59,27 @@ export function readProposals(v: unknown): Proposal[] {
     return out;
 }
 
+export const MATCH_STALLED_WARNING = "The AI match check did not finish.";
+
+function readMatch(v: unknown): JobMatchState {
+    if (!v || typeof v !== "object") return IDLE_MATCH;
+    const o = v as Record<string, unknown>;
+    const status = o.status === "running" || o.status === "done" || o.status === "failed" ? o.status : "idle";
+    const runningUntil = isoOf(o.runningUntil);
+    const match: JobMatchState = {
+        status,
+        runningUntil,
+        checkedAt: isoOf(o.checkedAt),
+        libraryHash: typeof o.libraryHash === "string" ? o.libraryHash : null,
+        warning: strOf(o.warning),
+    };
+    // A function that died mid-run (platform timeout, crash) never writes "failed" itself.
+    if (status === "running" && (!runningUntil || Date.parse(runningUntil) < Date.now())) {
+        return { ...match, status: "failed", warning: match.warning || MATCH_STALLED_WARNING };
+    }
+    return match;
+}
+
 function mapJob(id: string, d: DocumentData): JobRecord {
     const src = (d.source ?? {}) as Record<string, unknown>;
     return {
@@ -73,6 +94,7 @@ function mapJob(id: string, d: DocumentData): JobRecord {
         proposalsAt: isoOf(d.proposalsAt),
         lastScore: typeof d.lastScore === "number" ? d.lastScore : null,
         fitNotes: strArray(d.fitNotes),
+        match: readMatch(d.match),
         createdAt: isoOf(d.createdAt),
         updatedAt: isoOf(d.updatedAt),
     };
@@ -89,10 +111,58 @@ export async function readJob(uid: string, id: string): Promise<JobRecord | null
     return doc.exists && d ? mapJob(doc.id, d) : null;
 }
 
-export async function createJob(uid: string, job: Omit<JobRecord, "id" | "createdAt" | "updatedAt" | "proposals" | "proposalsAt" | "lastScore">): Promise<JobRecord> {
+/** Firestore shape of a match state (timestamps, not ISO strings). */
+function matchDoc(m: { status: JobMatchState["status"]; runningUntilMs?: number | null; checkedAt?: Timestamp | null; libraryHash?: string | null; warning?: string }) {
+    return {
+        status: m.status,
+        runningUntil: m.runningUntilMs ? Timestamp.fromMillis(m.runningUntilMs) : null,
+        checkedAt: m.checkedAt ?? null,
+        libraryHash: m.libraryHash ?? null,
+        warning: m.warning ?? "",
+    };
+}
+
+/** `runningForMs` set = a background reconcile starts right after (status "running"). */
+export async function createJob(
+    uid: string,
+    job: Omit<JobRecord, "id" | "createdAt" | "updatedAt" | "proposals" | "proposalsAt" | "lastScore" | "match">,
+    opts: { runningForMs?: number } = {},
+): Promise<JobRecord> {
     const now = Timestamp.now();
-    const ref = await userCol(uid, "jobs").add({ ...job, proposals: [], proposalsAt: null, lastScore: null, createdAt: now, updatedAt: now });
-    return { ...job, id: ref.id, proposals: [], proposalsAt: null, lastScore: null, createdAt: now.toDate().toISOString(), updatedAt: now.toDate().toISOString() };
+    const runningUntilMs = opts.runningForMs ? now.toMillis() + opts.runningForMs : null;
+    const match = matchDoc({ status: runningUntilMs ? "running" : "idle", runningUntilMs });
+    const ref = await userCol(uid, "jobs").add({ ...job, match, proposals: [], proposalsAt: null, lastScore: null, createdAt: now, updatedAt: now });
+    return {
+        ...job,
+        id: ref.id,
+        match: { ...IDLE_MATCH, status: match.status, runningUntil: runningUntilMs ? new Date(runningUntilMs).toISOString() : null },
+        proposals: [],
+        proposalsAt: null,
+        lastScore: null,
+        createdAt: now.toDate().toISOString(),
+        updatedAt: now.toDate().toISOString(),
+    };
+}
+
+/** Marks a background reconcile as running. No `updatedAt`, so the job list keeps its order until the result lands. */
+export async function markJobMatchRunning(uid: string, id: string, runningForMs: number, prev: JobMatchState): Promise<JobMatchState> {
+    const runningUntilMs = Date.now() + runningForMs;
+    await userCol(uid, "jobs").doc(id).update({
+        match: matchDoc({ status: "running", runningUntilMs, checkedAt: prev.checkedAt ? Timestamp.fromDate(new Date(prev.checkedAt)) : null, libraryHash: prev.libraryHash }),
+    });
+    return { ...prev, status: "running", runningUntil: new Date(runningUntilMs).toISOString(), warning: "" };
+}
+
+/** Final state of a reconcile run; `requirements` only when it produced verdicts. */
+export async function finishJobMatch(
+    uid: string,
+    id: string,
+    result: { requirements?: Requirement[]; libraryHash: string | null; warning?: string },
+): Promise<void> {
+    const ok = !result.warning;
+    const match = matchDoc({ status: ok ? "done" : "failed", checkedAt: Timestamp.now(), libraryHash: ok ? result.libraryHash : null, warning: result.warning });
+    if (result.requirements) await patchJob(uid, id, { requirements: result.requirements, match });
+    else await userCol(uid, "jobs").doc(id).update({ match });
 }
 
 /**

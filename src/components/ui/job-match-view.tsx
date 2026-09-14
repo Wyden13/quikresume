@@ -40,12 +40,15 @@ import { Table, Td, Th } from "@/components/ui/primitives/table";
 import { ChevronDown, Target } from "@/components/ui/primitives/icons";
 import { useResumePageCount } from "@/components/ui/use-page-count";
 import { Dialog } from "@/components/ui/primitives/dialog";
-import { PenLine, Trash2, Wand2 } from "@/components/ui/primitives/icons";
+import { Loader2, PenLine, Trash2, Wand2 } from "@/components/ui/primitives/icons";
 import { TailorDialog } from "@/components/ui/job-match/tailor-dialog";
 import { SkillQuestions } from "@/components/ui/job-match/skill-questions";
+import { readJson } from "@/lib/ui/fetch-json";
 
 /** The Suggestions card (AI proposals) is hidden from the UI; its code paths stay for later. */
 const SHOW_SUGGESTIONS = false;
+/** How often the job page polls the job status while a background reconcile runs. */
+const MATCH_POLL_MS = 5000;
 
 const Charts = dynamic(() => import("@/components/ui/tag-charts").then(m => ({ default: ChartsBundle(m) })), {
     ssr: false,
@@ -134,6 +137,7 @@ export function JobMatchView(props: JobMatchViewProps) {
                                                         <span className="block truncate text-sm font-medium text-fg">{j.title}</span>
                                                         <span className="block truncate text-xs text-fg-muted">{j.company || "Unknown company"}</span>
                                                     </span>
+                                                    {j.match.status === "running" && <Loader2 className="size-3.5 shrink-0 animate-spin text-fg-subtle" aria-label="Checking matches with AI" />}
                                                     {j.lastScore !== null && <span className="text-13 tabular-nums text-fg-muted" title="Last score of your working selection">{j.lastScore}</span>}
                                                 </button>
                                                 <IconButton
@@ -213,14 +217,13 @@ function AnalyzeForm({ resumeData, onAnalyzed, onError }: { resumeData: ResumeDa
             // The working selection rides along so the server can reconcile the requirements
             // against the whole library (semantic matches: degree levels, implied skills, fields).
             body.set("resume", JSON.stringify(resumeData));
-            setBusy("Extracting requirements & matching…");
+            setBusy("Extracting requirements…");
             const res = await fetch("/api/jobs/analyze", { method: "POST", body });
-            const json = (await res.json().catch(() => null)) as { ok: boolean; error?: string; job?: JobRecord; warning?: string } | null;
+            const json = (await res.json().catch(() => null)) as { ok: boolean; error?: string; job?: JobRecord } | null;
             if (!json) throw new Error(`Analysis failed (${res.status}).`);
             if (!json.ok || !json.job) throw new Error(json.error ?? "Analysis failed.");
             setText("");
             setFile(null);
-            if (json.warning) onError(`${json.warning} Exact keyword matching is shown; use "Re-check with AI" to retry.`);
             onAnalyzed(json.job);
         } catch (err) {
             onError(err instanceof Error ? err.message : "Analysis failed.");
@@ -315,6 +318,7 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, onApplyPro
             const res = await fetch("/api/jobs/reconcile", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: job.id, resume }) });
             const json = (await res.json().catch(() => null)) as { ok: boolean; error?: string } | null;
             if (!json?.ok) throw new Error(json?.error ?? "The AI match check failed.");
+            // The pass itself runs in the background; the refresh picks up "running" and starts the poll.
             router.refresh();
         } catch (err) {
             onError(err instanceof Error ? err.message : "The AI match check failed.");
@@ -402,6 +406,25 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, onApplyPro
     const [answering, setAnswering] = useState(false);
     const [notice, setNotice] = useState<string | null>(null);
 
+    // Background reconcile (max effort, up to ~5 min): poll the job's status (one document read) and refresh
+    // the page once it stops running. The server turns an expired run into "failed", so the poll always ends.
+    const matchRunning = job.match.status === "running";
+    useEffect(() => {
+        if (!matchRunning) return;
+        let stopped = false;
+        const timer = setInterval(async () => {
+            const reply = await fetch(`/api/jobs/reconcile?jobId=${encodeURIComponent(job.id)}`).then(r => readJson<{ status: string }>(r)).catch(() => null);
+            // A failed poll (network, cold start) just waits for the next tick.
+            if (stopped || !reply?.ok) return;
+            if (reply.status !== "running") {
+                stopped = true;
+                clearInterval(timer);
+                router.refresh();
+            }
+        }, MATCH_POLL_MS);
+        return () => { stopped = true; clearInterval(timer); };
+    }, [matchRunning, job.id, router]);
+
     return (
         <div className="space-y-4">
             {/* Header */}
@@ -443,6 +466,19 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, onApplyPro
             </Card>
 
             {notice && <NoticeBanner tone="success" onDismiss={() => setNotice(null)}>{notice}</NoticeBanner>}
+            {matchRunning && (
+                <NoticeBanner tone="warning">
+                    <span className="inline-flex items-center gap-2">
+                        <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                        Checking matches with AI against your whole library. Scores may still go up; this can take a few minutes.
+                    </span>
+                </NoticeBanner>
+            )}
+            {job.match.status === "failed" && (
+                <NoticeBanner tone="warning">
+                    {job.match.warning || "The AI match check failed."} Exact keyword matching is shown; use &quot;Re-check with AI&quot; to retry.
+                </NoticeBanner>
+            )}
 
             {/* Source + score */}
             <Card>
@@ -488,7 +524,7 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, onApplyPro
                                     <dd className={cn("tabular-nums", pages !== null && pages > 1 && "text-warning")}>{pages === null ? (pageError ? "Couldn't measure length" : "…") : `${pages} ${pages === 1 ? "page" : "pages"}${pages > 1 ? " · over one page" : ""}`}</dd>
                                 </dl>
                                 <div className="@2xl:ml-auto">
-                                    <Button size="sm" onClick={recheck} loading={busy === "recheck"} title="Ask the AI to match requirements against your whole library: equivalent degrees, implied skills, related projects.">
+                                    <Button size="sm" onClick={recheck} loading={busy === "recheck" || matchRunning} title="Ask the AI to match requirements against your whole library: equivalent degrees, implied skills, related projects.">
                                         Re-check with AI
                                     </Button>
                                 </div>

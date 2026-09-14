@@ -12,6 +12,7 @@
 // they take `reasoning_effort` instead, which `effort` maps to.
 
 import "server-only";
+import type { Effort } from "./effort";
 
 export type GlmContentPart =
     | { type: "text"; text: string }
@@ -33,7 +34,7 @@ export interface GlmOptions {
      * sends `reasoning_effort` instead of `thinking`. "low" is fast enough for
      * JSON extraction jobs (~7 s for 20 items on glm-5.3-flash).
      */
-    effort?: "low" | "high" | "max";
+    effort?: Effort;
     /** Ask for `response_format: json_object` (text models only; vision models reject it). */
     json?: boolean;
     timeoutMs?: number;
@@ -44,7 +45,15 @@ export interface GlmOptions {
 export interface GlmResult {
     text: string;
     model: string;
-    usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+    usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        total_tokens?: number;
+        /** Reasoning tokens are part of `completion_tokens` (and of the `max_tokens` budget). */
+        completion_tokens_details?: { reasoning_tokens?: number };
+    };
+    finishReason: string | null;
+    elapsedMs: number;
 }
 
 export class GlmError extends Error {
@@ -95,6 +104,7 @@ async function chatCompletionOnce(messages: GlmMessage[], opts: GlmOptions): Pro
     const baseUrl = (process.env.GLM_BASE_URL?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, "");
     const model = opts.model ?? glmModel();
 
+    const started = Date.now();
     let res: Response;
     try {
         res = await fetch(`${baseUrl}/chat/completions`, {
@@ -128,13 +138,20 @@ async function chatCompletionOnce(messages: GlmMessage[], opts: GlmOptions): Pro
         throw new GlmError(`GLM API error ${res.status}: ${detail}`, res.status);
     }
 
-    let json: { model?: string; choices?: Array<{ message?: { content?: string } }>; usage?: GlmResult["usage"] };
+    let json: { model?: string; choices?: Array<{ message?: { content?: string }; finish_reason?: string }>; usage?: GlmResult["usage"] };
     try {
         json = JSON.parse(bodyText);
     } catch {
         throw new GlmError("GLM API returned a non-JSON response.");
     }
+    const elapsedMs = Date.now() - started;
+    const finishReason = json.choices?.[0]?.finish_reason ?? null;
+    if (opts.effort && opts.effort !== "low") {
+        console.info(`[glm] ${model} effort=${opts.effort} ${elapsedMs}ms tokens=${json.usage?.completion_tokens ?? "?"} (reasoning ${json.usage?.completion_tokens_details?.reasoning_tokens ?? "?"}) finish=${finishReason}`);
+    }
+    // Reasoning tokens share the max_tokens budget: a long think can leave the JSON half written.
+    if (finishReason === "length") throw new GlmError("The AI reply was cut off (token limit).");
     const text = json.choices?.[0]?.message?.content;
     if (typeof text !== "string" || text.trim() === "") throw new GlmError("GLM API returned an empty reply.");
-    return { text, model: json.model ?? model, usage: json.usage };
+    return { text, model: json.model ?? model, usage: json.usage, finishReason, elapsedMs };
 }

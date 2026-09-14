@@ -44,7 +44,8 @@ typst compile --root public/typst --font-path public/typst/fonts --ignore-system
 Required env (`.env.local`): `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_TRUST_HOST`,
 `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` (escaped `\n` newlines are unescaped in code),
 `GLM_API_KEY` (import, tags, Job Match, reviews, About you). Optional: `GITHUB_TOKEN` (raises the GitHub API limit for link checks), `GLM_BASE_URL` (default `https://api.z.ai/api/paas/v4`),
-`GLM_MODEL` (vision, default `glm-4.6v`), `GLM_TEXT_MODEL` (tags / JD analysis / proposals, default `glm-5.3-flash`).
+`GLM_MODEL` (vision, default `glm-4.6v`), `GLM_TEXT_MODEL` (tags / JD analysis / proposals, default `glm-5.3-flash`),
+`GLM_EFFORT_RECONCILE` / `GLM_EFFORT_REVIEW` / `GLM_EFFORT_TAILOR` (`low | high | max`, see Reasoning effort).
 
 ## Layout
 
@@ -62,6 +63,7 @@ src/
   app/api/about/{prefill,follow-ups,save}/route.ts   About you: suggested answers / coach questions / save + candidate brief
   app/api/review/run/route.ts                background coach review of changed items (see Item review)
   app/api/profile/check-links/route.ts       header link verification after a save (see Contact & links)
+  app/api/dev/effort-compare/route.ts        dev only: one AI task at low / high / max side by side (see Reasoning effort)
   app/(dashboard)/dashboard/about/page.tsx   About you questionnaire; app/(dashboard)/error.tsx error boundary
   app/actions/*-actions.ts                   "use server" CRUD per collection + resume-actions.ts (save + tagging)
                                              + layout-actions.ts (getLayout / updateLayout: meta/layout)
@@ -114,6 +116,7 @@ src/
   lib/sections.ts                            ResumeListKey <-> Firestore collection names, item labels
   lib/resume-mapper.ts                       Firestore rows -> ResumeData (server); personalInfoToUserDoc
   lib/glm/client.ts                          chatCompletion() for Z.ai (server-only): vision + text models, JSON mode
+  lib/glm/effort.ts                          reasoning effort per task (effortFor, env overrides, maxTokensFor)
   lib/import/{prompt,dates,parsed-resume,merge,match,types}.ts   import prompt, date normaliser, zod parser, union merge,
                                              fuzzy duplicate matching
   lib/import/pdf-pages.ts (browser), document-text.ts (server)   upload -> GLM parts, shared with /api/jobs/analyze
@@ -248,6 +251,23 @@ Weight of a tag = number of selected items carrying it (`aggregateTags`, compute
 - `glm-5.x` models reject `thinking: disabled`; the client sends `reasoning_effort` when `effort` is set
   (`"low"` ≈ 7 s per 20-item chunk on `glm-5.3-flash`).
 
+## Reasoning effort
+
+`glm-5.3-flash` accepts `reasoning_effort` `low | high | max` only (`medium` is rejected, the API default is `max`). Reasoning
+tokens count toward `max_tokens`, so `maxTokensFor(effort, lowLimit)` (`lib/glm/effort.ts`) raises the limit to 32K (high) / 64K
+(max), and the client throws "cut off (token limit)" on `finish_reason: "length"` and logs time + tokens for high / max calls.
+
+| task | effort | runs |
+|---|---|---|
+| tags, JD analysis, About you, skill answers, proposals' reconcile | low | inline |
+| reconcile (`effortFor("reconcile")`) | max | background (`after()` in analyze / reconcile routes, ≤ 250 s minus the time the request already used) |
+| coach review (`effortFor("review")`) | high | background route, 120 s per chunk, 260 s budget |
+| Tailor plan (`effortFor("tailor")`) | high | `/api/jobs/auto-tailor`, 180 s |
+
+Env overrides: `GLM_EFFORT_RECONCILE` / `_REVIEW` / `_TAILOR`. Routes running high / max calls export `maxDuration = 300`
+(Vercel's limit). `POST /api/dev/effort-compare {task, jobId?, efforts?, ids?}` (404 in production) runs one task's real prompt at
+each effort over your library and returns outputs + timings, writing nothing.
+
 ## Job Match
 
 - `POST /api/jobs/analyze`: pasted text or an uploaded file (images transcribed with GLM-4.6V) -> text model ->
@@ -257,10 +277,13 @@ Weight of a tag = number of selected items carrying it (`aggregateTags`, compute
   requirement, `satisfiedBy` (other candidate tag keys that count: `bachelor's degree` <- `bachelor of science`,
   `microservices` <- `grpc`) and `evidence` (item ids that demonstrate it without a tag) + `reason`. These are
   stored **on the requirement** in the job doc, so the pure scorer honours them on every client-side recompute.
-  Runs in `/api/jobs/analyze` when the form carries `resume` (the client sends the working selection), in
-  `/api/jobs/proposals` before scoring, and on demand via `POST /api/jobs/reconcile {jobId, resume}`
-  ("Re-check with AI" button; works for variants and uploads too). Failures never block: requirements come
-  back unchanged and the built-in hierarchy still applies.
+  Runs **in the background** at max effort (`runReconcileJob`, scheduled with `after()`) from `/api/jobs/analyze` when
+  the form carries `resume` (the client sends the working selection) and from `POST /api/jobs/reconcile {jobId, resume}`
+  ("Re-check with AI"; works for variants and uploads too; ignored while a run is in flight). Both return the job at once.
+  State lives on `job.match {status: idle|running|done|failed, runningUntil, checkedAt, libraryHash, warning}`; `readMatch`
+  turns a run past `runningUntil` into failed. While running, the job page shows a banner and polls
+  `GET /api/jobs/reconcile?jobId=` (one doc read) every 5 s, then `router.refresh()`. `/api/jobs/proposals` still reconciles
+  inline at low effort. Failures never block: requirements stay unchanged and the built-in hierarchy still applies.
 - **Coverage** (`lib/match/coverage.ts`, pure): an item covers a requirement when it carries the exact key, a
   `satisfiedBy` key, a key the built-in hierarchy accepts (`builtinSatisfiers` in `lib/tags/normalize.ts`:
   `bachelor's degree` <- any `bachelor of …` / master / doctorate, etc.), or is cited in `evidence`. Shared by
@@ -306,6 +329,9 @@ questions (uncovered hard + soft reqs) -> window on the working selection -> (ba
   example is worded into one bullet on the picked item. Touched items are re-tagged (30 s) and also get the answered
   requirement's tag, with `contentHash = tagsHash`, so coverage is immediate. No is stored in
   `meta/preferences.declinedSoftSkills` (hard and soft despite the name) and shown in Guidelines ("I have one now").
+- **Reconcile reuse:** `/api/jobs/auto-tailor` skips its own pass when `job.match` is done and `reconcileLibraryHash`
+  (requirements + tag inventory + items + brief, selection-independent) matches the library sent; otherwise it reconciles
+  inline at low effort (45 s). The tailor call itself runs at high effort (180 s).
 - **Plan** (`lib/match/auto-tailor.ts`, pure): items covering a hard requirement (plus the newest education) are
   *locked*; the rest follow `recommendSelection` over the soft requirements. Lines that literally name a hard requirement
   are *protected* (`protectedBy` records which). The text model (`AUTO_TAILOR_SYSTEM_PROMPT`) confirms or flips unlocked
@@ -356,7 +382,7 @@ current, proposed, reason }], dismissed[], reviewHash, briefHash, reviewedAt }` 
   by a Library effect keyed on the sorted stale ids (each set attempted once per session), by Re-review on a row, and by
   "Re-review N" (reviews written against an older brief; confirm first, loops while `remaining > 0`). A brief change never
   re-reviews on its own. The route takes a per-user lock (`meta/review.runningUntil`, 409 when busy; the client retries once),
-  reviews ≤ 36 items per request (selected first) in chunks of 6, 2 in parallel, 100 s budget, and re-tags items in the batch whose
+  reviews ≤ 24 items per request (selected first) in chunks of 6, 2 in parallel, high effort, 260 s budget (the client waits 60 s on 409), and re-tags items in the batch whose
   tags went stale outside a save (Library accepts don't run the tagger).
 - **Prompt / parse** (`lib/review/prompt.ts`, `parse.ts`): calibrated score anchors, fixed flag ids, ≤ 3 suggestions whose `current`
   is copied verbatim (one bullet, or the whole field). The parser drops suggestions for unknown fields, a `current` not in the
@@ -475,7 +501,7 @@ Subcollections, each item doc has `isSelected`, `tags`, `contentHash`, `tagsHash
 | `publications` | `title, venue, date, link, authors` |
 | `languages` | `language, proficiency` |
 | `variants` | `name, labels: string[], items: {experience: string[], …}, hidden: {itemId: string[]}, layout: ResumeLayout \| null, templateId` (pointers only) |
-| `jobs` | `title, company, source, jdText, summary, requirements[] ({name, display, kind, importance, yearsMin, satisfiedBy[], evidence[], reason}), proposals[], proposalsAt, lastScore, fitNotes[]` |
+| `jobs` | `title, company, source, jdText, summary, requirements[] ({name, display, kind, importance, yearsMin, satisfiedBy[], evidence[], reason}), match ({status, runningUntil, checkedAt, libraryHash, warning}), proposals[], proposalsAt, lastScore, fitNotes[]` |
 | `meta/tags` | `aliases: Record<alias, canonical>` |
 | `meta/characterization` | `status: draft \| skipped \| complete, answers, followUps[], followUpsHash, answersHash, brief, briefHash, briefAt, briefStale, facts` |
 | `meta/review` | `runningUntil, lastRunAt` (review lock) |

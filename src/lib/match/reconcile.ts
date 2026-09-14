@@ -15,6 +15,9 @@ import "server-only";
 import type { ResumeData, ResumeListKey } from "@/types/schema";
 import { RESUME_LIST_KEYS } from "@/types/schema";
 import { chatCompletion, GlmError, textModel } from "@/lib/glm/client";
+import { effortFor, maxTokensFor, type Effort } from "@/lib/glm/effort";
+import { stableHash } from "@/lib/hash";
+import { finishJobMatch } from "@/lib/db/jobs";
 import { extractJson, ImportParseError } from "@/lib/import/parsed-resume";
 import { aggregateTags } from "@/lib/tags/aggregate";
 import { canonicalKey, type AliasMap } from "@/lib/tags/normalize";
@@ -28,6 +31,19 @@ const MAX_TAGS = 400;
 const MAX_ITEMS = 120;
 const MAX_BULLETS = 6;
 const MAX_BULLET_CHARS = 220;
+/** Background runs live inside the route's 300 s maxDuration (Vercel), which also covers the work done before after(). */
+const ROUTE_MAX_MS = 300_000;
+const MAX_BACKGROUND_TIMEOUT_MS = 250_000;
+/** Firestore writes after the model call, and the gap before the job reads as stalled. */
+const FINISH_MARGIN_MS = 15_000;
+
+/** Model timeout for a background run in a request that started at `requestStartedMs`. */
+export function reconcileTimeoutMs(requestStartedMs: number): number {
+    return Math.max(10_000, Math.min(MAX_BACKGROUND_TIMEOUT_MS, ROUTE_MAX_MS - (Date.now() - requestStartedMs) - FINISH_MARGIN_MS * 2));
+}
+
+/** How long the job reads as "running" for a run with this model timeout. */
+export const reconcileRunningMs = (timeoutMs: number) => timeoutMs + FINISH_MARGIN_MS;
 
 export interface ReconcileResult {
     requirements: Requirement[];
@@ -50,12 +66,22 @@ export function reconcileItems(resume: ResumeData): ProposalPromptItem[] {
     return items.slice(0, MAX_ITEMS);
 }
 
+/**
+ * Fingerprint of everything the reconcile verdicts depend on (items, tag inventory, requirements, brief),
+ * independent of the selection. Equal hash = stored verdicts still apply (Tailor skips its own pass).
+ */
+export function reconcileLibraryHash(requirements: Requirement[], resume: ResumeData, candidate?: CandidatePromptContext | null): string {
+    const inventory = aggregateTags(resume, { selectedOnly: false }).map(t => [t.name, t.kind, t.weight]);
+    return stableHash(JSON.stringify([requirements.map(r => r.name), inventory, reconcileItems(resume), candidate?.briefHash ?? null]));
+}
+
 export async function reconcileRequirements(
     requirements: Requirement[],
     resume: ResumeData,
     aliases: AliasMap,
     /** Routes with a time budget pass a shorter timeout and no retry. */
-    opts: { timeoutMs?: number; retries?: number; candidate?: CandidatePromptContext | null } = {},
+    /** `effort` defaults to the reconcile effort (max); inline callers with a short budget pass "low". */
+    opts: { timeoutMs?: number; retries?: number; candidate?: CandidatePromptContext | null; effort?: Effort } = {},
 ): Promise<ReconcileResult> {
     const inventory = aggregateTags(resume, { selectedOnly: false });
     const tagByKey = new Map(inventory.map(t => [t.name, t]));
@@ -70,6 +96,7 @@ export async function reconcileRequirements(
     if (requirements.length === 0 || items.length === 0) return { requirements: requirements.map(cleared), changed: [] };
 
     const candidateTags: ReconcileTagRow[] = inventory.slice(0, MAX_TAGS).map(t => ({ name: t.display, kind: t.kind, items: t.weight }));
+    const effort = opts.effort ?? effortFor("reconcile");
     let matches: unknown;
     try {
         const result = await chatCompletion(
@@ -77,7 +104,7 @@ export async function reconcileRequirements(
                 { role: "system", content: RECONCILE_SYSTEM_PROMPT },
                 { role: "user", content: reconcileUserMessage({ requirements, candidateTags, items, candidate: opts.candidate }) },
             ],
-            { model: textModel(), json: true, effort: "low", temperature: 0.1, maxTokens: 6000, timeoutMs: opts.timeoutMs ?? 60_000, retries: opts.retries },
+            { model: textModel(), json: true, effort, temperature: 0.1, maxTokens: maxTokensFor(effort, 6000), timeoutMs: opts.timeoutMs ?? 60_000, retries: opts.retries },
         );
         matches = (extractJson(result.text) as { matches?: unknown }).matches;
     } catch (err) {
@@ -122,4 +149,28 @@ export async function reconcileRequirements(
         return next;
     });
     return { requirements: out, changed };
+}
+
+/**
+ * Background pass for a saved job (scheduled with `after()`; the job is already marked running).
+ * Writes the verdicts plus the final match state; never throws. `update()` underneath, so a job
+ * deleted while the model thinks is not recreated.
+ */
+export async function runReconcileJob(
+    uid: string,
+    job: { id: string; requirements: Requirement[] },
+    resume: ResumeData,
+    aliases: AliasMap,
+    candidate: CandidatePromptContext | null,
+    timeoutMs: number,
+): Promise<void> {
+    const libraryHash = reconcileLibraryHash(job.requirements, resume, candidate);
+    try {
+        const rec = await reconcileRequirements(job.requirements, resume, aliases, { candidate, timeoutMs, retries: 0 });
+        await finishJobMatch(uid, job.id, rec.warning ? { libraryHash, warning: rec.warning } : { requirements: rec.requirements, libraryHash });
+    } catch (err) {
+        if ((err as { code?: number })?.code === 5) return; // job deleted meanwhile
+        console.error("[reconcile] background run failed:", err);
+        await finishJobMatch(uid, job.id, { libraryHash, warning: "The AI match check failed." }).catch(() => {});
+    }
 }
