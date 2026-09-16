@@ -3,6 +3,7 @@ import Link from "next/link";
 import { auth } from "@/auth";
 import { MarketingFooter, MarketingHeader } from "@/components/marketing-header";
 import { MarketingHeroMock } from "@/components/marketing-hero-mock";
+import { AUTHOR, SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";
 
 const PRIMARY = "inline-flex h-10 items-center justify-center rounded-md bg-accent px-4 text-sm font-medium text-accent-fg transition-colors hover:bg-accent-hover";
 const SECONDARY = "inline-flex h-10 items-center justify-center rounded-md border border-border bg-surface px-4 text-sm font-medium text-fg transition-colors hover:bg-surface-hover";
@@ -14,12 +15,32 @@ const FEATURES = [
     { title: "Import in seconds", body: "Drop in an old PDF or Word résumé and it is read straight into your library, duplicates merged." },
 ];
 
+// Structured data for search results. Keep it to facts the page itself states.
+const JSON_LD = {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    name: SITE_NAME,
+    url: SITE_URL,
+    description: SITE_DESCRIPTION,
+    applicationCategory: "BusinessApplication",
+    operatingSystem: "Web browser",
+    browserRequirements: "Requires JavaScript and WebAssembly",
+    inLanguage: "en",
+    author: { "@type": "Person", name: AUTHOR },
+    featureList: FEATURES.map(f => f.title),
+};
+
 export default async function Home() {
     const session = await auth();
     const cta = session ? "/dashboard" : "/login";
 
     return (
         <div className="min-h-dvh bg-bg text-fg">
+            <script
+                type="application/ld+json"
+                // Static object built above; nothing user-supplied reaches it.
+                dangerouslySetInnerHTML={{ __html: JSON.stringify(JSON_LD) }}
+            />
             <MarketingHeader session={session} />
 
             <section className="mx-auto w-full max-w-6xl px-6 py-20 md:py-28">

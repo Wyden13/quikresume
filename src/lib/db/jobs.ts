@@ -3,9 +3,10 @@
 
 import "server-only";
 import { Timestamp, type DocumentData } from "firebase-admin/firestore";
-import { isoOf, strArray, strOf, userCol } from "@/lib/db/user-collection";
+import { isoOf, strArray, strOf, userCol, userDoc } from "@/lib/db/user-collection";
 import { readMeta, writeMeta } from "@/lib/db/meta";
 import { isTagKind } from "@/lib/tags/types";
+import { clampStr, isDocId } from "@/lib/validation/limits";
 import { RESUME_LIST_KEYS, type ResumeListKey } from "@/types/schema";
 import {
     DEFAULT_CAPS, IDLE_MATCH, type Caps, type DeclinedSkill, type JobMatchState, type JobRecord, type MuteRule, type Preferences, type Proposal, type ProposalKind,
@@ -14,6 +15,23 @@ import {
 
 const KINDS = new Set<string>(["include", "exclude", "rewrite-bullet", "add-skill", "gap"]);
 const STATUSES = new Set<string>(["open", "applied", "skipped", "ignored"]);
+/** Saved jobs per user; the oldest are not pruned, new analyses are refused instead. */
+export const MAX_JOBS = 200;
+
+export const isProposalStatus = (v: unknown): v is ProposalStatus => typeof v === "string" && STATUSES.has(v);
+
+const jobDoc = (uid: string, id: string) => userDoc(uid, "jobs", id);
+
+/** A mute rule from a client: known kind, short strings, at least one of tag / itemId. */
+export function sanitizeMuteRule(v: unknown): MuteRule | null {
+    if (!v || typeof v !== "object") return null;
+    const o = v as Record<string, unknown>;
+    if (typeof o.kind !== "string" || !KINDS.has(o.kind)) return null;
+    const tag = clampStr(o.tag, 120) || undefined;
+    const itemId = isDocId(o.itemId) ? o.itemId : undefined;
+    if (!tag && !itemId) return null;
+    return { kind: o.kind as ProposalKind, tag, itemId };
+}
 
 export function readRequirements(v: unknown): Requirement[] {
     if (!Array.isArray(v)) return [];
@@ -100,13 +118,23 @@ function mapJob(id: string, d: DocumentData): JobRecord {
     };
 }
 
+/** Fields the job list needs. `jdText` (up to 30k chars per job) stays on the server; nothing in the UI shows it. */
+const LIST_FIELDS = ["title", "company", "source", "summary", "requirements", "proposals", "proposalsAt", "lastScore", "fitNotes", "match", "createdAt", "updatedAt"];
+
+/** The user's jobs, newest first, without the pasted job description (see LIST_FIELDS). */
 export async function readJobs(uid: string): Promise<JobRecord[]> {
-    const snap = await userCol(uid, "jobs").orderBy("updatedAt", "desc").get();
+    const snap = await userCol(uid, "jobs").orderBy("updatedAt", "desc").limit(MAX_JOBS).select(...LIST_FIELDS).get();
     return snap.docs.map(doc => mapJob(doc.id, doc.data()));
 }
 
+export async function countJobs(uid: string): Promise<number> {
+    const snap = await userCol(uid, "jobs").count().get();
+    return snap.data().count;
+}
+
 export async function readJob(uid: string, id: string): Promise<JobRecord | null> {
-    const doc = await userCol(uid, "jobs").doc(id).get();
+    if (!isDocId(id)) return null;
+    const doc = await jobDoc(uid, id).get();
     const d = doc.data();
     return doc.exists && d ? mapJob(doc.id, d) : null;
 }
@@ -147,7 +175,7 @@ export async function createJob(
 /** Marks a background reconcile as running. No `updatedAt`, so the job list keeps its order until the result lands. */
 export async function markJobMatchRunning(uid: string, id: string, runningForMs: number, prev: JobMatchState): Promise<JobMatchState> {
     const runningUntilMs = Date.now() + runningForMs;
-    await userCol(uid, "jobs").doc(id).update({
+    await jobDoc(uid, id).update({
         match: matchDoc({ status: "running", runningUntilMs, checkedAt: prev.checkedAt ? Timestamp.fromDate(new Date(prev.checkedAt)) : null, libraryHash: prev.libraryHash }),
     });
     return { ...prev, status: "running", runningUntil: new Date(runningUntilMs).toISOString(), warning: "" };
@@ -162,7 +190,7 @@ export async function finishJobMatch(
     const ok = !result.warning;
     const match = matchDoc({ status: ok ? "done" : "failed", checkedAt: Timestamp.now(), libraryHash: ok ? result.libraryHash : null, warning: result.warning });
     if (result.requirements) await patchJob(uid, id, { requirements: result.requirements, match });
-    else await userCol(uid, "jobs").doc(id).update({ match });
+    else await jobDoc(uid, id).update({ match });
 }
 
 /**
@@ -180,16 +208,16 @@ export function stripUndefined<T>(value: T): T {
 }
 
 export async function patchJob(uid: string, id: string, patch: Record<string, unknown>): Promise<void> {
-    await userCol(uid, "jobs").doc(id).update({ ...stripUndefined(patch), updatedAt: Timestamp.now() });
+    await jobDoc(uid, id).update({ ...stripUndefined(patch), updatedAt: Timestamp.now() });
 }
 
 /** Writes only `lastScore`: no `updatedAt`, so recording a score never reorders the job list. */
 export async function setJobScore(uid: string, id: string, lastScore: number): Promise<void> {
-    await userCol(uid, "jobs").doc(id).update({ lastScore });
+    await jobDoc(uid, id).update({ lastScore });
 }
 
 export async function deleteJobDoc(uid: string, id: string): Promise<void> {
-    await userCol(uid, "jobs").doc(id).delete();
+    await jobDoc(uid, id).delete();
 }
 
 // ---------- preferences (users/{uid}/meta/preferences)
@@ -212,7 +240,7 @@ function readCaps(v: unknown): Caps {
         for (const key of RESUME_LIST_KEYS) {
             const x = (v as Record<string, unknown>)[key];
             if (x === null) caps[key] = null;
-            else if (typeof x === "number" && Number.isFinite(x) && x >= 0) caps[key] = Math.floor(x);
+            else if (typeof x === "number" && Number.isFinite(x) && x >= 0) caps[key] = Math.min(999, Math.floor(x));
         }
     }
     return caps;
@@ -235,10 +263,17 @@ export async function readPreferences(uid: string): Promise<Preferences> {
     return { mutedProposals: readMuteRules(d.mutedProposals), caps: readCaps(d.caps), declinedSoftSkills: readDeclined(d.declinedSoftSkills) };
 }
 
+const MAX_RULES = 300;
+
+/** Every field is re-read through the same lenient readers Firestore data goes through, so a client cannot store arbitrary shapes. */
 export async function writePreferences(uid: string, patch: Partial<Preferences>): Promise<void> {
     const data: Record<string, unknown> = {};
-    if (patch.mutedProposals) data.mutedProposals = patch.mutedProposals.map(r => ({ kind: r.kind, tag: r.tag ?? null, itemId: r.itemId ?? null }));
-    if (patch.caps) data.caps = patch.caps;
-    if (patch.declinedSoftSkills) data.declinedSoftSkills = patch.declinedSoftSkills.map(r => ({ name: r.name, display: r.display, at: r.at ?? null }));
+    if (patch.mutedProposals) {
+        data.mutedProposals = readMuteRules(patch.mutedProposals).slice(-MAX_RULES).map(r => ({ kind: r.kind, tag: r.tag ? clampStr(r.tag, 120) : null, itemId: isDocId(r.itemId) ? r.itemId : null }));
+    }
+    if (patch.caps) data.caps = readCaps(patch.caps);
+    if (patch.declinedSoftSkills) {
+        data.declinedSoftSkills = readDeclined(patch.declinedSoftSkills).slice(-MAX_RULES).map(r => ({ name: clampStr(r.name, 120), display: clampStr(r.display, 120) || clampStr(r.name, 120), at: r.at ?? null }));
+    }
     await writeMeta(uid, "preferences", data);
 }

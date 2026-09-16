@@ -1,6 +1,5 @@
 "use server"
 
-import { auth } from "@/auth"
 import { db } from "@/lib/firestore"
 import { revalidatePath } from "next/cache"
 import { Timestamp } from "firebase-admin/firestore";
@@ -11,14 +10,17 @@ import { readTags } from "@/lib/tags/types";
 import { contactBlocking, normalizeContact } from "@/lib/contact/normalize";
 import { readLinkChecks } from "@/lib/contact/types";
 import { readReview } from "@/lib/review/types";
+import { currentUid, requireUid } from "@/lib/db/session";
+import { readUserDoc } from "@/lib/db/user-collection";
+import { clampPersonalInfo, clampStr, LIMITS } from "@/lib/validation/limits";
 
 const str = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
 
 export async function getUserProfile(): Promise<UserProfile | null> {
-    const session = await auth()
-    if (!session?.user?.id) return null
+    const uid = await currentUid();
+    if (!uid) return null
 
-    const userDoc = await db.collection("users").doc(session.user.id).get()
+    const userDoc = await readUserDoc(uid);
     const data = userDoc.data();
     if (!userDoc.exists || !data) return null;
 
@@ -53,15 +55,15 @@ export type ProfileSaveResult =
  * (phone format, full link URLs). A malformed email is refused and nothing is written.
  */
 export async function updateUserProfile(input: PersonalInfo): Promise<ProfileSaveResult> {
-    const session = await auth()
-    if (!session?.user?.id) throw new Error("Unauthorized")
+    const uid = await requireUid();
 
-    const blocking = contactBlocking(input);
+    const capped = clampPersonalInfo(input);
+    const blocking = contactBlocking(capped);
     if (blocking) return { success: false, error: blocking.message, field: "email" };
-    const { info } = normalizeContact(input);
+    const { info } = normalizeContact(capped);
 
     try {
-        await db.collection("users").doc(session.user.id).set({
+        await db.collection("users").doc(uid).set({
             ...personalInfoToUserDoc(info),
             updatedAt: Timestamp.now(),
         }, { merge: true });
@@ -77,14 +79,12 @@ export async function updateUserProfile(input: PersonalInfo): Promise<ProfileSav
 
 /** Accepting a coach suggestion on the headline or summary (Profile page, Library). */
 export async function updateProfileFields(patch: { headline?: string; summary?: string }): Promise<void> {
-    const session = await auth()
-    if (!session?.user?.id) throw new Error("Unauthorized")
+    const uid = await requireUid();
     const doc: Record<string, unknown> = { updatedAt: Timestamp.now() };
-    const orNull = (v: string) => (v.trim() ? v.trim() : null);
-    if (typeof patch.headline === "string") doc.headline = orNull(patch.headline);
-    if (typeof patch.summary === "string") doc.bio = orNull(patch.summary);
+    if (typeof patch.headline === "string") doc.headline = clampStr(patch.headline, LIMITS.field) || null;
+    if (typeof patch.summary === "string") doc.bio = clampStr(patch.summary, LIMITS.description) || null;
     if (Object.keys(doc).length === 1) return;
-    await db.collection("users").doc(session.user.id).update(doc);
+    await db.collection("users").doc(uid).update(doc);
     revalidatePath("/dashboard")
     revalidatePath("/dashboard/profile")
 }

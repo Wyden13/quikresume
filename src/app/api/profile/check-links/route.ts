@@ -2,16 +2,18 @@
 // POST (no body) -> { ok, changed, linkChecks }.
 // Verifies the saved header links (GitHub via its API, personal site with a guarded HEAD, LinkedIn by
 // format only) and stores the results on users/{uid}.linkChecks. Runs after a save, fire-and-forget: the
-// save never waits for it. Results are cached per URL for 24 h and the route is throttled per user.
+// save never waits for it. Results are cached per URL for 24 h and the route is throttled per user
+// (10 s between runs, plus the hourly rate limit in lib/security/rate-limit.ts).
 
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
-import { auth } from "@/auth";
 import { db } from "@/lib/firestore";
 import { LINK_FIELDS, normalizeGitHub, normalizeLinkedIn, normalizeWebsite, type LinkField } from "@/lib/contact/normalize";
 import { LINK_DOC_FIELD, readLinkChecks, type LinkCheck } from "@/lib/contact/types";
 import { checkGitHub, checkWebsite } from "@/lib/contact/link-check";
+import { guardApi } from "@/lib/security/guard";
+import { RATE } from "@/lib/security/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -21,10 +23,10 @@ const THROTTLE_MS = 10_000;
 
 const fail = (status: number, error: string) => NextResponse.json({ ok: false, error }, { status });
 
-export async function POST() {
-    const session = await auth();
-    if (!session?.user?.id) return fail(401, "You need to be signed in.");
-    const ref = db.collection("users").doc(session.user.id);
+export async function POST(req: Request) {
+    const g = await guardApi(req, RATE.linkChecks, { what: "link checks" });
+    if (!g.ok) return g.response;
+    const ref = db.collection("users").doc(g.uid);
 
     const snap = await ref.get();
     const data = snap.data();

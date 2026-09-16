@@ -13,6 +13,7 @@
 
 import "server-only";
 import type { Effort } from "./effort";
+import { AiBudgetError, aiContext, assertAiBudget, recordAiUsage } from "@/lib/security/ai-budget";
 
 export type GlmContentPart =
     | { type: "text"; text: string }
@@ -57,11 +58,14 @@ export interface GlmResult {
 }
 
 export class GlmError extends Error {
-    constructor(message: string, readonly status?: number) {
+    constructor(message: string, readonly status?: number, /** true when `status` came from the GLM API itself */ readonly upstream = false) {
         super(message);
         this.name = "GlmError";
     }
 }
+
+/** HTTP status a route should answer with for a GLM failure. */
+export const glmErrorStatus = (err: GlmError): number => (err.status === 429 && !err.upstream ? 429 : err.status === 401 ? 500 : 502);
 
 /** Vision model: reads resume / job-posting images. */
 export const GLM_DEFAULT_MODEL = "glm-4.6v";
@@ -78,23 +82,56 @@ export function textModel(): string {
 }
 
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+// 429 from the budget check is ours (status set before the request) and must not be retried; the
+// upstream 429 is retried once after a pause.
 const retryable = (err: unknown) =>
-    err instanceof GlmError && (err.status === undefined || err.status === 429 || err.status >= 500);
+    err instanceof GlmError && (err.status === undefined || (err.status === 429 && err.upstream) || err.status >= 500);
 
 export function isGlmConfigured(): boolean {
     return Boolean(process.env.GLM_API_KEY?.trim());
 }
 
+/**
+ * One chat completion. Runs inside `withAiUser(uid, task, ...)` (lib/security/ai-budget.ts): the
+ * user's daily budget is checked before the call and the tokens used are recorded after it. A call
+ * outside any user context (none should exist in production) is logged and still made.
+ */
 export async function chatCompletion(messages: GlmMessage[], opts: GlmOptions = {}): Promise<GlmResult> {
+    const ctx = aiContext();
+    if (ctx) {
+        try {
+            await assertAiBudget(ctx.uid);
+        } catch (err) {
+            if (err instanceof AiBudgetError) throw new GlmError(err.message, 429);
+            throw err;
+        }
+    } else if (process.env.NODE_ENV === "production") {
+        console.warn("[glm] chatCompletion called without an AI user context; usage is not attributed.");
+    }
+
     const retries = opts.retries ?? 1;
     for (let attempt = 0; ; attempt++) {
         try {
-            return await chatCompletionOnce(messages, opts);
+            const result = await chatCompletionOnce(messages, opts);
+            if (ctx) await recordAiUsage(ctx, result.usage?.total_tokens ?? estimateTokens(messages, result.text), result.model);
+            return result;
         } catch (err) {
+            // A refused or failed call may still have consumed reasoning tokens; count a call either way.
+            if (ctx && err instanceof GlmError && err.status !== 429) void recordAiUsage(ctx, 0, opts.model ?? glmModel());
             if (attempt >= retries || !retryable(err)) throw err;
             await sleep(1500 * (attempt + 1));
         }
     }
+}
+
+/** Rough fallback when the API omits `usage` (~4 characters per token). */
+function estimateTokens(messages: GlmMessage[], reply: string): number {
+    let chars = reply.length;
+    for (const m of messages) {
+        if (typeof m.content === "string") chars += m.content.length;
+        else for (const part of m.content) chars += part.type === "text" ? part.text.length : 1_600;
+    }
+    return Math.ceil(chars / 4);
 }
 
 async function chatCompletionOnce(messages: GlmMessage[], opts: GlmOptions): Promise<GlmResult> {
@@ -135,7 +172,7 @@ async function chatCompletionOnce(messages: GlmMessage[], opts: GlmOptions): Pro
             const j = JSON.parse(bodyText) as { error?: { message?: string; code?: string } };
             if (j.error?.message) detail = `${j.error.code ? `[${j.error.code}] ` : ""}${j.error.message}`;
         } catch { /* keep raw snippet */ }
-        throw new GlmError(`GLM API error ${res.status}: ${detail}`, res.status);
+        throw new GlmError(`GLM API error ${res.status}: ${detail}`, res.status, true);
     }
 
     let json: { model?: string; choices?: Array<{ message?: { content?: string }; finish_reason?: string }>; usage?: GlmResult["usage"] };

@@ -4,6 +4,7 @@
 
 import { TAG_KINDS } from "@/lib/tags/types";
 import type { TagInput } from "@/lib/tags/content";
+import { sanitizeForPrompt, UNTRUSTED_INPUT_RULE } from "@/lib/security/prompt";
 
 const KIND_GUIDE = `- technical-skill: programming languages, frameworks, libraries, concepts you *do* (e.g. "Python", "React", "Distributed Systems", "Data Modeling", "Unit Testing").
 - tool-platform: products, clouds, services and tools (e.g. "PostgreSQL", "Docker", "Amazon Web Services", "Jira", "Figma", "Git").
@@ -35,8 +36,12 @@ Rules:
 - Education items: tag the specific degree ("Bachelor of Science"), the generic level as its own credential tag ("Bachelor's Degree" / "Master's Degree" / "Doctorate"), the major ("Computer Science"), notable minors and clearly listed coursework topics (as technical-skill), and honours ("Dean's List" as credential). "B.Sc. Computer Science" therefore yields at least "Bachelor of Science", "Bachelor's Degree" and "Computer Science".
 - Work, project and volunteering items: tag the technologies, domains, methodologies and clearly evidenced soft skills (leading a team -> "Leadership"; presenting to clients -> "Client Communication").
 - "aliases": only when the text used a different form than the canonical name (e.g. "Postgres" -> "PostgreSQL", "JS" -> "JavaScript"). Omit or leave {} otherwise.
-- Output must be valid JSON. No markdown, no commentary.`;
+- Output must be valid JSON. No markdown, no commentary.
+${UNTRUSTED_INPUT_RULE}`;
 
 export function tagUserMessage(inputs: TagInput[], context = ""): string {
-    return JSON.stringify({ candidate: context.slice(0, 1500), items: inputs.map(i => ({ id: i.id, section: i.section, text: i.text.slice(0, 4000) })) });
+    return JSON.stringify({
+        candidate: sanitizeForPrompt(context, 1500),
+        items: inputs.map(i => ({ id: i.id, section: i.section, text: sanitizeForPrompt(i.text, 4000) })),
+    });
 }

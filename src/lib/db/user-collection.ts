@@ -4,16 +4,27 @@
 // async wrappers around these so each action can still check the session.
 
 import "server-only";
-import { Timestamp, type DocumentData } from "firebase-admin/firestore";
+import { cache } from "react";
+import { Timestamp, type DocumentData, type DocumentSnapshot } from "firebase-admin/firestore";
 import { db } from "@/lib/firestore";
 import { toUtcDate } from "@/lib/dates";
 import { readTags } from "@/lib/tags/types";
 import type { TagFields } from "@/types/db";
 import { readReview } from "@/lib/review/types";
+import { assertDocId, clampStr, LIMITS } from "@/lib/validation/limits";
 
 export type OrderSpec = { field: string; dir: "asc" | "desc" } | null;
 
 export const userCol = (uid: string, name: string) => db.collection("users").doc(uid).collection(name);
+
+/** A document inside one of the user's subcollections; the id must look like one this app wrote. */
+export const userDoc = (uid: string, name: string, id: string) => userCol(uid, name).doc(assertDocId(id));
+
+/**
+ * The user's own document, read once per request: the dashboard page and several actions all need
+ * it, and React's `cache` dedupes the reads inside one server render / action call.
+ */
+export const readUserDoc = cache((uid: string): Promise<DocumentSnapshot> => db.collection("users").doc(uid).get());
 
 /** "YYYY-MM-DD" -> Timestamp at UTC midnight, or null. */
 export const toTimestamp = (s: string | null | undefined): Timestamp | null => {
@@ -46,17 +57,24 @@ export const formBool = (fd: FormData, key: string): boolean => {
     return v === "on" || v === "true";
 };
 
-/** JSON string-array field from FormData (e.g. `hidden`); anything malformed -> []. */
+/** JSON string-array field from FormData (e.g. `hidden`); anything malformed -> []. Bounded. */
 export const formStrArray = (fd: FormData, key: string): string[] => {
     try {
-        return strArray(JSON.parse(String(fd.get(key) ?? "[]")));
+        return strArray(JSON.parse(String(fd.get(key) ?? "[]"))).slice(0, LIMITS.hiddenPerItem).map(s => clampStr(s, LIMITS.description));
     } catch {
         return [];
     }
 };
 
-/** Optional string field from FormData: "" -> null. */
-export const formStrOrNull = (fd: FormData, key: string): string | null => (fd.get(key) as string) || null;
+/** Required string field from FormData, trimmed and capped (defaults to the short-field cap). */
+export const formStr = (fd: FormData, key: string, max: number = LIMITS.short): string => clampStr(fd.get(key), max);
+
+/** Optional string field from FormData: "" -> null. Capped. */
+export const formStrOrNull = (fd: FormData, key: string, max: number = LIMITS.short): string | null => clampStr(fd.get(key), max) || null;
+
+/** Newline-separated bullets from FormData -> string[] (blank lines dropped, capped). */
+export const formBullets = (fd: FormData, key: string): string[] =>
+    clampStr(fd.get(key), LIMITS.description).split("\n").map(l => l.trim()).filter(Boolean);
 
 export async function readCol<T>(
     uid: string,
@@ -72,9 +90,9 @@ export async function readCol<T>(
 }
 
 export async function updateUserDoc(uid: string, name: string, id: string, patch: Record<string, unknown>) {
-    await userCol(uid, name).doc(id).update({ ...patch, updatedAt: Timestamp.now() });
+    await userDoc(uid, name, id).update({ ...patch, updatedAt: Timestamp.now() });
 }
 
 export async function deleteUserDoc(uid: string, name: string, id: string) {
-    await userCol(uid, name).doc(id).delete();
+    await userDoc(uid, name, id).delete();
 }

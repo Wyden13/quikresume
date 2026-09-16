@@ -9,6 +9,8 @@ import { emptyPersonalInfo, emptyResumeData } from "@/types/schema";
 import { newTempId } from "@/lib/ids";
 import { normalizeContact } from "@/lib/contact/normalize";
 import { normalizeDateRange, normalizeImportedDate, normalizeYear } from "@/lib/import/dates";
+import { stripHiddenChars } from "@/lib/security/prompt";
+import { clampResumeData, LIMITS } from "@/lib/validation/limits";
 
 export class ImportParseError extends Error {
     constructor(message: string, readonly raw: string) {
@@ -53,9 +55,10 @@ export function extractJson(text: string): unknown {
 
 // ---------- Lenient field schemas ----------
 
-const str = z.preprocess(v => (v == null ? "" : String(v).trim()), z.string());
+// Strings from the model: hidden characters out, bounded (the whole draft is clamped again at the end).
+const str = z.preprocess(v => (v == null ? "" : stripHiddenChars(String(v)).trim().slice(0, LIMITS.long)), z.string());
 const strList = z.preprocess(
-    v => (Array.isArray(v) ? v : typeof v === "string" ? v.split("\n") : []),
+    v => (Array.isArray(v) ? v.slice(0, 60) : typeof v === "string" ? v.split("\n").slice(0, 60) : []),
     z.array(str),
 ).transform(list => list.map(x => x.replace(/^[-•*]\s+/, "").trim()).filter(Boolean));
 
@@ -77,7 +80,7 @@ const volunteering = z.object({ role: str, organization: str, startDate: z.unkno
 const publication = z.object({ title: str, venue: str.catch(""), date: z.unknown(), link: str.catch(""), authors: str.catch("") });
 const language = z.object({ language: str, proficiency: str.catch("") });
 
-const list = z.array(z.unknown()).catch([]);
+const list = z.array(z.unknown()).transform(l => l.slice(0, LIMITS.itemsPerSection)).catch([]);
 const envelope = z.object({
     personalInfo: personal.catch({}),
     workExperience: list, education: list, skills: list, projects: list, certifications: list,
@@ -178,5 +181,5 @@ export function parseModelOutput(text: string): ParsedImport {
         language: x.language, proficiency: x.proficiency,
     }));
 
-    return { data, warnings };
+    return { data: clampResumeData(data), warnings };
 }

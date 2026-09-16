@@ -1,0 +1,14 @@
+import type { MetadataRoute } from "next";
+import { SITE_URL } from "@/lib/site";
+
+// Only the public pages: everything under /dashboard needs a session, and /login is noindex.
+export default function sitemap(): MetadataRoute.Sitemap {
+    return [
+        {
+            url: `${SITE_URL}/`,
+            lastModified: new Date(),
+            changeFrequency: "monthly",
+            priority: 1,
+        },
+    ];
+}

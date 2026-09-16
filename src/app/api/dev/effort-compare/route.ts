@@ -10,8 +10,12 @@
 //   tailor:    jobId required; the merged include / exclude decisions and hidden lines
 
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
-import { chatCompletion, isGlmConfigured, textModel } from "@/lib/glm/client";
+import { chatCompletion, textModel } from "@/lib/glm/client";
+import { guardApi } from "@/lib/security/guard";
+import { RATE } from "@/lib/security/rate-limit";
+import { withAiUser } from "@/lib/security/ai-budget";
+import { readJsonBody } from "@/lib/security/request";
+import { isDocId } from "@/lib/validation/limits";
 import { isEffort, maxTokensFor, type Effort } from "@/lib/glm/effort";
 import { extractJson } from "@/lib/import/parsed-resume";
 import { readTagAliases } from "@/lib/db/meta";
@@ -36,22 +40,19 @@ type AnyItem = ResumeData[ResumeListKey][number];
 
 export async function POST(req: Request) {
     if (process.env.NODE_ENV === "production") return new NextResponse(null, { status: 404 });
-    const session = await auth();
-    if (!session?.user?.id) return fail(401, "You need to be signed in.");
-    if (!isGlmConfigured()) return fail(500, "GLM_API_KEY missing.");
-    const uid = session.user.id;
+    const g = await guardApi(req, RATE.devCompare, { ai: true, feature: "Effort comparison", what: "comparisons" });
+    if (!g.ok) return g.response;
+    const uid = g.uid;
 
-    let body: { task?: unknown; jobId?: unknown; efforts?: unknown; ids?: unknown };
-    try {
-        body = await req.json();
-    } catch {
-        return fail(400, "Expected a JSON body.");
-    }
+    const parsed = await readJsonBody<{ task?: unknown; jobId?: unknown; efforts?: unknown; ids?: unknown }>(req, 64 * 1024);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
     const efforts: Effort[] = Array.isArray(body.efforts) && body.efforts.every(isEffort) && body.efforts.length > 0 ? body.efforts : ["low", "high", "max"];
     const task = body.task;
     if (task !== "reconcile" && task !== "review" && task !== "tailor") return fail(400, "`task` must be reconcile, review or tailor.");
 
-    const [{ data }, aliases, candidate] = await Promise.all([loadLibraryWithReviews(uid, session.user.name), readTagAliases(uid), readCandidateContext(uid)]);
+    return withAiUser(uid, "dev-compare", async () => {
+    const [{ data }, aliases, candidate] = await Promise.all([loadLibraryWithReviews(uid, g.session.user?.name), readTagAliases(uid), readCandidateContext(uid)]);
     const job = typeof body.jobId === "string" ? await readJob(uid, body.jobId) : null;
     if (task !== "review" && !job) return fail(400, "`jobId` of an existing job is required for this task.");
 
@@ -72,7 +73,7 @@ export async function POST(req: Request) {
                         .map(r => ({ requirement: r.display, satisfiedBy: r.satisfiedBy, evidence: r.evidence, reason: r.reason })),
                 };
             } else if (task === "review") {
-                const wanted = new Set(Array.isArray(body.ids) ? body.ids.filter((x): x is string => typeof x === "string") : []);
+                const wanted = new Set(Array.isArray(body.ids) ? body.ids.filter((x): x is string => isDocId(x) || x === "profile") : []);
                 const picked = RESUME_LIST_KEYS.flatMap(key => (data[key] as AnyItem[])
                     .filter(item => hasContent(key, item) && (wanted.size === 0 || wanted.has(item.id)))
                     .map(item => ({ input: reviewInputOf(key, item), selected: item.isSelected })));
@@ -108,4 +109,5 @@ export async function POST(req: Request) {
         }
     }
     return NextResponse.json({ ok: true, task, runs });
+    });
 }

@@ -1,8 +1,16 @@
 // src/app/(auth)/login/page.tsx
+import type { Metadata } from "next"
 import { signIn, signOut, auth } from "@/auth"
 import Image from "next/image"
 import Link from "next/link"
 import { MarketingHeader } from "@/components/marketing-header";
+
+export const metadata: Metadata = {
+    title: "Log in",
+    description: "Sign in to quikResume with Google to open your résumé library.",
+    alternates: { canonical: "/login" },
+    robots: { index: false, follow: true },
+};
 
 const PRIMARY = "flex h-10 w-full items-center justify-center gap-3 rounded-md bg-accent px-4 text-sm font-medium text-accent-fg transition-colors hover:bg-accent-hover";
 const SECONDARY = "flex h-10 w-full items-center justify-center rounded-md border border-border bg-surface px-4 text-sm font-medium text-fg transition-colors hover:bg-surface-hover";

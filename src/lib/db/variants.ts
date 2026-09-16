@@ -2,9 +2,10 @@
 // Server-only Firestore helpers for users/{uid}/variants.
 
 import "server-only";
-import { Timestamp } from "firebase-admin/firestore";
+import { Timestamp, type DocumentData } from "firebase-admin/firestore";
 import { db } from "@/lib/firestore";
-import { isoOf, strOf, strArray, userCol } from "@/lib/db/user-collection";
+import { isoOf, strOf, strArray, userCol, userDoc } from "@/lib/db/user-collection";
+import { isDocId } from "@/lib/validation/limits";
 import { COLLECTION_NAMES } from "@/lib/sections";
 import { emptyVariantItems, readVariantHidden, readVariantItems, type VariantHidden, type VariantItems } from "@/lib/variants";
 import { bulletEntries, bulletLines, pruneHidden, skillEntries } from "@/lib/sub-items";
@@ -16,27 +17,31 @@ import type { ResumeLayout } from "@/lib/layout/types";
 
 const BATCH_LIMIT = 450;
 
-export async function readVariants(uid: string): Promise<ResumeVariant[]> {
-    const snap = await userCol(uid, "variants").orderBy("updatedAt", "desc").get();
-    return snap.docs.map(doc => {
-        const d = doc.data();
-        return {
-            id: doc.id,
-            name: strOf(d.name),
-            labels: strArray(d.labels),
-            items: readVariantItems(d.items as Record<string, string[]> | undefined),
-            hidden: readVariantHidden(d.hidden),
-            layout: d.layout ? normalizeLayout(d.layout) : null,
-            templateId: strOf(d.templateId) || DEFAULT_TEMPLATE,
-            createdAt: isoOf(d.createdAt),
-            updatedAt: isoOf(d.updatedAt),
-        };
-    });
+function mapVariant(id: string, d: DocumentData): ResumeVariant {
+    return {
+        id,
+        name: strOf(d.name),
+        labels: strArray(d.labels),
+        items: readVariantItems(d.items as Record<string, string[]> | undefined),
+        hidden: readVariantHidden(d.hidden),
+        layout: d.layout ? normalizeLayout(d.layout) : null,
+        templateId: strOf(d.templateId) || DEFAULT_TEMPLATE,
+        createdAt: isoOf(d.createdAt),
+        updatedAt: isoOf(d.updatedAt),
+    };
 }
 
+export async function readVariants(uid: string): Promise<ResumeVariant[]> {
+    const snap = await userCol(uid, "variants").orderBy("updatedAt", "desc").get();
+    return snap.docs.map(doc => mapVariant(doc.id, doc.data()));
+}
+
+/** One variant by id (a single document read, not the whole list). */
 export async function readVariant(uid: string, id: string): Promise<ResumeVariant | null> {
-    const all = await readVariants(uid);
-    return all.find(v => v.id === id) ?? null;
+    if (!isDocId(id)) return null;
+    const doc = await userDoc(uid, "variants", id).get();
+    const d = doc.data();
+    return doc.exists && d ? mapVariant(doc.id, d) : null;
 }
 
 /** The working layout, for variant snapshots. */
@@ -77,36 +82,45 @@ export async function snapshotSelection(uid: string): Promise<{ items: VariantIt
     return { items, hidden };
 }
 
+const sameKeys = (a: string[], b: string[]) => a.length === b.length && [...a].sort().every((k, i) => k === [...b].sort()[i]);
+
 /**
  * Makes the working selection equal to `items`: every existing item becomes
  * selected iff referenced, and selected items take the variant's hidden sub-items. Returns the pointers that no longer exist.
+ * Reads `isSelected` + `hidden` first and writes only the documents that actually change (loading a
+ * variant that differs in three items costs three writes, not the whole library).
  */
 export async function applyVariantSelection(uid: string, items: VariantItems, hidden: VariantHidden | null): Promise<{ applied: VariantItems; missing: number }> {
-    const existing = await listItemIds(uid);
     const applied = emptyVariantItems();
     let missing = 0;
-    const writes: Array<() => void> = [];
-    let batch = db.batch();
+    const writes: Array<(batch: WriteBatchLike) => void> = [];
     const now = Timestamp.now();
 
-    for (const c of COLLECTION_NAMES) {
+    await Promise.all(COLLECTION_NAMES.map(async c => {
+        const snap = await userCol(uid, c).select("isSelected", "hidden").get();
+        const existing = new Set(snap.docs.map(d => d.id));
         const wanted = new Set(items[c]);
-        missing += items[c].filter(id => !existing[c].includes(id)).length;
-        applied[c] = existing[c].filter(id => wanted.has(id));
-        for (const id of existing[c]) {
-            const ref = userCol(uid, c).doc(id);
-            const isSelected = wanted.has(id);
+        missing += items[c].filter(id => !existing.has(id)).length;
+        applied[c] = items[c].filter(id => existing.has(id));
+        for (const doc of snap.docs) {
+            const isSelected = wanted.has(doc.id);
+            const current = doc.get("isSelected") === true;
             // Legacy variants (hidden === null) leave per-bullet selection alone; unselected items keep theirs.
-            const patch = hidden !== null && isSelected && SUB_ITEM_COLLECTIONS.has(c)
-                ? { isSelected, hidden: hidden[id] ?? [], updatedAt: now }
-                : { isSelected, updatedAt: now };
-            writes.push(() => batch.update(ref, patch));
+            const setHidden = hidden !== null && isSelected && SUB_ITEM_COLLECTIONS.has(c);
+            const nextHidden = setHidden ? hidden[doc.id] ?? [] : null;
+            const hiddenChanged = setHidden && !sameKeys(strArray(doc.get("hidden")), nextHidden as string[]);
+            if (current === isSelected && !hiddenChanged) continue;
+            const patch = setHidden ? { isSelected, hidden: nextHidden, updatedAt: now } : { isSelected, updatedAt: now };
+            const ref = doc.ref;
+            writes.push(batch => batch.update(ref, patch));
         }
-    }
+    }));
     for (let i = 0; i < writes.length; i += BATCH_LIMIT) {
-        batch = db.batch();
-        for (const w of writes.slice(i, i + BATCH_LIMIT)) w();
+        const batch = db.batch();
+        for (const w of writes.slice(i, i + BATCH_LIMIT)) w(batch);
         await batch.commit();
     }
     return { applied, missing };
 }
+
+type WriteBatchLike = ReturnType<typeof db.batch>;

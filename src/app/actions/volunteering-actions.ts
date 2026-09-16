@@ -1,19 +1,19 @@
 "use server"
 
-import { auth } from "@/auth"
 import { revalidatePath } from "next/cache"
 import type { VolunteeringItem } from "@/types/db";
+import { currentUid, requireUid } from "@/lib/db/session";
 import {
-    tagFieldsOf, deleteUserDoc, formBool, formStrArray, isoOf, readCol, strArray, strOf, toTimestamp, updateUserDoc,
+    tagFieldsOf, deleteUserDoc, formBool, formBullets, formStr, formStrArray, isoOf, readCol, strArray, strOf, toTimestamp, updateUserDoc,
 } from "@/lib/db/user-collection";
 
 const COL = "volunteering";
 
 export async function getVolunteering(): Promise<VolunteeringItem[]> {
-    const session = await auth()
-    if (!session?.user?.id) return []
+    const uid = await currentUid();
+    if (!uid) return [];
 
-    return readCol(session.user.id, COL, { field: "startDate", dir: "desc" }, (id, d) => ({
+    return readCol(uid, COL, { field: "startDate", dir: "desc" }, (id, d) => ({
         id,
         role: strOf(d.role),
         organization: strOf(d.organization),
@@ -31,33 +31,27 @@ export async function getVolunteering(): Promise<VolunteeringItem[]> {
 
 // Partial update: only fields present in the FormData are written.
 export async function updateVolunteering(volunteeringId: string, formData: FormData) {
-    const session = await auth()
-    if (!session?.user?.id) throw new Error("Unauthorized")
+    const uid = await requireUid();
 
     const patch: Record<string, unknown> = {};
-    if (formData.has("role")) patch.role = formData.get("role") as string;
-    if (formData.has("organization")) patch.organization = formData.get("organization") as string;
-    if (formData.has("description")) {
-        patch.description = ((formData.get("description") as string) || "")
-            .split("\n").filter(line => line.trim() !== "");
-    }
+    if (formData.has("role")) patch.role = formStr(formData, "role");
+    if (formData.has("organization")) patch.organization = formStr(formData, "organization");
+    if (formData.has("description")) patch.description = formBullets(formData, "description");
     if (formData.has("startDate")) {
-        const ts = toTimestamp(formData.get("startDate") as string);
+        const ts = toTimestamp(formStr(formData, "startDate", 32));
         if (ts) patch.startDate = ts;
     }
-    if (formData.has("endDate")) patch.endDate = toTimestamp(formData.get("endDate") as string);
+    if (formData.has("endDate")) patch.endDate = toTimestamp(formStr(formData, "endDate", 32));
     if (formData.has("isActive")) patch.isActive = formBool(formData, "isActive");
     if (formData.has("isSelected")) patch.isSelected = formBool(formData, "isSelected");
     if (formData.has("hidden")) patch.hidden = formStrArray(formData, "hidden");
 
-    if (Object.keys(patch).length > 0) await updateUserDoc(session.user.id, COL, volunteeringId, patch);
+    if (Object.keys(patch).length > 0) await updateUserDoc(uid, COL, volunteeringId, patch);
     revalidatePath("/dashboard")
 }
 
 export async function deleteVolunteering(volunteeringId: string) {
-    const session = await auth()
-    if (!session?.user?.id) throw new Error("Unauthorized")
-
-    await deleteUserDoc(session.user.id, COL, volunteeringId);
+    const uid = await requireUid();
+    await deleteUserDoc(uid, COL, volunteeringId);
     revalidatePath("/dashboard")
 }

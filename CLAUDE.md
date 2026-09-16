@@ -45,14 +45,27 @@ Required env (`.env.local`): `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRE
 `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` (escaped `\n` newlines are unescaped in code),
 `GLM_API_KEY` (import, tags, Job Match, reviews, About you). Optional: `GITHUB_TOKEN` (raises the GitHub API limit for link checks), `GLM_BASE_URL` (default `https://api.z.ai/api/paas/v4`),
 `GLM_MODEL` (vision, default `glm-4.6v`), `GLM_TEXT_MODEL` (tags / JD analysis / proposals, default `glm-5.3-flash`),
-`GLM_EFFORT_RECONCILE` / `GLM_EFFORT_REVIEW` / `GLM_EFFORT_TAILOR` (`low | high | max`, see Reasoning effort).
+`GLM_EFFORT_RECONCILE` / `GLM_EFFORT_REVIEW` / `GLM_EFFORT_TAILOR` (`low | high | max`, see Reasoning effort),
+`AI_DAILY_TOKEN_BUDGET` / `AI_DAILY_CALL_BUDGET` (per-user daily AI budget, see Security).
 
 ## Layout
 
 ```
+firestore.rules, firebase.json               deny-all client rules for both databases (the app only uses the Admin SDK)
 src/
-  auth.ts, proxy.ts, lib/firestore.ts        auth + db singletons
-  app/page.tsx, (auth)/login                 public pages (MarketingHeader/Footer in components/marketing-header.tsx)
+  auth.ts, lib/firestore.ts                  auth + db singletons (JWT sessions, 14-day maxAge, signIn page /login)
+  proxy.ts                                   Next 16 middleware: per-IP burst limit on /api and /dashboard + sign-in redirect
+  lib/security/{guard,rate-limit,memory-limit,ai-budget,request,prompt}.ts   see Security
+  lib/validation/limits.ts                   LIMITS, clampStr / clampResumeData / clampPersonalInfo, isDocId / assertDocId
+  lib/db/session.ts                          currentUid() / requireUid(): one auth() per request (React cache)
+  app/page.tsx, (auth)/login                 public pages (MarketingHeader/Footer in components/marketing-header.tsx);
+                                             page.tsx also emits the WebApplication JSON-LD
+  app/{robots,sitemap}.ts                    /robots.txt (AI crawlers disallowed, /dashboard + /api + /login hidden,
+                                             search engines allowed) and /sitemap.xml (public pages only)
+  app/opengraph-image.tsx, twitter-image.tsx 1200x630 social card via next/og (Satori: every div with >1 child needs
+                                             display:flex); twitter-image re-exports it
+  lib/site.ts                                SITE_URL (NEXT_PUBLIC_SITE_URL, default https://quikresume.vercel.app),
+                                             name / tagline / description / keywords shared by all of the above
   app/(dashboard)/layout.tsx                 signed-in shell: auth() -> <AppShell> (sidebar + drawer); pages render <TopBar>
   app/(dashboard)/dashboard/{page,profile/page,variants/page}.tsx
   app/api/import/route.ts                    POST upload -> GLM-4.6V -> ResumeData draft (see Resume import)
@@ -72,7 +85,8 @@ src/
                                              about-actions.ts (summary / seen / skip), review-actions.ts (dismiss),
                                              library-actions.ts (setSectionSelection: Include all / Exclude all)
   lib/db/{user-collection,meta,variants,jobs,load-resume,characterization}.ts   server-only Firestore helpers
-                                             (loadLibraryWithReviews = loadResumeData + reviews per item)
+                                             (loadLibraryWithReviews = loadResumeData + reviews per item; userDoc() validates ids,
+                                             readUserDoc() is request-cached, formStr / formStrOrNull / formBullets cap FormData)
   components/shell/{app-shell,sidebar-nav,shell-context}.tsx   240px sidebar (>=lg) / drawer (<lg); ShellContext.openDrawer
   components/ui/primitives/*                 the UI kit: Button/IconButton, Field (Label/Input/Textarea/Select/Checkbox),
                                              Switch, Badge/TagChip, Tabs, Segmented, Card/SectionHeader, Table, ExpandableRow,
@@ -250,6 +264,42 @@ Weight of a tag = number of selected items carrying it (`aggregateTags`, compute
 - Profile tags live on `ResumeData.profileTags` (not inside `PersonalInfo`, which is treated as a flat string map).
 - `glm-5.x` models reject `thinking: disabled`; the client sends `reasoning_effort` when `effort` is set
   (`"low"` ≈ 7 s per 20-item chunk on `glm-5.3-flash`).
+
+## Security
+
+Every route handler starts with `guardApi(req, RATE.<policy>, { ai?, feature?, what? })` (`lib/security/guard.ts`) and, when it
+calls the model, wraps its body in `withAiUser(uid, task, ...)`. The guard checks, in order: same-origin for non-GET (`isSameOrigin`:
+`Sec-Fetch-Site` / `Origin` vs host, the CSRF check cookie-authenticated multipart routes need), the session, the per-user rate limit,
+then for `ai: true` the GLM key and the daily AI budget. Server actions get Next's own origin check; `saveResumeData` also rate-limits
+(`RATE.save`) and wraps its tagger call.
+
+- **Rate limits** (`lib/security/rate-limit.ts`): fixed windows per user per policy (`RATE`: import 12/h, job analyses 20/h,
+  reconcile 20/h, tailor 20/h, proposals 20/h, skill answers 30/h, tags 30/h, backfill 6/h, review 20/h, About you 30/h, link checks
+  30/h, saves 60/h, poll 30/min memory-only). Stored in the top-level `rate_limits` collection (`<policy>__<uid>`, transaction),
+  mirrored in memory so an exhausted key is refused without a read; a Firestore failure falls back to the in-memory count. 429
+  replies carry `Retry-After` and `{ rateLimited: true }`; `rateLimitMessage` is the server-action flavour.
+- **Per-IP burst limit** (`proxy.ts`, `lib/security/memory-limit.ts`): 120/min on `/api/*`, 60/min on `/api/auth/*`, 240/min on
+  `/dashboard*`, per instance. The proxy also redirects a missing session on `/dashboard` to `/login` (NextAuth's `auth()` wrapper does
+  not redirect once a callback is given).
+- **AI budget** (`lib/security/ai-budget.ts`): `chatCompletion` reads the `AsyncLocalStorage` context set by `withAiUser`, throws
+  `GlmError(..., 429)` when the user's day (UTC) is spent and records `usage.total_tokens` (estimated when absent) into `ai_usage/<uid>_<day>`
+  (`calls`, `tokens`, `byTask`, `byModel`). Defaults 2 M tokens / 400 calls; `glmErrorStatus(err)` maps the budget 429 for routes.
+  `after()` callbacks re-enter the context explicitly. In production a call without context logs a warning.
+- **Prompt hardening** (`lib/security/prompt.ts`): `sanitizeForPrompt` strips control / zero-width / bidi / Unicode-tag characters and caps
+  length; free text is fenced (`fenceUserText`, `<<<BEGIN X>>> … <<<END X>>>`, inner delimiters defused) and structured input goes through
+  `JSON.stringify`; every system prompt ends with `UNTRUSTED_INPUT_RULE`. Model output that is stored (brief, review comments and
+  rewrites, proposals, bullets, requirement names, reasons) goes through `cleanModelText` / `cleanModelBlock`. Uploads are sniffed
+  (PNG / JPEG / WebP magic bytes, DOCX must be a zip) rather than trusted by MIME type.
+- **Input bounds** (`lib/validation/limits.ts`): `clampResumeData` on every save and every `resume` body (`readResumeBody`), FormData
+  fields through `formStr` and friends, JSON bodies through `readJsonBody` (2 MB, 64–256 KB for small routes), variant pointers
+  capped in `readVariantItems` / `readVariantHidden`, ≤ 200 jobs and ≤ 200 variants per user. Every client-supplied document id passes
+  `isDocId` (`[A-Za-z0-9_-]{1,128}`), so a path can never be smuggled into a `doc()` call.
+- **Headers** (`next.config.ts`): CSP (`script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'`, `frame-ancestors 'none'`, avatars from
+  Google only), HSTS in production, nosniff, X-Frame-Options DENY, Referrer-Policy, Permissions-Policy, `Cache-Control: private,
+  no-store` on `/dashboard*` and `/api/*`, no `X-Powered-By`.
+- **Firestore**: `firestore.rules` denies every client read/write on both databases (deploy with `firebase deploy --only firestore:rules`).
+  `rate_limits` and `ai_usage` docs carry `expiresAt`; enable a TTL policy on that field for each collection group so they expire:
+  `gcloud firestore fields ttls update expiresAt --collection-group=rate_limits --database=quikresume` (and `ai_usage`).
 
 ## Reasoning effort
 
@@ -508,6 +558,9 @@ Subcollections, each item doc has `isSelected`, `tags`, `contentHash`, `tagsHash
 | `meta/layout` | `sectionOrder, itemOrder, page, sections, items` (see Layout and order) |
 | `meta/preferences` | `mutedProposals: {kind, tag?, itemId?}[], caps: Record<ResumeListKey, number \| null>, declinedSoftSkills: {name, display, at}[]` (hard + soft) |
 
+Top-level (not per user): `rate_limits/{policy}__{uid}` (`count, windowStart, expiresAt`) and `ai_usage/{uid}_{YYYY-MM-DD}`
+(`calls, tokens, byTask, byModel, expiresAt`); see Security.
+
 Dates are stored as Firestore `Timestamp` at **UTC midnight** (`toUtcDate`), month precision (day 01). In the editor model
 `startDate` is `"YYYY-MM-01" | ""` and `endDate` is `"YYYY-MM-01" | "Present" | ""`; `"Present"`
 round-trips to `isActive: true` / `endDate: null`. `description` is newline-separated bullets in the
@@ -556,7 +609,13 @@ editor and `string[]` in Firestore.
   constants/types for `/api/import` live in `src/lib/import/types.ts`.
 - `dashboard/page.tsx` exports `maxDuration = 120` because Save & Exit (a server action) now calls GLM; actions
   inherit their page's segment config. Long GLM calls otherwise live in route handlers.
-- `variants` and `jobs` order by `updatedAt` (always written).
+- `variants` and `jobs` order by `updatedAt` (always written). `readJobs` (the dashboard list) projects with `select()` and leaves
+  `jdText` out (`""` on the record); `readJob` returns it.
+- `set(..., { merge: true })` treats a dotted key as a literal field name; only `update()` reads `"a.b"` as a path. Nested increments go
+  in as nested maps (see `recordAiUsage`).
+- `applyVariantSelection` reads `isSelected` + `hidden` first and writes only documents that change; `readVariant` is one document read.
+- Testing server-only modules outside Next: alias `server-only` to an empty module (a `--require` shim) and load `.env.local` with
+  `node --env-file`; `lib/security/*` and `lib/validation/limits.ts` (pure parts) run under plain `tsx`.
 - ESLint ignores `public/pdfjs/**` and `public/typst/wasm/**` (vendored bundles).
 - No `typst` CLI locally: `pip install typst` in a venv gives `typst.compile(...)` with `sys_inputs`, which is
   enough to check the templates against `sample.json`.

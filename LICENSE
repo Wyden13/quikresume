@@ -1,0 +1,77 @@
+quikResume Source-Available License
+Copyright (c) 2026 xuckless. All rights reserved.
+
+This software and its source code (the "Software") are made public for reading only.
+They are NOT open source. No right to use the Software is granted except as stated below.
+
+1. Permission granted
+
+   You may view, read and inspect the source code of the Software, and make the
+   temporary local copies that unavoidably result from doing so (for example, cloning
+   the repository or letting your browser or editor fetch it), for the sole purposes of
+   personal study, evaluation, security research, and reference.
+
+2. Permission NOT granted
+
+   Without the prior written permission of the copyright holder, you may not:
+
+   a. copy, reproduce, republish, mirror, or redistribute the Software or any part of
+      it, in source or compiled form;
+   b. run, host, deploy, or otherwise operate the Software or any part of it, whether
+      publicly or privately, commercially or non-commercially, including for personal
+      use;
+   c. modify the Software or create derivative works from it, including translations,
+      ports, and adaptations;
+   d. incorporate any part of the Software, including individual files, functions, or
+      design assets, into any other project or product;
+   e. sell, license, sublicense, rent, lease, or otherwise transfer the Software or any
+      rights in it;
+   f. use the Software or any part of it as training data, fine-tuning data, retrieval
+      corpus, or other input for machine learning or generative artificial intelligence
+      systems, or to generate datasets or embeddings derived from it;
+   g. remove, obscure, or alter this license, any copyright notice, or any attribution
+      contained in the Software.
+
+3. Reserved rights
+
+   All rights not expressly granted in Section 1 are reserved by the copyright holder.
+   Nothing in this license transfers ownership of the Software or of any trademark,
+   service mark, logo, or trade name used in it, including the name "quikResume".
+
+4. Third-party components
+
+   The Software depends on and vendors third-party components (including, without
+   limitation, Typst, the Inter typeface, pdf.js, and the packages listed in
+   package.json). Those components are governed by their own licenses, which are
+   unaffected by this license and continue to apply to those components.
+
+5. Contributions
+
+   Unsolicited contributions are not invited. If the copyright holder accepts a
+   contribution from you, you assign to the copyright holder all rights in that
+   contribution, or, where assignment is not permitted by law, grant a perpetual,
+   worldwide, irrevocable, royalty-free license to use it without restriction.
+
+6. Termination
+
+   The permission in Section 1 terminates automatically and immediately if you breach
+   any term of this license. On termination you must delete all copies of the Software
+   in your possession or control.
+
+7. No warranty
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+   INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+   PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+
+8. Limitation of liability
+
+   IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT
+   OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OF OR OTHER DEALINGS IN THE
+   SOFTWARE.
+
+9. Licensing enquiries
+
+   For any use beyond Section 1, contact the copyright holder (github.com/xuckless) to
+   request a written license.

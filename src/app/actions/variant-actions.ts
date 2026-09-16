@@ -1,10 +1,10 @@
 "use server"
 
-import { auth } from "@/auth"
 import { revalidatePath } from "next/cache"
 import { Timestamp } from "firebase-admin/firestore";
 import { db } from "@/lib/firestore";
-import { userCol } from "@/lib/db/user-collection";
+import { readUserDoc, userCol, userDoc } from "@/lib/db/user-collection";
+import { currentUid, requireUid } from "@/lib/db/session";
 import { applyVariantSelection, listItemIds, readVariant, readVariants, readWorkingLayout, snapshotSelection } from "@/lib/db/variants";
 import { replaceMeta } from "@/lib/db/meta";
 import { normalizeLayout } from "@/lib/layout/presets";
@@ -12,36 +12,38 @@ import type { ResumeLayout } from "@/lib/layout/types";
 import { COLLECTION_NAMES } from "@/lib/sections";
 import { readVariantHidden, readVariantItems, type VariantHidden, type VariantItems } from "@/lib/variants";
 import { DEFAULT_TEMPLATE } from "@/lib/typst/templates";
+import { clampStr } from "@/lib/validation/limits";
 import type { ResumeVariant } from "@/types/db";
 
 const MAX_NAME = 80;
 const MAX_LABELS = 12;
+const MAX_VARIANTS = 200;
 
-const cleanName = (s: string) => s.trim().slice(0, MAX_NAME);
-const cleanLabels = (labels: string[]) =>
-    [...new Set(labels.map(l => l.trim().slice(0, 40)).filter(Boolean))].slice(0, MAX_LABELS);
+const cleanName = (s: unknown) => clampStr(s, MAX_NAME);
+const cleanLabels = (labels: unknown) =>
+    [...new Set((Array.isArray(labels) ? labels : []).map(l => clampStr(l, 40)).filter(Boolean))].slice(0, MAX_LABELS);
 
 const revalidate = () => {
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/variants");
 };
 
-async function requireUid(): Promise<string> {
-    const session = await auth();
-    if (!session?.user?.id) throw new Error("Unauthorized");
-    return session.user.id;
+/** Variants are pointers, but a runaway client could still fill the collection. */
+async function assertVariantRoom(uid: string) {
+    const snap = await userCol(uid, "variants").select().limit(MAX_VARIANTS).get();
+    if (snap.size >= MAX_VARIANTS) throw new Error(`You can keep at most ${MAX_VARIANTS} variants. Delete some first.`);
 }
 
 export async function getVariants(): Promise<ResumeVariant[]> {
-    const session = await auth();
-    if (!session?.user?.id) return [];
-    return readVariants(session.user.id);
+    const uid = await currentUid();
+    if (!uid) return [];
+    return readVariants(uid);
 }
 
 export async function getLoadedVariantId(): Promise<string | null> {
-    const session = await auth();
-    if (!session?.user?.id) return null;
-    const doc = await db.collection("users").doc(session.user.id).get();
+    const uid = await currentUid();
+    if (!uid) return null;
+    const doc = await readUserDoc(uid);
     const v = doc.data()?.loadedVariantId;
     return typeof v === "string" && v ? v : null;
 }
@@ -49,11 +51,12 @@ export async function getLoadedVariantId(): Promise<string | null> {
 /** Snapshots the current working selection as a new variant. */
 export async function createVariant(input: { name: string; labels?: string[] }): Promise<{ id: string }> {
     const uid = await requireUid();
+    await assertVariantRoom(uid);
     const name = cleanName(input.name) || "Untitled resume";
     const [{ items, hidden }, layout] = await Promise.all([snapshotSelection(uid), readWorkingLayout(uid)]);
     const now = Timestamp.now();
     const ref = await userCol(uid, "variants").add({
-        name, labels: cleanLabels(input.labels ?? []), items, hidden, layout, templateId: DEFAULT_TEMPLATE, createdAt: now, updatedAt: now,
+        name, labels: cleanLabels(input.labels), items, hidden, layout, templateId: DEFAULT_TEMPLATE, createdAt: now, updatedAt: now,
     });
     await db.collection("users").doc(uid).set({ loadedVariantId: ref.id, updatedAt: now }, { merge: true });
     revalidate();
@@ -65,7 +68,7 @@ export async function updateVariant(id: string, patch: { name?: string; labels?:
     const data: Record<string, unknown> = { updatedAt: Timestamp.now() };
     if (patch.name !== undefined) data.name = cleanName(patch.name) || "Untitled resume";
     if (patch.labels !== undefined) data.labels = cleanLabels(patch.labels);
-    await userCol(uid, "variants").doc(id).update(data);
+    await userDoc(uid, "variants", id).update(data);
     revalidate();
 }
 
@@ -74,13 +77,14 @@ export async function resnapshotVariant(id: string) {
     const uid = await requireUid();
     const [{ items, hidden }, layout] = await Promise.all([snapshotSelection(uid), readWorkingLayout(uid)]);
     const now = Timestamp.now();
-    await userCol(uid, "variants").doc(id).update({ items, hidden, layout, updatedAt: now });
+    await userDoc(uid, "variants", id).update({ items, hidden, layout, updatedAt: now });
     await db.collection("users").doc(uid).set({ loadedVariantId: id, updatedAt: now }, { merge: true });
     revalidate();
 }
 
 export async function duplicateVariant(id: string): Promise<{ id: string }> {
     const uid = await requireUid();
+    await assertVariantRoom(uid);
     const src = await readVariant(uid, id);
     if (!src) throw new Error("Variant not found");
     const now = Timestamp.now();
@@ -93,7 +97,7 @@ export async function duplicateVariant(id: string): Promise<{ id: string }> {
 
 export async function deleteVariant(id: string) {
     const uid = await requireUid();
-    await userCol(uid, "variants").doc(id).delete();
+    await userDoc(uid, "variants", id).delete();
     const userRef = db.collection("users").doc(uid);
     const doc = await userRef.get();
     if (doc.data()?.loadedVariantId === id) await userRef.set({ loadedVariantId: null }, { merge: true });
@@ -109,7 +113,7 @@ export async function loadVariant(id: string): Promise<{ missing: number }> {
     // Variants saved before layouts (null) leave the working layout alone.
     if (v.layout) await replaceMeta(uid, "layout", { ...v.layout });
     const now = Timestamp.now();
-    if (missing > 0) await userCol(uid, "variants").doc(id).update({ items: applied, updatedAt: now });
+    if (missing > 0) await userDoc(uid, "variants", id).update({ items: applied, updatedAt: now });
     await db.collection("users").doc(uid).set({ loadedVariantId: id, updatedAt: now }, { merge: true });
     revalidate();
     return { missing };
@@ -135,6 +139,7 @@ export async function applyWorkingSelection(input: { items: VariantItems; hidden
  */
 export async function createVariantFromPlan(input: { name: string; labels?: string[]; items: VariantItems; hidden: VariantHidden; layout?: ResumeLayout }): Promise<{ id: string; missing: number }> {
     const uid = await requireUid();
+    await assertVariantRoom(uid);
     const existing = await listItemIds(uid);
     const requested = readVariantItems(input.items as unknown as Record<string, string[]>);
     const items = readVariantItems({});
@@ -146,7 +151,7 @@ export async function createVariantFromPlan(input: { name: string; labels?: stri
 
     const now = Timestamp.now();
     const ref = await userCol(uid, "variants").add({
-        name: cleanName(input.name) || "Tailored resume", labels: cleanLabels(input.labels ?? []), items, hidden, layout, templateId: DEFAULT_TEMPLATE, createdAt: now, updatedAt: now,
+        name: cleanName(input.name) || "Tailored resume", labels: cleanLabels(input.labels), items, hidden, layout, templateId: DEFAULT_TEMPLATE, createdAt: now, updatedAt: now,
     });
     const { missing } = await applyVariantSelection(uid, items, hidden);
     await replaceMeta(uid, "layout", { ...layout });

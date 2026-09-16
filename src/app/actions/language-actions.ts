@@ -1,19 +1,20 @@
 "use server"
 
-import { auth } from "@/auth"
 import { revalidatePath } from "next/cache"
 import type { LanguageItem } from "@/types/db";
+import { currentUid, requireUid } from "@/lib/db/session";
+import { LIMITS } from "@/lib/validation/limits";
 import {
-    tagFieldsOf, deleteUserDoc, formBool, formStrOrNull, isoOf, readCol, strOf, strOrNull, updateUserDoc,
+    tagFieldsOf, deleteUserDoc, formBool, formStr, formStrOrNull, isoOf, readCol, strOf, strOrNull, updateUserDoc,
 } from "@/lib/db/user-collection";
 
 const COL = "languages";
 
 export async function getLanguages(): Promise<LanguageItem[]> {
-    const session = await auth()
-    if (!session?.user?.id) return []
+    const uid = await currentUid();
+    if (!uid) return [];
 
-    return readCol(session.user.id, COL, { field: "createdAt", dir: "desc" }, (id, d) => ({
+    return readCol(uid, COL, { field: "createdAt", dir: "desc" }, (id, d) => ({
         id,
         language: strOf(d.language),
         proficiency: strOrNull(d.proficiency),
@@ -26,22 +27,19 @@ export async function getLanguages(): Promise<LanguageItem[]> {
 
 // Partial update: only fields present in the FormData are written.
 export async function updateLanguage(languageId: string, formData: FormData) {
-    const session = await auth()
-    if (!session?.user?.id) throw new Error("Unauthorized")
+    const uid = await requireUid();
 
     const patch: Record<string, unknown> = {};
-    if (formData.has("language")) patch.language = formData.get("language") as string;
-    if (formData.has("proficiency")) patch.proficiency = formStrOrNull(formData, "proficiency");
+    if (formData.has("language")) patch.language = formStr(formData, "language");
+    if (formData.has("proficiency")) patch.proficiency = formStrOrNull(formData, "proficiency", LIMITS.field);
     if (formData.has("isSelected")) patch.isSelected = formBool(formData, "isSelected");
 
-    if (Object.keys(patch).length > 0) await updateUserDoc(session.user.id, COL, languageId, patch);
+    if (Object.keys(patch).length > 0) await updateUserDoc(uid, COL, languageId, patch);
     revalidatePath("/dashboard")
 }
 
 export async function deleteLanguage(languageId: string) {
-    const session = await auth()
-    if (!session?.user?.id) throw new Error("Unauthorized")
-
-    await deleteUserDoc(session.user.id, COL, languageId);
+    const uid = await requireUid();
+    await deleteUserDoc(uid, COL, languageId);
     revalidatePath("/dashboard")
 }

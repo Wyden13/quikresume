@@ -1,0 +1,15 @@
+// Firestore security rules for the "quikresume" database (and the default one).
+//
+// The app talks to Firestore only through the Admin SDK on the server (src/lib/firestore.ts), which
+// bypasses these rules. No browser ever holds a Firebase client credential, so the client-facing
+// surface is closed completely: every read and write from the Firebase client SDKs / REST API with
+// user or anonymous credentials is denied. Deploy with `firebase deploy --only firestore:rules`
+// (see firebase.json) or paste into the console for BOTH databases.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

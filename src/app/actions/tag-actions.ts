@@ -1,11 +1,11 @@
 "use server"
 
-import { auth } from "@/auth"
+import { currentUid } from "@/lib/db/session";
 import { readTagAliases } from "@/lib/db/meta";
 import type { AliasMap } from "@/lib/tags/normalize";
 
 export async function getTagAliases(): Promise<AliasMap> {
-    const session = await auth()
-    if (!session?.user?.id) return {}
-    return readTagAliases(session.user.id);
+    const uid = await currentUid();
+    if (!uid) return {}
+    return readTagAliases(uid);
 }

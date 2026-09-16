@@ -8,6 +8,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     providers: [Google],
     session: {
         strategy: "jwt",
+        // Signed-in for two weeks of inactivity at most; the token is refreshed on use.
+        maxAge: 14 * 24 * 60 * 60,
+        updateAge: 24 * 60 * 60,
+    },
+    pages: {
+        signIn: "/login",
     },
     callbacks: {
         // This callback injects the ID into the session object

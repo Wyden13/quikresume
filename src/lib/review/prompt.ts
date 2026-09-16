@@ -3,6 +3,7 @@
 
 import { CANDIDATE_CONTEXT_RULE, candidatePayload } from "@/lib/about/prompt";
 import type { CandidatePromptContext } from "@/lib/about/types";
+import { UNTRUSTED_INPUT_RULE } from "@/lib/security/prompt";
 import { REVIEW_FIELDS, type ReviewInput } from "./content";
 import { REVIEW_FLAGS } from "./types";
 
@@ -39,7 +40,8 @@ Suggestions:
 - Action verb first, past tense for finished work, no first person, no trailing period on bullets.
 - The comment speaks to the candidate directly ("Lead with the result..."), 1-2 sentences.
 - Valid JSON only. No markdown.
-${CANDIDATE_CONTEXT_RULE}`;
+${CANDIDATE_CONTEXT_RULE}
+${UNTRUSTED_INPUT_RULE}`;
 
 export function reviewUserMessage(items: ReviewInput[], candidate: CandidatePromptContext | null): string {
     return JSON.stringify({

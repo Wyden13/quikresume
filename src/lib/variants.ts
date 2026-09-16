@@ -41,11 +41,19 @@ export function selectedHidden(data: ResumeData): VariantHidden {
     return out;
 }
 
+/** Bounds for pointer maps coming from a request body (a variant is at most a few hundred ids). */
+const MAX_IDS_PER_COLLECTION = 500;
+const MAX_HIDDEN_ITEMS = 1000;
+const MAX_HIDDEN_KEYS = 300;
+const MAX_KEY_LEN = 12_000;
+const isId = (v: unknown): v is string => typeof v === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(v);
+
 export function readVariantHidden(raw: unknown): VariantHidden | null {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
     const out: VariantHidden = {};
-    for (const [id, keys] of Object.entries(raw as Record<string, unknown>)) {
-        if (Array.isArray(keys)) out[id] = keys.filter((k): k is string => typeof k === "string");
+    for (const [id, keys] of Object.entries(raw as Record<string, unknown>).slice(0, MAX_HIDDEN_ITEMS)) {
+        if (!isId(id) || !Array.isArray(keys)) continue;
+        out[id] = keys.filter((k): k is string => typeof k === "string" && k.length <= MAX_KEY_LEN).slice(0, MAX_HIDDEN_KEYS);
     }
     return out;
 }
@@ -67,7 +75,7 @@ export function selectedIds(data: ResumeData): VariantItems {
 export function readVariantItems(raw: Record<string, string[]> | undefined | null): VariantItems {
     const out = emptyVariantItems();
     if (!raw) return out;
-    for (const c of COLLECTION_NAMES) out[c] = Array.isArray(raw[c]) ? raw[c].filter(x => typeof x === "string") : [];
+    for (const c of COLLECTION_NAMES) out[c] = Array.isArray(raw[c]) ? [...new Set(raw[c].filter(isId))].slice(0, MAX_IDS_PER_COLLECTION) : [];
     return out;
 }
 

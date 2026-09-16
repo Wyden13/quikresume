@@ -24,6 +24,7 @@ import { canonicalKey, type AliasMap } from "@/lib/tags/normalize";
 import { itemTitle } from "@/lib/sections";
 import { toBullets } from "@/lib/typst/doc";
 import { RECONCILE_SYSTEM_PROMPT, reconcileUserMessage, type ProposalPromptItem, type ReconcileTagRow } from "@/lib/match/prompt";
+import { cleanModelText } from "@/lib/security/prompt";
 import type { Requirement } from "@/lib/match/types";
 import type { CandidatePromptContext } from "@/lib/about/types";
 
@@ -136,7 +137,7 @@ export async function reconcileRequirements(
             verdicts.set(req.name, {
                 satisfiedBy: [...satisfiedBy].slice(0, 8),
                 evidence: [...evidence].slice(0, 8),
-                reason: typeof o.reason === "string" ? o.reason.trim().slice(0, 200) : "",
+                reason: typeof o.reason === "string" ? cleanModelText(o.reason, 200) : "",
             });
         }
     }

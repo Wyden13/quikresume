@@ -4,6 +4,7 @@
 
 import { stableHash } from "@/lib/hash";
 import { bulletKey } from "@/lib/sub-items";
+import { cleanModelText } from "@/lib/security/prompt";
 import { fieldSpec, type ReviewInput } from "./content";
 import { REVIEW_FLAGS, type ReviewFlag, type ReviewSuggestion } from "./types";
 
@@ -26,7 +27,8 @@ function parseSuggestion(input: ReviewInput, raw: unknown, context: string): Rev
     const value = input.fields[o.field];
     if (!spec || value === undefined) return null;
 
-    const proposed = o.proposed.replace(/\s+/g, " ").trim();
+    // A rewrite is applied verbatim to the library: hidden characters are stripped before any comparison.
+    const proposed = cleanModelText(o.proposed, MAX_PROPOSED + 1);
     let current = o.current.trim();
     if (spec.bullets) {
         const bullets = Array.isArray(value) ? value : [value];
@@ -46,7 +48,7 @@ function parseSuggestion(input: ReviewInput, raw: unknown, context: string): Rev
     const known = digits(input.target === "profile" ? `${Object.values(input.fields).flat().join(" ")} ${context}` : current);
     if ([...digits(proposed)].some(d => !known.has(d))) return null;
 
-    const reason = typeof o.reason === "string" ? o.reason.trim().slice(0, 200) : "";
+    const reason = typeof o.reason === "string" ? cleanModelText(o.reason, 200) : "";
     return { id: stableHash(`${o.field}|${current}|${proposed}`), field: o.field, current, proposed, reason };
 }
 
@@ -70,9 +72,9 @@ export function parseReviewReply(json: unknown, inputs: ReviewInput[], context =
         out[input.id] = {
             score: Math.max(0, Math.min(10, Math.round(o.score))),
             flags: [...new Set((Array.isArray(o.flags) ? o.flags : []).filter((f): f is ReviewFlag => (REVIEW_FLAGS as readonly unknown[]).includes(f)))],
-            // Not capped: the prompt asks for 1-2 sentences and the panel wraps freely, so a cut here
-            // only ever showed up as a comment ending mid-word.
-            comment: typeof o.comment === "string" ? o.comment.trim() : "",
+            // Generous cap: the prompt asks for 1-2 sentences and the panel wraps freely; only a runaway
+            // reply is cut, and hidden characters never reach the stored review.
+            comment: typeof o.comment === "string" ? cleanModelText(o.comment, 2000) : "",
             suggestions,
         };
     }

@@ -1,111 +1,59 @@
 "use server"
 
-import { auth } from "@/auth"
-import { db } from "@/lib/firestore"
 import { revalidatePath } from "next/cache"
-import { formStrArray, strArray, tagFieldsOf } from "@/lib/db/user-collection";
-import { Timestamp } from "firebase-admin/firestore";
-import { toUtcDate } from "@/lib/dates";
 import type { ProjectItem } from "@/types/db";
+import { currentUid, requireUid } from "@/lib/db/session";
+import { LIMITS } from "@/lib/validation/limits";
+import {
+    tagFieldsOf, deleteUserDoc, formBool, formBullets, formStr, formStrArray, formStrOrNull, isoOf, readCol, strArray, strOf, strOrNull, toTimestamp, updateUserDoc,
+} from "@/lib/db/user-collection";
 
-
-interface UpdateProjectData {
-    title?: string;
-    stack?: string | null;
-    link?: string | null;
-    description?: string[];
-    startDate?: Timestamp | null;
-    endDate?: Timestamp | null;
-    isActive?: boolean;
-    isSelected?: boolean;
-    hidden?: string[];
-    updatedAt: Timestamp;
-}
-
-const toTimestamp = (s: string | null) => {
-    const d = toUtcDate(s);
-    return d ? Timestamp.fromDate(d) : null;
-};
+const COL = "projects";
 
 // --- READ ---
 export async function getProjects(): Promise<ProjectItem[]> {
-    const session = await auth()
-    if (!session?.user?.id) return []
+    const uid = await currentUid();
+    if (!uid) return [];
 
-    const snapshot = await db
-        .collection("users")
-        .doc(session.user.id)
-        .collection("projects")
-        .orderBy("createdAt", "desc")
-        .get()
-
-    return snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-            id: doc.id,
-            title: data.title ?? "",
-            stack: data.stack ?? null,
-            link: data.link ?? null,
-            startDate: data.startDate?.toDate().toISOString() ?? null,
-            endDate: data.endDate?.toDate().toISOString() ?? null,
-            isActive: Boolean(data.isActive),
-            description: Array.isArray(data.description) ? data.description : [],
-            hidden: strArray(data.hidden),
-            isSelected: Boolean(data.isSelected),
-            ...tagFieldsOf(data),
-            createdAt: data.createdAt?.toDate().toISOString() ?? null,
-            updatedAt: data.updatedAt?.toDate().toISOString() ?? null,
-        };
-    });
+    return readCol(uid, COL, { field: "createdAt", dir: "desc" }, (id, d) => ({
+        id,
+        title: strOf(d.title),
+        stack: strOrNull(d.stack),
+        link: strOrNull(d.link),
+        startDate: isoOf(d.startDate),
+        endDate: isoOf(d.endDate),
+        isActive: Boolean(d.isActive),
+        description: strArray(d.description),
+        hidden: strArray(d.hidden),
+        isSelected: Boolean(d.isSelected),
+        ...tagFieldsOf(d),
+        createdAt: isoOf(d.createdAt),
+        updatedAt: isoOf(d.updatedAt),
+    }));
 }
 
 // --- UPDATE (partial) ---
 export async function updateProject(projectId: string, formData: FormData) {
-    const session = await auth()
-    if (!session?.user?.id) throw new Error("Unauthorized")
+    const uid = await requireUid();
 
-    const updateData: UpdateProjectData = { updatedAt: Timestamp.now() }
+    const patch: Record<string, unknown> = {};
+    if (formData.has("title")) patch.title = formStr(formData, "title");
+    if (formData.has("stack")) patch.stack = formStrOrNull(formData, "stack", LIMITS.long);
+    if (formData.has("link")) patch.link = formStrOrNull(formData, "link");
+    if (formData.has("description")) patch.description = formBullets(formData, "description");
+    if (formData.has("startDate")) patch.startDate = toTimestamp(formStr(formData, "startDate", 32));
+    if (formData.has("endDate")) patch.endDate = toTimestamp(formStr(formData, "endDate", 32));
+    if (formData.has("isActive")) patch.isActive = formBool(formData, "isActive");
+    if (formData.has("hidden")) patch.hidden = formStrArray(formData, "hidden");
+    if (formData.has("isSelected")) patch.isSelected = formBool(formData, "isSelected");
 
-    if (formData.has("title")) updateData.title = formData.get("title") as string;
-    if (formData.has("stack")) updateData.stack = (formData.get("stack") as string) || null;
-    if (formData.has("link")) updateData.link = (formData.get("link") as string) || null;
-    if (formData.has("description")) {
-        updateData.description = ((formData.get("description") as string) || "")
-            .split("\n").filter(line => line.trim() !== "");
-    }
-    if (formData.has("startDate")) updateData.startDate = toTimestamp(formData.get("startDate") as string);
-    if (formData.has("endDate")) updateData.endDate = toTimestamp(formData.get("endDate") as string);
-    if (formData.has("isActive")) {
-        updateData.isActive = formData.get("isActive") === "on" || formData.get("isActive") === "true";
-    }
-    if (formData.has("hidden")) updateData.hidden = formStrArray(formData, "hidden");
-    if (formData.has("isSelected")) {
-        updateData.isSelected = formData.get("isSelected") === "on" || formData.get("isSelected") === "true";
-    }
-
-    if (Object.keys(updateData).length > 1) {
-        await db
-            .collection("users")
-            .doc(session.user.id)
-            .collection("projects")
-            .doc(projectId)
-            .update({ ...updateData })
-    }
-
+    if (Object.keys(patch).length > 0) await updateUserDoc(uid, COL, projectId, patch);
     revalidatePath("/dashboard")
 }
 
 // --- DELETE ---
 export async function deleteProject(projectId: string) {
-    const session = await auth()
-    if (!session?.user?.id) throw new Error("Unauthorized")
-
-    await db
-        .collection("users")
-        .doc(session.user.id)
-        .collection("projects")
-        .doc(projectId)
-        .delete()
-
+    const uid = await requireUid();
+    await deleteUserDoc(uid, COL, projectId);
     revalidatePath("/dashboard")
 }

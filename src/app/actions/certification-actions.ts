@@ -1,85 +1,48 @@
 "use server"
 
-import { auth } from "@/auth"
-import { db } from "@/lib/firestore"
 import { revalidatePath } from "next/cache"
-import { tagFieldsOf } from "@/lib/db/user-collection";
-import { Timestamp } from "firebase-admin/firestore";
 import type { CertificationItem } from "@/types/db";
+import { currentUid, requireUid } from "@/lib/db/session";
+import {
+    tagFieldsOf, deleteUserDoc, formBool, formStr, formStrOrNull, isoOf, readCol, strOf, strOrNull, updateUserDoc,
+} from "@/lib/db/user-collection";
 
-
-interface UpdateCertificationData {
-    name?: string;
-    issuer?: string | null;
-    year?: string;
-    isSelected?: boolean;
-    updatedAt: Timestamp;
-}
+const COL = "certifications";
 
 // --- READ ---
 export async function getCertifications(): Promise<CertificationItem[]> {
-    const session = await auth()
-    if (!session?.user?.id) return []
+    const uid = await currentUid();
+    if (!uid) return [];
 
-    const snapshot = await db
-        .collection("users")
-        .doc(session.user.id)
-        .collection("certifications")
-        .orderBy("createdAt", "desc")
-        .get()
-
-    return snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-            id: doc.id,
-            name: data.name ?? "",
-            issuer: data.issuer ?? null,
-            year: data.year ?? "",
-            isSelected: Boolean(data.isSelected),
-            ...tagFieldsOf(data),
-            createdAt: data.createdAt?.toDate().toISOString() ?? null,
-            updatedAt: data.updatedAt?.toDate().toISOString() ?? null,
-        };
-    });
+    return readCol(uid, COL, { field: "createdAt", dir: "desc" }, (id, d) => ({
+        id,
+        name: strOf(d.name),
+        issuer: strOrNull(d.issuer),
+        year: strOf(d.year),
+        isSelected: Boolean(d.isSelected),
+        ...tagFieldsOf(d),
+        createdAt: isoOf(d.createdAt),
+        updatedAt: isoOf(d.updatedAt),
+    }));
 }
 
 // --- UPDATE (partial) ---
 export async function updateCertification(certificationId: string, formData: FormData) {
-    const session = await auth()
-    if (!session?.user?.id) throw new Error("Unauthorized")
+    const uid = await requireUid();
 
-    const updateData: UpdateCertificationData = { updatedAt: Timestamp.now() }
+    const patch: Record<string, unknown> = {};
+    if (formData.has("name")) patch.name = formStr(formData, "name");
+    if (formData.has("issuer")) patch.issuer = formStrOrNull(formData, "issuer");
+    if (formData.has("year")) patch.year = formStr(formData, "year", 16);
+    if (formData.has("isSelected")) patch.isSelected = formBool(formData, "isSelected");
 
-    if (formData.has("name")) updateData.name = formData.get("name") as string;
-    if (formData.has("issuer")) updateData.issuer = (formData.get("issuer") as string) || null;
-    if (formData.has("year")) updateData.year = formData.get("year") as string;
-    if (formData.has("isSelected")) {
-        updateData.isSelected = formData.get("isSelected") === "on" || formData.get("isSelected") === "true";
-    }
-
-    if (Object.keys(updateData).length > 1) {
-        await db
-            .collection("users")
-            .doc(session.user.id)
-            .collection("certifications")
-            .doc(certificationId)
-            .update({ ...updateData })
-    }
-
+    if (Object.keys(patch).length > 0) await updateUserDoc(uid, COL, certificationId, patch);
     revalidatePath("/dashboard")
 }
 
 // --- DELETE ---
 export async function deleteCertification(certificationId: string) {
-    const session = await auth()
-    if (!session?.user?.id) throw new Error("Unauthorized")
-
-    await db
-        .collection("users")
-        .doc(session.user.id)
-        .collection("certifications")
-        .doc(certificationId)
-        .delete()
-
+    const uid = await requireUid();
+    await deleteUserDoc(uid, COL, certificationId);
     revalidatePath("/dashboard")
 }
