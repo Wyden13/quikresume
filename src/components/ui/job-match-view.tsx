@@ -7,15 +7,13 @@
 // card is hidden (SHOW_SUGGESTIONS).
 
 import React, { useEffect, useState } from "react";
-import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import type { ResumeData } from "@/types/schema";
 import type { ResumeVariant } from "@/types/db";
 import type { JobRecord, MuteRule, Preferences, Proposal, Requirement, ResumeSource } from "@/lib/match/types";
 import type { AliasMap } from "@/lib/tags/normalize";
-import { jobKindTotals, requirementTier, scoreJob, uncoveredRequirements } from "@/lib/match/score";
+import { requirementTier, scoreJob, uncoveredRequirements } from "@/lib/match/score";
 import { muteRuleFor } from "@/lib/match/proposals";
-import { aggregateTags, kindTotals } from "@/lib/tags/aggregate";
 import { applyTags, allInputs, tagContext } from "@/lib/tags/content";
 import { kindMeta } from "@/lib/tags/types";
 import { applyVariant } from "@/lib/variants";
@@ -49,33 +47,6 @@ import { readJson } from "@/lib/ui/fetch-json";
 const SHOW_SUGGESTIONS = false;
 /** How often the job page polls the job status while a background reconcile runs. */
 const MATCH_POLL_MS = 5000;
-
-const Charts = dynamic(() => import("@/components/ui/tag-charts").then(m => ({ default: ChartsBundle(m) })), {
-    ssr: false,
-    loading: () => <div className="flex h-56 items-center justify-center text-13 text-fg-subtle">Loading charts…</div>,
-});
-
-type ChartModule = typeof import("@/components/ui/tag-charts");
-
-function ChartsBundle(m: ChartModule) {
-    return function JobCharts({ job, resume }: { job: JobRecord; resume: ResumeData }) {
-        const jobTotals = jobKindTotals(job.requirements);
-        const you = kindTotals(aggregateTags(resume, { selectedOnly: true }));
-        const jobWeights = job.requirements.map(r => ({ ...r, weight: r.importance === "must" ? 2 : 1, items: [] }));
-        return (
-            <div className="grid gap-6 @2xl:grid-cols-2">
-                <div>
-                    <p className="mb-1 text-13 font-medium text-fg-muted">Shape: job vs you</p>
-                    <m.KindRadar series={[{ label: "Job", totals: jobTotals, color: "#a3a3a3" }, { label: "You", totals: you, color: "#171717" }]} height={240} />
-                </div>
-                <div>
-                    <p className="mb-1 text-13 font-medium text-fg-muted">What the job asks for</p>
-                    <m.TopTagsBars weights={jobWeights} limit={12} height={240} />
-                </div>
-            </div>
-        );
-    };
-}
 
 export interface ExternalResume {
     fileName: string;
@@ -427,7 +398,22 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, onApplyPro
 
     return (
         <div className="space-y-4">
-            {/* Header */}
+            {notice && <NoticeBanner tone="success" onDismiss={() => setNotice(null)}>{notice}</NoticeBanner>}
+            {matchRunning && (
+                <NoticeBanner tone="warning">
+                    <span className="inline-flex items-center gap-2">
+                        <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                        Checking matches with AI against your whole library. Scores may still go up; this can take a few minutes.
+                    </span>
+                </NoticeBanner>
+            )}
+            {job.match.status === "failed" && (
+                <NoticeBanner tone="warning">
+                    {job.match.warning || "The AI match check failed."} Exact keyword matching is shown; use &quot;Re-check with AI&quot; to retry.
+                </NoticeBanner>
+            )}
+
+            {/* One pane: requirements -> score -> guidelines -> ATS */}
             <Card>
                 <CardHeader
                     title={editingTitle !== null ? (
@@ -463,26 +449,9 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, onApplyPro
                     {job.summary && <p className="text-13 text-fg-muted">{job.summary}</p>}
                     <RequirementGroups requirements={job.requirements} />
                 </CardBody>
-            </Card>
 
-            {notice && <NoticeBanner tone="success" onDismiss={() => setNotice(null)}>{notice}</NoticeBanner>}
-            {matchRunning && (
-                <NoticeBanner tone="warning">
-                    <span className="inline-flex items-center gap-2">
-                        <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                        Checking matches with AI against your whole library. Scores may still go up; this can take a few minutes.
-                    </span>
-                </NoticeBanner>
-            )}
-            {job.match.status === "failed" && (
-                <NoticeBanner tone="warning">
-                    {job.match.warning || "The AI match check failed."} Exact keyword matching is shown; use &quot;Re-check with AI&quot; to retry.
-                </NoticeBanner>
-            )}
-
-            {/* Source + score */}
-            <Card>
-                <CardBody className="space-y-5 pt-4">
+                {/* Score */}
+                <div className="space-y-5 border-t border-border px-4 py-4">
                     <div className="flex flex-col gap-3 @2xl:flex-row @2xl:items-center @2xl:justify-between">
                         <Segmented
                             value={source.kind}
@@ -514,45 +483,41 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, onApplyPro
                     {source.kind === "upload" && !externalResume ? (
                         <p className="text-13 text-fg-muted">Upload a résumé to score it against this job. It is not saved unless you import it.</p>
                     ) : (
-                        <>
-                            <div className="flex flex-col gap-5 @2xl:flex-row @2xl:items-center">
-                                <ScoreRing score={match.score} size={80} />
-                                <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 text-13">
-                                    <dt className="text-fg-subtle">Must-haves</dt><dd className="tabular-nums">{match.must.hit}/{match.must.total} covered</dd>
-                                    <dt className="text-fg-subtle">Nice-to-haves</dt><dd className="tabular-nums">{match.nice.hit}/{match.nice.total} covered</dd>
-                                    <dt className="text-fg-subtle">Length</dt>
-                                    <dd className={cn("tabular-nums", pages !== null && pages > 1 && "text-warning")}>{pages === null ? (pageError ? "Couldn't measure length" : "…") : `${pages} ${pages === 1 ? "page" : "pages"}${pages > 1 ? " · over one page" : ""}`}</dd>
-                                </dl>
-                                <div className="@2xl:ml-auto">
-                                    <Button size="sm" onClick={recheck} loading={busy === "recheck" || matchRunning} title="Ask the AI to match requirements against your whole library: equivalent degrees, implied skills, related projects.">
-                                        Re-check with AI
-                                    </Button>
-                                </div>
+                        <div className="flex flex-col gap-5 @2xl:flex-row @2xl:items-center">
+                            <ScoreRing score={match.score} size={80} />
+                            <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 text-13">
+                                <dt className="text-fg-subtle">Must-haves</dt><dd className="tabular-nums">{match.must.hit}/{match.must.total} covered</dd>
+                                <dt className="text-fg-subtle">Nice-to-haves</dt><dd className="tabular-nums">{match.nice.hit}/{match.nice.total} covered</dd>
+                                <dt className="text-fg-subtle">Length</dt>
+                                <dd className={cn("tabular-nums", pages !== null && pages > 1 && "text-warning")}>{pages === null ? (pageError ? "Couldn't measure length" : "…") : `${pages} ${pages === 1 ? "page" : "pages"}${pages > 1 ? " · over one page" : ""}`}</dd>
+                            </dl>
+                            <div className="@2xl:ml-auto">
+                                <Button size="sm" onClick={recheck} loading={busy === "recheck" || matchRunning} title="Ask the AI to match requirements against your whole library: equivalent degrees, implied skills, related projects.">
+                                    Re-check with AI
+                                </Button>
                             </div>
-                            <Charts job={job} resume={resume} />
-                        </>
+                        </div>
                     )}
-                </CardBody>
-            </Card>
+                </div>
 
-            {/* Guidelines */}
-            <GuidelinesCard
-                missingMust={match.missingMust}
-                keywordGaps={match.keywordGaps}
-                declinedNeeded={declinedNeeded}
-                onAnswerDeclined={() => setAnswering(true)}
-                showScoreSource={source.kind !== "selection"}
-                fitNotes={job.fitNotes}
-            />
-
-            {/* ATS table */}
-            <Card>
-                <CardHeader
-                    title="ATS keyword check"
-                    action={<Button size="sm" variant="ghost" onClick={() => setShowAts(v => !v)} aria-expanded={showAts}>{showAts ? "Hide" : "Show"}<ChevronDown className={cn("size-3.5 transition-transform", showAts && "rotate-180")} /></Button>}
+                {/* Guidelines */}
+                <GuidelinesSection
+                    missingMust={match.missingMust}
+                    keywordGaps={match.keywordGaps}
+                    declinedNeeded={declinedNeeded}
+                    onAnswerDeclined={() => setAnswering(true)}
+                    showScoreSource={source.kind !== "selection"}
+                    fitNotes={job.fitNotes}
                 />
-                {showAts && (
-                    <Table>
+
+                {/* ATS table, still collapsible */}
+                <div className="border-t border-border">
+                    <CardHeader
+                        title="ATS keyword check"
+                        action={<Button size="sm" variant="ghost" onClick={() => setShowAts(v => !v)} aria-expanded={showAts}>{showAts ? "Hide" : "Show"}<ChevronDown className={cn("size-3.5 transition-transform", showAts && "rotate-180")} /></Button>}
+                    />
+                    {showAts && (
+                        <Table>
                         <thead>
                             <tr>
                                 <Th>Requirement</Th>
@@ -581,7 +546,8 @@ function JobDetail({ job, preferences, aliases, variants, resumeData, onApplyPro
                             ))}
                         </tbody>
                     </Table>
-                )}
+                    )}
+                </div>
             </Card>
 
             {/* Suggestions (hidden, see SHOW_SUGGESTIONS) */}
@@ -686,7 +652,7 @@ function RequirementGroups({ requirements }: { requirements: Requirement[] }) {
 
 // ---------- guidelines
 
-function GuidelinesCard({ missingMust, keywordGaps, declinedNeeded, onAnswerDeclined, showScoreSource, fitNotes }: {
+function GuidelinesSection({ missingMust, keywordGaps, declinedNeeded, onAnswerDeclined, showScoreSource, fitNotes }: {
     missingMust: Requirement[];
     keywordGaps: Requirement[];
     declinedNeeded: Requirement[];
@@ -698,7 +664,7 @@ function GuidelinesCard({ missingMust, keywordGaps, declinedNeeded, onAnswerDecl
     const gaps = keywordGaps.filter(r => !declined.has(r.name));
     const empty = missingMust.length === 0 && gaps.length === 0 && declinedNeeded.length === 0 && fitNotes.length === 0;
     return (
-        <Card>
+        <div className="border-t border-border">
             <CardHeader title="Guidelines" hint={showScoreSource ? "For the résumé being scored above." : "For your working selection."} />
             <CardBody className="space-y-3 text-13">
                 {empty && <p className="text-fg-muted">Nothing missing. Every requirement is covered by the résumé above.</p>}
@@ -724,7 +690,7 @@ function GuidelinesCard({ missingMust, keywordGaps, declinedNeeded, onAnswerDecl
                     </GuidelineRow>
                 )}
             </CardBody>
-        </Card>
+        </div>
     );
 }
 

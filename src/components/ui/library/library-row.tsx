@@ -4,13 +4,12 @@ import React, { startTransition, useOptimistic, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { cn } from "@/lib/cn";
 import type { Tag } from "@/lib/tags/types";
-import { primaryTag, type TagWeight } from "@/lib/tags/aggregate";
 import { toggleHidden, type SubItem } from "@/lib/sub-items";
 import { SubItemList } from "@/components/ui/sub-item-toggles";
 import { expansion, useExpandedIds } from "@/lib/ui/expansion-store";
 import { ExpandableRow } from "@/components/ui/primitives/expandable-row";
 import { Switch } from "@/components/ui/primitives/switch";
-import { Badge, TagChip } from "@/components/ui/primitives/badge";
+import { TagChip } from "@/components/ui/primitives/badge";
 import { Button } from "@/components/ui/primitives/button";
 import { ConfirmDialog } from "@/components/ui/primitives/dialog";
 import type { ResumeData, ResumeListKey } from "@/types/schema";
@@ -39,14 +38,11 @@ export interface LibraryRowProps {
     subtitle?: string;
     /** Right-aligned meta (date range, year). */
     meta?: string;
-    /** Bullets / skills switched off individually (shown as a hint on the summary line). */
-    hiddenCount?: number;
     isSelected: boolean;
     /** Present only for dated sections. */
     active?: { isActive: boolean; type: ActiveType };
+    /** Shown in the expanded body only; the collapsed row stays minimal. */
     tags?: Tag[];
-    /** Library-wide tag weights: the summary line leads with the heaviest tag the item carries. */
-    tagWeights?: Map<string, TagWeight>;
     usedBy?: string[];
     onUpdate: ServerAction;
     onDelete: (id: string) => Promise<void>;
@@ -70,7 +66,7 @@ export interface LibraryRowProps {
     style?: React.CSSProperties;
 }
 
-export function LibraryRow({ id, title, subtitle, meta, hiddenCount = 0, isSelected, active, tags = [], tagWeights, usedBy = [], onUpdate, onDelete, onError, coach, children, handle, rowRef, style }: LibraryRowProps) {
+export function LibraryRow({ id, title, subtitle, meta, isSelected, active, tags = [], usedBy = [], onUpdate, onDelete, onError, coach, children, handle, rowRef, style }: LibraryRowProps) {
     const open = useExpandedIds().has(id);
     const runState = useReviewRunState();
     // Accepted / dismissed suggestions disappear at once; revalidation brings the saved state.
@@ -107,9 +103,6 @@ export function LibraryRow({ id, title, subtitle, meta, hiddenCount = 0, isSelec
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [deleting, setDeleting] = useState(false);
     const name = title || "Untitled";
-    // One chip on the summary line keeps the list scannable; the rest are in the body, one click away.
-    const lead = primaryTag(tags, tagWeights);
-    const rest = tags.filter(t => t.name !== lead?.name);
 
     /** Form action that reports a failure instead of silently reverting. */
     const update = (failure: string) => async (fd: FormData) => {
@@ -146,14 +139,6 @@ export function LibraryRow({ id, title, subtitle, meta, hiddenCount = 0, isSelec
                 {meta && <div className="text-xs text-fg-subtle md:hidden">{meta}</div>}
             </div>
             {coach?.review && <ScoreBadge review={coach.review} outdated={coach.stale} className="hidden shrink-0 sm:inline-flex" />}
-            {(lead || usedBy.length > 0) && (
-                <div className="hidden shrink-0 items-center gap-1 md:flex">
-                    {usedBy.length > 0 && <Badge title={usedBy.join(", ")}>{usedBy.length} {usedBy.length === 1 ? "variant" : "variants"}</Badge>}
-                    {lead && <TagChip tag={lead} />}
-                    {rest.length > 0 && <span title={rest.map(t => t.display).join(", ")} className="text-xs text-fg-subtle">+{rest.length}</span>}
-                </div>
-            )}
-            {hiddenCount > 0 && <span className="hidden shrink-0 text-xs text-fg-subtle sm:inline">{hiddenCount} hidden</span>}
             {meta && <span className="hidden w-32 shrink-0 text-right text-13 tabular-nums text-fg-subtle md:inline">{meta}</span>}
         </div>
     );

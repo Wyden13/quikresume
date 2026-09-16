@@ -54,6 +54,13 @@ export function applySuggestionFormData(key: ResumeListKey, item: AnyItem, s: Re
     return fd;
 }
 
+/** Editor accept: the patch for the item's updater (the draft, not Firestore). */
+export function applySuggestionPatch<K extends ResumeListKey>(key: K, item: ResumeData[K][number], s: ReviewSuggestion): Partial<ResumeData[K][number]> | null {
+    const next = nextValue(key, item, s);
+    if (!next) return null;
+    return { [s.field]: next.value, ...(next.hidden ? { hidden: next.hidden } : {}) } as Partial<ResumeData[K][number]>;
+}
+
 export function applySuggestionToItem<K extends ResumeListKey>(key: K, item: ResumeData[K][number], s: ReviewSuggestion): ResumeData[K][number] {
     const next = nextValue(key, item, s);
     if (!next) return item;

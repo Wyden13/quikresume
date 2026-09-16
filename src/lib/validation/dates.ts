@@ -11,7 +11,7 @@
 import type { ResumeData, ResumeListKey } from "@/types/schema";
 import { RESUME_LIST_KEYS } from "@/types/schema";
 import { currentMonthKey, monthKey, parseYear, PRESENT } from "@/lib/dates";
-import { itemTitle } from "@/lib/sections";
+import { itemShortTitle } from "@/lib/sections";
 
 export interface DateErrors {
     start?: string;
@@ -69,7 +69,7 @@ export function invalidDateItems(data: ResumeData, now: Date = new Date()): Inva
         for (const item of data[key] as AnyItem[]) {
             const e = validateItemDates(key, item, now);
             const message = e.start ?? e.end ?? e.date;
-            if (message) out.push({ section: key, id: item.id, label: itemTitle(key, item), message });
+            if (message) out.push({ section: key, id: item.id, label: itemShortTitle(key, item), message });
         }
     }
     return out;

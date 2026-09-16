@@ -42,7 +42,8 @@ export function ReviewPanel({ review, suggestions, stale, briefOutdated, running
     }
     const tone = scoreTone(review.score);
     return (
-        <section aria-label="Coach review" className={cn("space-y-3 rounded-md border border-border bg-surface-muted/50 p-3 text-13", className)}>
+        // The rainbow hairline marks a review that still has rewrites waiting; a spent one stays plain.
+        <section aria-label="Coach review" className={cn("space-y-3 rounded-md border border-border bg-surface-muted/50 p-3 text-13", suggestions.length > 0 && "ai-glow", className)}>
             <div className="flex flex-wrap items-center gap-2">
                 <Sparkles className="size-3.5 text-fg-subtle" aria-hidden />
                 <span className="font-medium text-fg">Coach review</span>

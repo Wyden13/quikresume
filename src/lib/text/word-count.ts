@@ -5,7 +5,7 @@
 
 import type { PersonalInfo, ResumeData, ResumeListKey } from "@/types/schema";
 import { RESUME_LIST_KEYS } from "@/types/schema";
-import { itemTitle } from "@/lib/sections";
+import { itemShortTitle } from "@/lib/sections";
 
 export const WORD_CAUTION = 500;
 /** The live counter under a field appears from here on. */
@@ -55,7 +55,7 @@ export function overCapItems(data: ResumeData): OverCapItem[] {
     for (const key of RESUME_LIST_KEYS) {
         for (const item of data[key] as AnyItem[]) {
             const words = itemWordCount(key, item);
-            if (words >= WORD_CAUTION) out.push({ section: key, id: item.id, label: itemTitle(key, item), words });
+            if (words >= WORD_CAUTION) out.push({ section: key, id: item.id, label: itemShortTitle(key, item), words });
         }
     }
     return out;

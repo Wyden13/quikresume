@@ -23,8 +23,7 @@ import { SECTION_LABEL } from "@/lib/sections";
 import type { SectionTab } from "@/components/ui/section-tabs";
 import { LibrarySection } from "./library-section";
 import { Detail, LibraryRow, SubItemToggles } from "./library-row";
-import { bulletEntries, bulletLines, hiddenCount, skillEntries, visible } from "@/lib/sub-items";
-import { aggregateTags, tagVector } from "@/lib/tags/aggregate";
+import { bulletEntries, bulletLines, skillEntries, visible } from "@/lib/sub-items";
 import { EmptyState } from "@/components/ui/primitives/empty-state";
 import { SortableList, useSortableRow } from "@/components/ui/primitives/sortable";
 import { updateLayout } from "@/app/actions/layout-actions";
@@ -158,14 +157,11 @@ export function LibraryView({ tab, variantUsage, resumeData, onImport, onEdit, q
             .filter((r): r is T => r !== undefined && matches({ ...text(r), tags: r.tags }));
     };
     const modelById = new Map(RESUME_LIST_KEYS.flatMap(key => (resumeData[key] as ResumeData[ResumeListKey][number][]).map(it => [it.id, it] as const)));
-    // Weights across the whole library, so every row leads with its heaviest tag.
-    const tagWeights = tagVector(aggregateTags(resumeData, { selectedOnly: false }));
     const rowProps = (key: ResumeListKey, row: { id: string; review: ItemReview | null }) => {
         const item = modelById.get(row.id);
         return {
             onError,
             sortable: !searching,
-            tagWeights,
             coach: item ? {
                 target: key,
                 item,
@@ -183,7 +179,7 @@ export function LibraryView({ tab, variantUsage, resumeData, onImport, onEdit, q
             return {
                 ids: xs.map(x => x.id), labels: Object.fromEntries(xs.map(x => [x.id, x.position])),
                 rows: xs.map(x => (
-                    <SortableLibraryRow key={x.id} {...rowProps("workExperience", x)} id={x.id} title={x.position} subtitle={x.company} meta={range(x.startDate, x.endDate, x.isActive)} hiddenCount={hiddenCount(bulletEntries(bulletLines(x.description)), x.hidden)}
+                    <SortableLibraryRow key={x.id} {...rowProps("workExperience", x)} id={x.id} title={x.position} subtitle={x.company} meta={range(x.startDate, x.endDate, x.isActive)}
                         isSelected={x.isSelected} active={{ isActive: x.isActive, type: "experience" }} tags={x.tags} usedBy={variantUsage[x.id]}
                         onUpdate={updateExperience} onDelete={deleteExperience}>
                         <SubItemToggles id={x.id} entries={bulletEntries(bulletLines(x.description))} hidden={x.hidden} onError={onError} onUpdate={updateExperience} variant="bullets" />
@@ -214,7 +210,7 @@ export function LibraryView({ tab, variantUsage, resumeData, onImport, onEdit, q
             return {
                 ids: xs.map(x => x.id), labels: Object.fromEntries(xs.map(x => [x.id, x.title])),
                 rows: xs.map(x => (
-                    <SortableLibraryRow key={x.id} {...rowProps("projects", x)} id={x.id} title={x.title} subtitle={x.stack ?? ""} meta={range(x.startDate, x.endDate, x.isActive)} hiddenCount={hiddenCount(bulletEntries(bulletLines(x.description)), x.hidden)}
+                    <SortableLibraryRow key={x.id} {...rowProps("projects", x)} id={x.id} title={x.title} subtitle={x.stack ?? ""} meta={range(x.startDate, x.endDate, x.isActive)}
                         isSelected={x.isSelected} active={{ isActive: x.isActive, type: "project" }} tags={x.tags} usedBy={variantUsage[x.id]}
                         onUpdate={updateProject} onDelete={deleteProject}>
                         {x.link && <p className="break-all text-fg-muted">{x.link}</p>}
@@ -229,7 +225,7 @@ export function LibraryView({ tab, variantUsage, resumeData, onImport, onEdit, q
                 ids: xs.map(x => x.id), labels: Object.fromEntries(xs.map(x => [x.id, x.category])),
                 rows: xs.map(x => (
                     <SortableLibraryRow key={x.id} {...rowProps("skills", x)} id={x.id} title={x.category} subtitle={visible(skillEntries(x.items), x.hidden).map(e => e.label).join(", ")}
-                        hiddenCount={hiddenCount(skillEntries(x.items), x.hidden)} isSelected={x.isSelected} tags={x.tags} usedBy={variantUsage[x.id]}
+                        isSelected={x.isSelected} tags={x.tags} usedBy={variantUsage[x.id]}
                         onUpdate={updateSkill} onDelete={deleteSkill}>
                         <SubItemToggles id={x.id} entries={skillEntries(x.items)} hidden={x.hidden} onError={onError} onUpdate={updateSkill} variant="chips" />
                     </SortableLibraryRow>
@@ -241,7 +237,7 @@ export function LibraryView({ tab, variantUsage, resumeData, onImport, onEdit, q
             return {
                 ids: xs.map(x => x.id), labels: Object.fromEntries(xs.map(x => [x.id, x.role])),
                 rows: xs.map(x => (
-                    <SortableLibraryRow key={x.id} {...rowProps("volunteering", x)} id={x.id} title={x.role} subtitle={x.organization} meta={range(x.startDate, x.endDate, x.isActive)} hiddenCount={hiddenCount(bulletEntries(bulletLines(x.description)), x.hidden)}
+                    <SortableLibraryRow key={x.id} {...rowProps("volunteering", x)} id={x.id} title={x.role} subtitle={x.organization} meta={range(x.startDate, x.endDate, x.isActive)}
                         isSelected={x.isSelected} active={{ isActive: x.isActive, type: "volunteering" }} tags={x.tags} usedBy={variantUsage[x.id]}
                         onUpdate={updateVolunteering} onDelete={deleteVolunteering}>
                         <SubItemToggles id={x.id} entries={bulletEntries(bulletLines(x.description))} hidden={x.hidden} onError={onError} onUpdate={updateVolunteering} variant="bullets" />

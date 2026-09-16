@@ -1,8 +1,8 @@
 "use client";
 
-// Yellow "Action items" card at the top of the Library and the Editor: items past the word caution,
-// items whose dates don't add up and items the coach scored low. One collapsed row per kind of
-// problem, built from the same dense rows as the Library; each entry opens the item in the editor.
+// Yellow "Action items" card at the top of the Library and the Editor. One collapsed tray per flagged
+// item, built from the same dense rows as the Library: an item that is both too long and low-scoring
+// appears once, with a badge per problem. Expanding spells the problems out and links into the editor.
 // Renders nothing when there is nothing to fix.
 
 import React, { useState } from "react";
@@ -13,32 +13,67 @@ import { SECTION_LABEL } from "@/lib/sections";
 import { Card, CardBody, CardHeader } from "@/components/ui/primitives/card";
 import { ExpandableRow } from "@/components/ui/primitives/expandable-row";
 import { Badge, type BadgeTone } from "@/components/ui/primitives/badge";
-import { FLAG_LABEL, LOW_SCORE } from "@/lib/review/types";
+import { Button } from "@/components/ui/primitives/button";
+import { FLAG_LABEL } from "@/lib/review/types";
 import type { LowScoreItem } from "@/lib/review/content";
 
 /** "summary" opens the summary field, "profile" a personal info field (id "pi-<field>"). */
 export type OpenItem = (section: ResumeListKey | "summary" | "profile", id: string) => void;
 
-interface ActionEntry {
-    section: ResumeListKey | "summary";
-    id: string;
-    label: string;
+type Section = ResumeListKey | "summary";
+
+interface Issue {
+    tone: BadgeTone;
+    /** Short label on the collapsed row. */
+    badge: string;
+    /** The problem spelled out, shown once the tray is open. */
     detail: string;
 }
 
+interface ActionItem {
+    key: string;
+    section: Section;
+    id: string;
+    label: string;
+    issues: Issue[];
+    /** Date errors block saving, so they sort first. */
+    rank: number;
+}
+
+/** One tray per item, carrying every problem that item has. */
+function collect(overCap: OverCapItem[], invalidDates: InvalidDateItem[], lowScore: LowScoreItem[]): ActionItem[] {
+    const byKey = new Map<string, ActionItem>();
+    const add = (section: Section, id: string, label: string, rank: number, issue: Issue) => {
+        const key = `${section}-${id}`;
+        const existing = byKey.get(key);
+        if (existing) {
+            existing.issues.push(issue);
+            existing.rank = Math.min(existing.rank, rank);
+            return;
+        }
+        byKey.set(key, { key, section, id, label, issues: [issue], rank });
+    };
+
+    for (const i of invalidDates) {
+        add(i.section, i.id, i.label, 0, { tone: "danger", badge: "Check dates", detail: i.message });
+    }
+    for (const i of overCap) {
+        add(i.section, i.id, i.label, 1, { tone: "warning", badge: `Too long · ${i.words}`, detail: `${i.words} words, past the ${WORD_CAUTION}-word caution. Trim the weakest bullets or switch them off.` });
+    }
+    for (const i of lowScore) {
+        const flags = i.flags.map(f => FLAG_LABEL[f]).join(", ");
+        add(i.section, i.id, i.label, 2, { tone: "warning", badge: `${i.score}/10`, detail: flags ? `Your coach flagged: ${flags}.` : "Your coach scored this low." });
+    }
+
+    return [...byKey.values()].sort((a, b) => a.rank - b.rank || a.label.localeCompare(b.label));
+}
+
 export function ActionItemsCard({ overCap, invalidDates, lowScore = [], onOpen }: { overCap: OverCapItem[]; invalidDates: InvalidDateItem[]; lowScore?: LowScoreItem[]; onOpen: OpenItem }) {
-    // Group state is local, not the shared expansion store: the card always opens collapsed.
+    // Tray state is local, not the shared expansion store: the card always opens collapsed.
     const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
 
-    if (overCap.length === 0 && invalidDates.length === 0 && lowScore.length === 0) return null;
-    const count = overCap.length + invalidDates.length + lowScore.length;
-
-    const allGroups: { key: string; tone: BadgeTone; label: string; items: ActionEntry[] }[] = [
-        { key: "long", tone: "warning", label: `Too long (over ${WORD_CAUTION} words)`, items: overCap.map(i => ({ ...i, detail: `${i.words} words` })) },
-        { key: "score", tone: "warning", label: `Needs work (coach score ${LOW_SCORE} or less)`, items: lowScore.map(i => ({ ...i, detail: [`${i.score}/10`, ...i.flags.slice(0, 2).map(f => FLAG_LABEL[f])].join(" · ") })) },
-        { key: "dates", tone: "danger", label: "Dates don't add up", items: invalidDates.map(i => ({ ...i, detail: i.message })) },
-    ];
-    const groups = allGroups.filter(g => g.items.length > 0);
+    const items = collect(overCap, invalidDates, lowScore);
+    if (items.length === 0) return null;
 
     const toggle = (key: string) => setOpen(prev => {
         const next = new Set(prev);
@@ -48,42 +83,35 @@ export function ActionItemsCard({ overCap, invalidDates, lowScore = [], onOpen }
 
     return (
         <Card className="@container border-warning-border bg-warning-bg/40">
-            <CardHeader title="Action items" hint={`${count} ${count === 1 ? "thing needs" : "things need"} your attention before this résumé is ready.`} />
+            <CardHeader title="Action items" hint={`${items.length} ${items.length === 1 ? "item needs" : "items need"} your attention before this résumé is ready.`} />
             <CardBody>
                 <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface">
-                    {groups.map(g => (
+                    {items.map(item => (
                         <ExpandableRow
-                            key={g.key}
-                            id={`action-${g.key}`}
-                            open={open.has(g.key)}
-                            onToggle={() => toggle(g.key)}
+                            key={item.key}
+                            id={`action-${item.key}`}
+                            open={open.has(item.key)}
+                            onToggle={() => toggle(item.key)}
                             summary={
-                                <div className="flex min-w-0 items-center gap-2">
-                                    <span className="truncate text-sm font-medium text-fg">{g.label}</span>
-                                    <Badge tone={g.tone} size="xs" className="tabular-nums">{g.items.length}</Badge>
+                                <div className="flex min-w-0 items-center gap-3">
+                                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">{item.label}</span>
+                                    <span className="flex shrink-0 items-center gap-1">
+                                        {item.issues.map(is => <Badge key={is.badge} tone={is.tone} size="xs" className="tabular-nums">{is.badge}</Badge>)}
+                                    </span>
                                 </div>
                             }
                         >
-                            <ItemLinks items={g.items} onOpen={onOpen} />
+                            <div className="space-y-2 text-13">
+                                <p className="text-fg-subtle">{item.section === "summary" ? "Profile" : SECTION_LABEL[item.section]}</p>
+                                <ul className="space-y-1 text-fg-muted">
+                                    {item.issues.map(is => <li key={is.badge}>{is.detail}</li>)}
+                                </ul>
+                                <Button size="sm" onClick={() => onOpen(item.section, item.id)}>Open in editor</Button>
+                            </div>
                         </ExpandableRow>
                     ))}
                 </ul>
             </CardBody>
         </Card>
-    );
-}
-
-function ItemLinks({ items, onOpen }: { items: ActionEntry[]; onOpen: OpenItem }) {
-    return (
-        <ul className="space-y-1 text-13">
-            {items.map(i => (
-                <li key={`${i.section}-${i.id}`} className="flex flex-wrap items-baseline gap-x-2">
-                    <button type="button" onClick={() => onOpen(i.section, i.id)} className="font-medium text-fg underline underline-offset-2 hover:text-accent">
-                        {i.label}
-                    </button>
-                    <span className="text-fg-muted">{i.section === "summary" ? "Profile" : SECTION_LABEL[i.section]} · {i.detail}</span>
-                </li>
-            ))}
-        </ul>
     );
 }

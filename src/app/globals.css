@@ -34,6 +34,13 @@
   --success-border: #bbf7d0;
 
   --ring: #171717;
+
+  /* Rainbow hairline marking AI-produced surfaces (see .ai-glow). */
+  --ai-glow-1: #4285f4;
+  --ai-glow-2: #9b72cb;
+  --ai-glow-3: #d96570;
+  --ai-glow-4: #f2a60c;
+  --ai-glow-5: #34a853;
 }
 
 @theme inline {
@@ -92,6 +99,59 @@ body {
 }
 .no-scrollbar::-webkit-scrollbar {
   display: none;
+}
+
+/*
+ * Hairline rainbow border marking a surface as AI-produced. Drawn as a masked ::before ring rather
+ * than a border, so the host keeps its own border and `border-radius: inherit` fits any radius.
+ */
+@property --ai-glow-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes ai-glow-spin {
+  to {
+    --ai-glow-angle: 360deg;
+  }
+}
+
+.ai-glow {
+  position: relative;
+}
+.ai-glow::before {
+  content: "";
+  position: absolute;
+  /* -1px so the ring lands on the host's own 1px border instead of just inside it. */
+  inset: -1px;
+  padding: 1px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--ai-glow-angle),
+    var(--ai-glow-1),
+    var(--ai-glow-2),
+    var(--ai-glow-3),
+    var(--ai-glow-4),
+    var(--ai-glow-5),
+    var(--ai-glow-1)
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  animation: ai-glow-spin 8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-glow::before {
+    animation: none;
+  }
 }
 
 /* Native <dialog> backdrop. */

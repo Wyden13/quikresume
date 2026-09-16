@@ -19,7 +19,8 @@ import { hasManualOrder, isDatedSection, moveItem, moveSection, orderedItems, re
 import { ENTRY_SECTIONS } from "@/lib/layout/presets";
 import type { ResumeLayout, SectionId } from "@/lib/layout/types";
 import type { LinkChecks } from "@/lib/contact/types";
-import type { ItemReview } from "@/lib/review/types";
+import type { ItemReview, ReviewSuggestion } from "@/lib/review/types";
+import { dismissReviewSuggestion } from "@/app/actions/review-actions";
 import { isProfileReviewStale, type ReviewMap } from "@/lib/review/content";
 import { useAdvancedLayout } from "@/lib/ui/advanced-layout-store";
 import type { SectionTab } from "@/components/ui/section-tabs";
@@ -33,7 +34,7 @@ import { EditorItemRow } from "./editor-item-row";
 import { SECTION_CONFIG } from "./section-fields";
 import { ReviewPanel } from "@/components/ui/review/review-panel";
 import { fieldSpec, isReviewStale } from "@/lib/review/content";
-import { visibleSuggestions } from "@/lib/review/apply";
+import { applySuggestionPatch, visibleSuggestions } from "@/lib/review/apply";
 import { ItemLayoutControls, PageLayoutCard, SectionLayoutControls, type LayoutUpdate } from "./layout-controls";
 
 type ItemOf<K extends ResumeListKey> = ResumeData[K][number];
@@ -243,6 +244,20 @@ function SortableItemRow<K extends ResumeListKey>({ sectionKey, item, layout, ad
     const label = itemLabel(sectionKey, item);
     const errors = validateItemDates(sectionKey, item);
     const { rowRef, style, handle } = useSortableRow(item.id, itemTitle(sectionKey, item));
+    // Dismissals are persisted, but `review` comes from server data: hide the row straight away.
+    const [dismissed, setDismissed] = useState<ReadonlySet<string>>(new Set());
+    const suggestions = visibleSuggestions(sectionKey, item, review).filter(s => !dismissed.has(s.id));
+
+    /** Accept edits the draft; Save & Exit persists it like any other edit. */
+    const accept = (s: ReviewSuggestion) => {
+        const patch = applySuggestionPatch(sectionKey, item, s);
+        if (patch) onUpdate(patch);
+    };
+    const dismiss = (s: ReviewSuggestion) => {
+        setDismissed(prev => new Set(prev).add(s.id));
+        void dismissReviewSuggestion(sectionKey, item.id, s.id).catch(err => console.error("[editor] dismiss failed:", err));
+    };
+
     return (
         <EditorItemRow
             id={item.id}
@@ -269,10 +284,11 @@ function SortableItemRow<K extends ResumeListKey>({ sectionKey, item, layout, ad
             {SECTION_CONFIG[sectionKey].fields(item, onUpdate, errors)}
             <ReviewPanel
                 review={review}
-                suggestions={visibleSuggestions(sectionKey, item, review)}
+                suggestions={suggestions}
                 stale={review ? isReviewStale(sectionKey, item, review) : false}
-                readOnly
                 fieldLabel={field => fieldSpec(sectionKey, field)?.label ?? field}
+                onAccept={accept}
+                onDismiss={dismiss}
             />
             {advanced && (
                 <div className="space-y-2">

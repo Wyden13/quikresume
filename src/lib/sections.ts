@@ -81,6 +81,14 @@ export function itemLabel<K extends ResumeListKey>(key: K, item: ResumeData[K][n
     return { title: "", subtitle: "", meta: "" };
 }
 
+/**
+ * Just the item's own name ("Technical skills", "Site Operator"), for compact rows. Unlike
+ * `itemTitle` this never appends the subtitle, which for skills is the whole joined item list.
+ */
+export function itemShortTitle<K extends ResumeListKey>(key: K, item: ResumeData[K][number]): string {
+    return itemLabel(key, item).title || "Untitled";
+}
+
 /** One-line label: "Senior Engineer · Acme". */
 export function itemTitle<K extends ResumeListKey>(key: K, item: ResumeData[K][number]): string {
     const { title, subtitle } = itemLabel(key, item);

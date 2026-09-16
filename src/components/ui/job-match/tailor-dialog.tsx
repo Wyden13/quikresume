@@ -407,7 +407,7 @@ function ReviewList({ plan, library, sel, onChange, pending, onAccept, onDismiss
                                 const noun = d.section === "skills" ? "Skills" : "Bullets";
                                 const labelOf = (k: string) => entries.find(e => e.key === k)?.label ?? k;
                                 return (
-                                    <SortableBlock key={d.id} id={d.id} label={d.label} as="li" className={cn("bg-surface px-3 py-2.5", !on && "bg-surface-muted/50", itemSuggestion && "rounded-md ring-2 ring-inset ring-accent")}>
+                                    <SortableBlock key={d.id} id={d.id} label={d.label} as="li" className={cn("bg-surface px-3 py-2.5", !on && "bg-surface-muted/50", itemSuggestion && "rounded-md ai-glow")}>
                                         {handle => (<>
                                         <div className="flex items-start gap-3">
                                             <span className="-my-1 -ml-2">{handle}</span>

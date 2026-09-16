@@ -7,7 +7,7 @@
 import type { PersonalInfo, ResumeData, ResumeListKey } from "@/types/schema";
 import { RESUME_LIST_KEYS } from "@/types/schema";
 import { contentHashOf, hasContent, PROFILE_ID, profileHashOf, profileText } from "@/lib/tags/content";
-import { itemLabel, itemTitle } from "@/lib/sections";
+import { itemLabel, itemShortTitle, itemTitle } from "@/lib/sections";
 import { toBullets } from "@/lib/typst/doc";
 import { LOW_SCORE, type ItemReview, type ReviewFlag, type ReviewTarget } from "./types";
 
@@ -150,7 +150,7 @@ export function lowScoreItems(data: ResumeData, reviews: ReviewMap, profileRevie
     for (const key of RESUME_LIST_KEYS) {
         for (const item of data[key] as AnyItem[]) {
             const r = reviews[item.id];
-            if (r && !isReviewStale(key, item, r) && r.score <= LOW_SCORE) out.push({ section: key, id: item.id, label: itemTitle(key, item), score: r.score, flags: r.flags });
+            if (r && !isReviewStale(key, item, r) && r.score <= LOW_SCORE) out.push({ section: key, id: item.id, label: itemShortTitle(key, item), score: r.score, flags: r.flags });
         }
     }
     return out.sort((a, b) => a.score - b.score);

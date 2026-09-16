@@ -7,18 +7,20 @@ import { useRouter } from "next/navigation";
 import type { ResumeData } from "@/types/schema";
 import { aggregateTags, kindTotals, type TagWeight } from "@/lib/tags/aggregate";
 import { staleCount } from "@/lib/tags/content";
-import { TAG_KINDS, kindMeta, type TagKind } from "@/lib/tags/types";
+import { TAG_KINDS, type TagKind } from "@/lib/tags/types";
 import { cn } from "@/lib/cn";
-import { SECTION_LABEL } from "@/lib/sections";
-import { Card, CardBody, CardHeader } from "@/components/ui/primitives/card";
+import type { JobRecord } from "@/lib/match/types";
+import type { AliasMap } from "@/lib/tags/normalize";
+import { scoreJob } from "@/lib/match/score";
+import { Card, CardBody, CardHeader, SectionHeader } from "@/components/ui/primitives/card";
 import { Segmented } from "@/components/ui/primitives/segmented";
 import { Button, FOCUS_RING } from "@/components/ui/primitives/button";
-import { Input } from "@/components/ui/primitives/field";
 import { Badge, KindDot } from "@/components/ui/primitives/badge";
 import { NoticeBanner } from "@/components/ui/primitives/notice-banner";
-import { Table, Td, Th } from "@/components/ui/primitives/table";
+import { ExpandableRow } from "@/components/ui/primitives/expandable-row";
+import { ScoreRing } from "@/components/ui/primitives/score-ring";
 import { EmptyState } from "@/components/ui/primitives/empty-state";
-import { BarChart3 } from "@/components/ui/primitives/icons";
+import { BarChart3, Target } from "@/components/ui/primitives/icons";
 import { readJson } from "@/lib/ui/fetch-json";
 
 const Charts = dynamic(() => import("@/components/ui/tag-charts").then(m => ({ default: ChartsBundle(m) })), {
@@ -48,12 +50,16 @@ function ChartsBundle(m: ChartModule) {
 
 interface InsightsViewProps {
     data: ResumeData;
+    /** Analysed jobs, newest first (already ordered by the server). */
+    jobs: JobRecord[];
+    aliases: AliasMap;
+    /** Open this job on the Job Match view. */
+    onOpenJob: (id: string) => void;
 }
 
-export function InsightsView({ data }: InsightsViewProps) {
+export function InsightsView({ data, jobs, aliases, onOpenJob }: InsightsViewProps) {
     const router = useRouter();
     const [scope, setScope] = useState<"selected" | "all">("selected");
-    const [query, setQuery] = useState("");
     // Empty set = every kind.
     const [kinds, setKinds] = useState<ReadonlySet<TagKind>>(new Set());
     const [busy, setBusy] = useState(false);
@@ -63,10 +69,6 @@ export function InsightsView({ data }: InsightsViewProps) {
     const weights = aggregateTags(data, { selectedOnly: scope === "selected" });
     const stale = staleCount(data);
     const filtered = kinds.size === 0 ? weights : weights.filter(w => kinds.has(w.kind));
-    const q = query.trim().toLowerCase();
-    const rows = q
-        ? filtered.filter(w => w.display.toLowerCase().includes(q) || w.items.some(i => i.label.toLowerCase().includes(q)))
-        : filtered;
 
     const toggleKind = (kind: TagKind) => setKinds(prev => {
         const next = new Set(prev);
@@ -139,49 +141,81 @@ export function InsightsView({ data }: InsightsViewProps) {
                 <Charts weights={filtered} kinds={kinds} />
             )}
 
-            <Card>
-                <CardHeader
-                    title={kinds.size === 0 ? "All tags" : `Tags · ${[...kinds].map(k => kindMeta(k).label).join(", ")}`}
-                    action={<Input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search tags or items…" aria-label="Search tags or items" className="h-8 w-full text-13 md:w-64" />}
-                />
-                <Table>
-                    <thead>
-                        <tr>
-                            <Th>Tag</Th>
-                            <Th>Kind</Th>
-                            <Th className="text-right">Weight</Th>
-                            <Th>Carried by</Th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {rows.map(w => (
-                            <tr key={w.name}>
-                                <Td className="whitespace-nowrap font-medium text-fg">{w.display}</Td>
-                                <Td className="whitespace-nowrap">
-                                    <span className="inline-flex items-center gap-1.5 text-fg-muted">
-                                        <KindDot color={kindMeta(w.kind).color} />
-                                        {kindMeta(w.kind).label}
-                                    </span>
-                                </Td>
-                                <Td className="text-right tabular-nums">{w.weight}</Td>
-                                <Td>
-                                    <div className="flex flex-wrap gap-1">
-                                        {w.items.map(i => (
-                                            <Badge key={`${i.section}-${i.id}`}>
-                                                <span className="mr-1 text-fg-subtle">{i.section === "profile" ? "Profile" : SECTION_LABEL[i.section]}:</span> {i.label}
-                                            </Badge>
-                                        ))}
-                                    </div>
-                                </Td>
-                            </tr>
-                        ))}
-                        {rows.length === 0 && (
-                            <tr><Td colSpan={4} className="py-8 text-center text-fg-subtle">Nothing matches.</Td></tr>
-                        )}
-                    </tbody>
-                </Table>
-            </Card>
+            <JobHistory data={data} jobs={jobs} aliases={aliases} onOpenJob={onOpenJob} />
         </div>
+    );
+}
+
+/**
+ * Every analysed job, scored live against the working selection so the numbers agree with the Job
+ * Match page. `job.lastScore` is only a cached scalar, so it is deliberately not used here.
+ */
+function JobHistory({ data, jobs, aliases, onOpenJob }: { data: ResumeData; jobs: JobRecord[]; aliases: AliasMap; onOpenJob: (id: string) => void }) {
+    const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+    const toggle = (id: string) => setOpen(prev => {
+        const next = new Set(prev);
+        if (!next.delete(id)) next.add(id);
+        return next;
+    });
+
+    return (
+        <section className="space-y-3">
+            <SectionHeader icon={Target} title="Job match history" count={jobs.length} />
+            {jobs.length === 0 ? (
+                <EmptyState icon={Target} title="No jobs analysed yet" body="Paste a job description on the Job Match page to see how your library scores against it." />
+            ) : (
+                <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface">
+                    {jobs.map(job => {
+                        const match = scoreJob(job.requirements, data, aliases);
+                        const gaps = [...match.missingMust, ...match.keywordGaps];
+                        const shown = job.requirements.slice(0, 4);
+                        return (
+                            <ExpandableRow
+                                key={job.id}
+                                id={`job-${job.id}`}
+                                open={open.has(job.id)}
+                                onToggle={() => toggle(job.id)}
+                                summary={
+                                    <div className="flex min-w-0 items-center gap-3">
+                                        <ScoreRing score={match.score} size={32} className="shrink-0" />
+                                        <div className="min-w-0 flex-1">
+                                            <div className="truncate text-sm font-medium text-fg">{job.title}</div>
+                                            <div className="truncate text-13 text-fg-muted">{job.company || "Unknown company"}</div>
+                                            {gaps.length > 0 && (
+                                                <div className="truncate text-xs text-warning">Missing: {gaps.map(r => r.display).join(", ")}</div>
+                                            )}
+                                        </div>
+                                        <span className="hidden shrink-0 items-center gap-1 md:flex">
+                                            {shown.map(r => <Badge key={r.name} size="xs" tone={r.importance === "must" ? "strong" : "neutral"}>{r.display}</Badge>)}
+                                            {job.requirements.length > shown.length && (
+                                                <span className="text-xs text-fg-subtle">+{job.requirements.length - shown.length}</span>
+                                            )}
+                                        </span>
+                                    </div>
+                                }
+                            >
+                                <div className="space-y-3 text-13">
+                                    <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1">
+                                        <dt className="text-fg-subtle">Must-haves</dt><dd className="tabular-nums">{match.must.hit}/{match.must.total} covered</dd>
+                                        <dt className="text-fg-subtle">Nice-to-haves</dt><dd className="tabular-nums">{match.nice.hit}/{match.nice.total} covered</dd>
+                                    </dl>
+                                    {match.missingMust.length > 0 && (
+                                        <p><span className="text-fg-subtle">Missing must-haves: </span><span className="font-medium text-danger">{match.missingMust.map(r => r.display).join(", ")}</span></p>
+                                    )}
+                                    {match.keywordGaps.length > 0 && (
+                                        <p><span className="text-fg-subtle">Keywords to add: </span><span className="font-medium">{match.keywordGaps.map(r => r.display).join(", ")}</span></p>
+                                    )}
+                                    {match.missingMust.length === 0 && match.keywordGaps.length === 0 && (
+                                        <p className="text-fg-muted">Nothing missing. Every requirement is covered by your working selection.</p>
+                                    )}
+                                    <Button size="sm" onClick={() => onOpenJob(job.id)}>Open in Job Match</Button>
+                                </div>
+                            </ExpandableRow>
+                        );
+                    })}
+                </ul>
+            )}
+        </section>
     );
 }
 

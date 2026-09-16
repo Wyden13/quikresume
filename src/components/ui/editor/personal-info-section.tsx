@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef } from "react";
+import React, { useRef, useState } from "react";
 import Link from "next/link";
 import type { PersonalInfo } from "@/types/schema";
 import { Card, CardBody, CardHeader } from "@/components/ui/primitives/card";
@@ -9,10 +9,12 @@ import { summaryWordCount, wordCaution } from "@/lib/text/word-count";
 import { isContactField } from "@/lib/contact/normalize";
 import type { LinkChecks } from "@/lib/contact/types";
 import { ContactInput } from "@/components/ui/contact-field";
-import type { ItemReview } from "@/lib/review/types";
+import type { ItemReview, ReviewSuggestion } from "@/lib/review/types";
 import { fieldSpec } from "@/lib/review/content";
-import { visibleSuggestions } from "@/lib/review/apply";
+import { applyProfileSuggestion, visibleSuggestions } from "@/lib/review/apply";
 import { ReviewPanel } from "@/components/ui/review/review-panel";
+import { dismissReviewSuggestion } from "@/app/actions/review-actions";
+import { PROFILE_ID } from "@/lib/tags/content";
 
 export function PersonalInfoSection({ value, onChange, linkChecks, focusField }: {
     value: PersonalInfo;
@@ -65,7 +67,7 @@ export function SummaryField({ value, onChange, autoFocus, review = null, review
     value: PersonalInfo;
     onChange: (field: keyof PersonalInfo, v: string) => void;
     autoFocus?: boolean;
-    /** Coach review of the saved headline + summary (read-only in the editor). */
+    /** Coach review of the saved headline + summary; accepting edits the draft. */
     review?: ItemReview | null;
     reviewStale?: boolean;
 }) {
@@ -77,6 +79,21 @@ export function SummaryField({ value, onChange, autoFocus, review = null, review
         node.scrollIntoView({ block: "center", behavior: "smooth" });
         node.focus({ preventScroll: true });
     };
+    // Dismissals are persisted, but `review` comes from server data: hide the row straight away.
+    const [dismissed, setDismissed] = useState<ReadonlySet<string>>(new Set());
+    const suggestions = visibleSuggestions("profile", value, review).filter(s => !dismissed.has(s.id));
+
+    /** Accept edits the draft; Save & Exit persists it like any other edit. */
+    const accept = (s: ReviewSuggestion) => {
+        const patch = applyProfileSuggestion(value, s);
+        if (!patch) return;
+        for (const [field, v] of Object.entries(patch)) onChange(field as keyof PersonalInfo, v);
+    };
+    const dismiss = (s: ReviewSuggestion) => {
+        setDismissed(prev => new Set(prev).add(s.id));
+        void dismissReviewSuggestion("profile", PROFILE_ID, s.id).catch(err => console.error("[editor] dismiss failed:", err));
+    };
+
     return (
         <Card>
             <CardBody className="pt-4">
@@ -86,10 +103,11 @@ export function SummaryField({ value, onChange, autoFocus, review = null, review
                 <ReviewPanel
                     className="mt-4"
                     review={review}
-                    suggestions={visibleSuggestions("profile", value, review)}
+                    suggestions={suggestions}
                     stale={reviewStale}
-                    readOnly
                     fieldLabel={field => fieldSpec("profile", field)?.label ?? field}
+                    onAccept={accept}
+                    onDismiss={dismiss}
                 />
             </CardBody>
         </Card>

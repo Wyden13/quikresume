@@ -435,7 +435,12 @@ function DashboardClientInner({
         ) : view === "import" ? (
             <ResumeImport current={draft ?? initialResumeData} onImport={handleImport} onCancel={() => setView("library")} />
         ) : view === "insights" ? (
-            <InsightsView data={resumeData} />
+            <InsightsView
+                data={resumeData}
+                jobs={jobs}
+                aliases={tagAliases}
+                onOpenJob={id => { setSelectedJobId(id); setView("jobs"); }}
+            />
         ) : view === "jobs" ? (
             <JobMatchView
                 jobs={jobs}
