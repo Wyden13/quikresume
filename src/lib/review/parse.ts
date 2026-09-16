@@ -15,6 +15,8 @@ export interface ParsedReview {
 }
 
 const MAX_SUGGESTIONS = 3;
+/** A rewrite is applied verbatim, so an over-long one is dropped rather than cut in half. */
+const MAX_PROPOSED = 600;
 
 function parseSuggestion(input: ReviewInput, raw: unknown, context: string): ReviewSuggestion | null {
     if (!raw || typeof raw !== "object") return null;
@@ -37,7 +39,7 @@ function parseSuggestion(input: ReviewInput, raw: unknown, context: string): Rev
         if (whole.trim() !== current) return null;
     }
     if (!proposed || proposed === current.replace(/\s+/g, " ").trim() || /[[\]]/.test(proposed)) return null;
-    if (proposed.length > current.length * 2 + 80) return null;
+    if (proposed.length > current.length * 2 + 80 || proposed.length > MAX_PROPOSED) return null;
     // A rewrite should not introduce digits the original didn't have (invented metrics).
     const digits = (s: string) => new Set(s.match(/\d+(?:[.,]\d+)?/g) ?? []);
     // The headline / summary may use the candidate brief (target role, graduation year).
@@ -45,7 +47,7 @@ function parseSuggestion(input: ReviewInput, raw: unknown, context: string): Rev
     if ([...digits(proposed)].some(d => !known.has(d))) return null;
 
     const reason = typeof o.reason === "string" ? o.reason.trim().slice(0, 200) : "";
-    return { id: stableHash(`${o.field}|${current}|${proposed}`), field: o.field, current, proposed: proposed.slice(0, 600), reason };
+    return { id: stableHash(`${o.field}|${current}|${proposed}`), field: o.field, current, proposed, reason };
 }
 
 /** `context`: the candidate brief the model saw (numbers from it are allowed in profile rewrites). */
@@ -68,7 +70,9 @@ export function parseReviewReply(json: unknown, inputs: ReviewInput[], context =
         out[input.id] = {
             score: Math.max(0, Math.min(10, Math.round(o.score))),
             flags: [...new Set((Array.isArray(o.flags) ? o.flags : []).filter((f): f is ReviewFlag => (REVIEW_FLAGS as readonly unknown[]).includes(f)))],
-            comment: typeof o.comment === "string" ? o.comment.trim().slice(0, 300) : "",
+            // Not capped: the prompt asks for 1-2 sentences and the panel wraps freely, so a cut here
+            // only ever showed up as a comment ending mid-word.
+            comment: typeof o.comment === "string" ? o.comment.trim() : "",
             suggestions,
         };
     }

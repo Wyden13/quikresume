@@ -71,3 +71,21 @@ export function kindTotals(weights: Pick<TagWeight, "kind" | "weight">[]): KindT
 export function tagVector(weights: TagWeight[]): Map<string, TagWeight> {
     return new Map(weights.map(w => [w.name, w]));
 }
+
+/**
+ * The one tag a collapsed row leads with: the heaviest across the library, so the chip names what the
+ * candidate is known for. Ties break on name; a tag missing from the map (a freshly tagged draft item)
+ * counts as weight 0.
+ */
+export function primaryTag(tags: Tag[], weights?: Map<string, TagWeight>): Tag | null {
+    let best: Tag | null = null;
+    let bestWeight = -1;
+    for (const tag of tags) {
+        const weight = weights?.get(tag.name)?.weight ?? 0;
+        if (weight > bestWeight || (weight === bestWeight && best !== null && tag.name.localeCompare(best.name) < 0)) {
+            best = tag;
+            bestWeight = weight;
+        }
+    }
+    return best;
+}

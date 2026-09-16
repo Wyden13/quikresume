@@ -24,6 +24,7 @@ import type { SectionTab } from "@/components/ui/section-tabs";
 import { LibrarySection } from "./library-section";
 import { Detail, LibraryRow, SubItemToggles } from "./library-row";
 import { bulletEntries, bulletLines, hiddenCount, skillEntries, visible } from "@/lib/sub-items";
+import { aggregateTags, tagVector } from "@/lib/tags/aggregate";
 import { EmptyState } from "@/components/ui/primitives/empty-state";
 import { SortableList, useSortableRow } from "@/components/ui/primitives/sortable";
 import { updateLayout } from "@/app/actions/layout-actions";
@@ -157,11 +158,14 @@ export function LibraryView({ tab, variantUsage, resumeData, onImport, onEdit, q
             .filter((r): r is T => r !== undefined && matches({ ...text(r), tags: r.tags }));
     };
     const modelById = new Map(RESUME_LIST_KEYS.flatMap(key => (resumeData[key] as ResumeData[ResumeListKey][number][]).map(it => [it.id, it] as const)));
+    // Weights across the whole library, so every row leads with its heaviest tag.
+    const tagWeights = tagVector(aggregateTags(resumeData, { selectedOnly: false }));
     const rowProps = (key: ResumeListKey, row: { id: string; review: ItemReview | null }) => {
         const item = modelById.get(row.id);
         return {
             onError,
             sortable: !searching,
+            tagWeights,
             coach: item ? {
                 target: key,
                 item,
