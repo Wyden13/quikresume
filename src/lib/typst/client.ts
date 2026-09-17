@@ -44,16 +44,43 @@ async function fetchText(url: string): Promise<string> {
     return res.text();
 }
 
+/** Thrown when the engine itself (wasm, fonts, templates) could not load, as opposed to a document that failed to compile. */
+export class TypstEngineError extends Error {
+    constructor(message: string, readonly cause?: unknown) {
+        super(message);
+        this.name = "TypstEngineError";
+    }
+}
+
+/** Turns a low-level load failure into something a user can act on. */
+function explainEngineFailure(err: unknown): string {
+    const raw = err instanceof Error ? err.message : String(err);
+    if (/unsafe-eval|Content Security Policy|trusted-types/i.test(raw)) {
+        return "The browser's security policy blocked the Typst engine from starting (script evaluation is not allowed on this page). This is a server configuration problem, not something in your résumé; reload the page, and if it persists report it.";
+    }
+    if (/Failed to fetch|NetworkError|Load failed|404|503/i.test(raw)) {
+        return `A file the engine needs could not be downloaded (${raw}). Check your connection and try again.`;
+    }
+    if (/WebAssembly|wasm/i.test(raw)) {
+        return `The Typst engine (WebAssembly) could not start in this browser: ${raw}`;
+    }
+    return `The preview engine could not start: ${raw}`;
+}
+
 async function init(): Promise<TypstInstance> {
     if (typeof window === "undefined") {
-        throw new Error("Typst can only be initialized in the browser");
+        throw new TypstEngineError("Typst can only be initialized in the browser");
     }
-    const { $typst, TypstSnippet } = await import("@myriaddreamin/typst.ts/contrib/snippet");
+    const { TypstSnippet } = await import("@myriaddreamin/typst.ts/contrib/snippet");
 
-    $typst.setCompilerInitOptions({ getModule: () => WASM_COMPILER });
-    $typst.setRendererInitOptions({ getModule: () => WASM_RENDERER });
+    // A fresh snippet per attempt: `use()` may only be called once per instance, so re-using the
+    // package's shared `$typst` after a failed start would throw "already prepare uses for instances"
+    // and hide the real cause.
+    const typst = new TypstSnippet();
+    typst.setCompilerInitOptions({ getModule: () => WASM_COMPILER });
+    typst.setRendererInitOptions({ getModule: () => WASM_RENDERER });
     // Providers must be registered before the first compile.
-    $typst.use(TypstSnippet.disableDefaultFontAssets(), TypstSnippet.preloadFonts(FONT_URLS));
+    typst.use(TypstSnippet.disableDefaultFontAssets(), TypstSnippet.preloadFonts(FONT_URLS));
 
     const templateIds = Object.keys(TEMPLATES) as TemplateId[];
     const [main, ...templateSources] = await Promise.all([
@@ -61,13 +88,13 @@ async function init(): Promise<TypstInstance> {
         ...templateIds.map(id => fetchText(TEMPLATES[id].file)),
     ]);
 
-    await $typst.addSource(MAIN_FILE, main);
-    await Promise.all(templateIds.map((id, i) => $typst.addSource(`/templates/${id}.typ`, templateSources[i])));
+    await typst.addSource(MAIN_FILE, main);
+    await Promise.all(templateIds.map((id, i) => typst.addSource(`/templates/${id}.typ`, templateSources[i])));
 
-    return $typst;
+    return typst;
 }
 
-/** Idempotent: loads wasm, fonts and template sources once. Re-armed on failure. */
+/** Idempotent: loads wasm, fonts and template sources once. Re-armed on failure, so a retry starts clean. */
 export function ensureTypst(): Promise<TypstInstance> {
     if (!instancePromise) {
         stage = "loading";
@@ -79,12 +106,15 @@ export function ensureTypst(): Promise<TypstInstance> {
             err => {
                 stage = "failed";
                 instancePromise = null;
-                throw err;
+                console.error("[typst] engine failed to start:", err);
+                throw err instanceof TypstEngineError ? err : new TypstEngineError(explainEngineFailure(err), err);
             },
         );
     }
     return instancePromise;
 }
+
+export const isEngineError = (err: unknown): err is TypstEngineError => err instanceof TypstEngineError;
 
 function enqueue<T>(work: () => Promise<T>): Promise<T> {
     const run = queue.then(work, work);
@@ -134,7 +164,10 @@ export function compilePdf(doc: TypstResumeDoc, template: TemplateId = DEFAULT_T
 function prettifyDiagnostics(raw: string): string {
     const messages = [...raw.matchAll(/severity:\s*(\w+)[^{}]*?message:\s*"((?:[^"\\]|\\.)*)"/g)]
         .map(m => `${m[1].toLowerCase()}: ${m[2].replace(/\\"/g, '"').replace(/\\n/g, "\n")}`);
-    return messages.length > 0 ? messages.join("\n") : raw;
+    if (messages.length > 0) return messages.join("\n");
+    // The package's own guard against a double `use()`: only reachable after a failed start.
+    if (/already prepare uses/.test(raw)) return "The preview engine was started twice after a failed load. Reload the page.";
+    return raw;
 }
 
 /** Turns whatever typst.ts throws (string, Error, diagnostics array/object) into readable text. */

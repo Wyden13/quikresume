@@ -4,12 +4,12 @@
 import React, { useEffect, useState } from "react";
 import type { ResumeData } from "@/types/schema";
 import { pdfFileName, toTypstDoc, type TypstResumeDoc } from "@/lib/typst/doc";
-import { compilePdf, compileSvg, ensureTypst, formatTypstError } from "@/lib/typst/client";
+import { compilePdf, compileSvg, ensureTypst, formatTypstError, isEngineError } from "@/lib/typst/client";
 import { DEFAULT_TEMPLATE, type TemplateId } from "@/lib/typst/templates";
 import { cn } from "@/lib/cn";
 import { Button, IconButton } from "@/components/ui/primitives/button";
 import { Badge } from "@/components/ui/primitives/badge";
-import { Download, X } from "@/components/ui/primitives/icons";
+import { Download, RefreshCw, X } from "@/components/ui/primitives/icons";
 
 interface ResumePreviewProps {
     resumeData: ResumeData;
@@ -21,7 +21,7 @@ interface ResumePreviewProps {
     hideDownload?: boolean;
 }
 
-type Status = "loading-engine" | "compiling" | "ready" | "error";
+type Status = "loading-engine" | "compiling" | "ready" | "error" | "engine-failed";
 
 const DEBOUNCE_MS = 300;
 
@@ -36,12 +36,15 @@ export function ResumePreview({ resumeData, template = DEFAULT_TEMPLATE, compact
     const [error, setError] = useState<string | null>(null);
     const [downloading, setDownloading] = useState(false);
     const [downloadError, setDownloadError] = useState<string | null>(null);
+    // Bumped by the Retry button after an engine failure: the loader re-arms itself, the effect re-runs.
+    const [attempt, setAttempt] = useState(0);
 
     useEffect(() => {
         let cancelled = false;
         const timer = setTimeout(async () => {
             const doc = JSON.parse(docJson) as TypstResumeDoc;
             try {
+                setStatus(s => (s === "engine-failed" ? "loading-engine" : s));
                 await ensureTypst();
                 if (cancelled) return;
                 setStatus("compiling");
@@ -54,14 +57,14 @@ export function ResumePreview({ resumeData, template = DEFAULT_TEMPLATE, compact
             } catch (err) {
                 if (cancelled) return;
                 setError(formatTypstError(err));
-                setStatus("error");
+                setStatus(isEngineError(err) ? "engine-failed" : "error");
             }
         }, DEBOUNCE_MS);
         return () => {
             cancelled = true;
             clearTimeout(timer);
         };
-    }, [docJson, template]);
+    }, [docJson, template, attempt]);
 
     const handleDownload = async () => {
         setDownloading(true);
@@ -90,17 +93,22 @@ export function ResumePreview({ resumeData, template = DEFAULT_TEMPLATE, compact
         compiling: "Compiling…",
         ready: "Up to date",
         error: "Compile error",
+        "engine-failed": "Engine unavailable",
     };
+    const failed = status === "error" || status === "engine-failed";
 
     return (
         <div className={cn("flex flex-col", compact ? "h-full" : "gap-4")}>
             <div className={cn("flex items-center gap-2", compact ? "h-12 shrink-0 border-b border-border px-3" : "flex-wrap")}>
                 {compact && <span className="text-13 font-medium">Preview</span>}
-                <span className={cn("text-xs", status === "error" ? "text-danger" : "text-fg-subtle", status !== "ready" && status !== "error" && "animate-pulse")}>{statusLabel[status]}</span>
+                <span className={cn("text-xs", failed ? "text-danger" : "text-fg-subtle", status !== "ready" && !failed && "animate-pulse")}>{statusLabel[status]}</span>
                 {pageCount > 0 && <Badge tone={pageCount > 1 ? "warning" : "neutral"}>{pageCount} {pageCount === 1 ? "page" : "pages"}</Badge>}
                 <div className="ml-auto flex items-center gap-1">
+                    {status === "engine-failed" && (
+                        <Button size="sm" variant="secondary" icon={RefreshCw} onClick={() => setAttempt(a => a + 1)}>Retry</Button>
+                    )}
                     {!hideDownload && (
-                        <Button size="sm" variant={compact ? "secondary" : "primary"} icon={Download} onClick={handleDownload} loading={downloading} disabled={status === "loading-engine"}>
+                        <Button size="sm" variant={compact ? "secondary" : "primary"} icon={Download} onClick={handleDownload} loading={downloading} disabled={status === "loading-engine" || status === "engine-failed"}>
                             {downloading ? "Preparing…" : compact ? "PDF" : "Download PDF"}
                         </Button>
                     )}
@@ -110,7 +118,20 @@ export function ResumePreview({ resumeData, template = DEFAULT_TEMPLATE, compact
 
             <div className={cn(compact && "min-h-0 flex-1 overflow-y-auto p-4")}>
                 {downloadError && <ErrorPanel title="PDF export failed" message={downloadError} />}
-                {status === "error" && error && <ErrorPanel title="Typst compile error" message={error} />}
+                {status === "engine-failed" && error && (
+                    <ErrorPanel
+                        title="The preview engine could not load"
+                        message={error}
+                        hint="Nothing in your résumé is filtered or rejected by the preview: every word you write is typeset as-is. This failure is about loading the engine itself. Use Retry, or reload the page."
+                    />
+                )}
+                {status === "error" && error && (
+                    <ErrorPanel
+                        title="Typst compile error"
+                        message={error}
+                        hint="The engine loaded but this document did not compile. Your text is passed through unchanged, so this usually points at the template; the message above names the file and line."
+                    />
+                )}
                 <div className={cn("mx-auto w-full overflow-hidden", compact ? "" : "max-w-[210mm]")}>
                     {svg ? (
                         <div
@@ -122,7 +143,7 @@ export function ResumePreview({ resumeData, template = DEFAULT_TEMPLATE, compact
                         />
                     ) : (
                         <div className="flex aspect-[210/297] w-full items-center justify-center border border-border bg-white">
-                            <span className="text-13 text-fg-subtle">{status === "error" ? "Nothing rendered yet" : statusLabel[status]}</span>
+                            <span className="text-13 text-fg-subtle">{failed ? "Nothing rendered yet" : statusLabel[status]}</span>
                         </div>
                     )}
                 </div>
@@ -131,11 +152,12 @@ export function ResumePreview({ resumeData, template = DEFAULT_TEMPLATE, compact
     );
 }
 
-function ErrorPanel({ title, message }: { title: string; message: string }) {
+function ErrorPanel({ title, message, hint }: { title: string; message: string; hint?: string }) {
     return (
         <div className="mb-4 rounded-md border border-danger-border bg-danger-bg p-3 text-danger">
             <div className="mb-1 text-13 font-medium">{title}</div>
             <pre className="whitespace-pre-wrap break-words font-mono text-xs">{message}</pre>
+            {hint && <p className="mt-2 text-xs text-fg-muted">{hint}</p>}
         </div>
     );
 }

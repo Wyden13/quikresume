@@ -3,17 +3,24 @@ import type { NextConfig } from "next";
 const isDev = process.env.NODE_ENV !== "production";
 
 // Content Security Policy. Next.js injects inline scripts for hydration, so 'unsafe-inline' stays on
-// script-src until a nonce pipeline exists; 'wasm-unsafe-eval' is what the in-browser Typst compiler
-// needs. Everything else is same-origin: fonts are self-hosted by next/font, the pdf.js worker and the
-// Typst wasm come from /public, avatars from Google. Dev needs 'unsafe-eval' for React Refresh.
-const csp = [
+// script-src until a nonce pipeline exists. Everything is same-origin: fonts are self-hosted by
+// next/font, the pdf.js worker and the Typst wasm come from /public, avatars from Google.
+//
+// The signed-in area gets a looser script-src: the Typst compiler runs as wasm in the browser and its
+// wasm-bindgen glue evaluates a string on start-up, so it needs 'unsafe-eval' next to
+// 'wasm-unsafe-eval' (without it the preview and the PDF download die with "Refused to evaluate a
+// string as JavaScript"). Public pages keep the strict policy. Dev needs 'unsafe-eval' everywhere
+// for React Refresh.
+const buildCsp = (scriptSrc: string) => [
     "default-src 'self'",
-    `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'${isDev ? " 'unsafe-eval'" : ""}`,
+    `script-src ${scriptSrc}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https://lh3.googleusercontent.com",
     "font-src 'self' data:",
-    "connect-src 'self' blob:",
+    "connect-src 'self' blob: data:",
     "worker-src 'self' blob:",
+    "child-src 'self' blob:",
+    "media-src 'self' blob: data:",
     "frame-ancestors 'none'",
     "frame-src 'none'",
     "object-src 'none'",
@@ -23,8 +30,11 @@ const csp = [
     ...(isDev ? [] : ["upgrade-insecure-requests"]),
 ].join("; ");
 
+const publicCsp = buildCsp(`'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`);
+const appCsp = buildCsp("'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob:");
+
 const securityHeaders = [
-    { key: "Content-Security-Policy", value: csp },
+    { key: "Content-Security-Policy", value: publicCsp },
     { key: "X-Content-Type-Options", value: "nosniff" },
     { key: "X-Frame-Options", value: "DENY" },
     { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
@@ -49,8 +59,15 @@ const nextConfig: NextConfig = {
     async headers() {
         return [
             { source: "/:path*", headers: securityHeaders },
-            // Nothing under the signed-in area or the API may be cached by a shared cache.
-            { source: "/dashboard/:path*", headers: [{ key: "Cache-Control", value: "private, no-store" }] },
+            // Signed-in area: the Typst engine's CSP (later rules override the same key), and nothing
+            // may be cached by a shared cache.
+            {
+                source: "/dashboard/:path*",
+                headers: [
+                    { key: "Content-Security-Policy", value: appCsp },
+                    { key: "Cache-Control", value: "private, no-store" },
+                ],
+            },
             { source: "/api/:path*", headers: [{ key: "Cache-Control", value: "private, no-store" }] },
         ];
     },

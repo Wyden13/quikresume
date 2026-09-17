@@ -294,9 +294,13 @@ then for `ai: true` the GLM key and the daily AI budget. Server actions get Next
   fields through `formStr` and friends, JSON bodies through `readJsonBody` (2 MB, 64–256 KB for small routes), variant pointers
   capped in `readVariantItems` / `readVariantHidden`, ≤ 200 jobs and ≤ 200 variants per user. Every client-supplied document id passes
   `isDocId` (`[A-Za-z0-9_-]{1,128}`), so a path can never be smuggled into a `doc()` call.
-- **Headers** (`next.config.ts`): CSP (`script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'`, `frame-ancestors 'none'`, avatars from
-  Google only), HSTS in production, nosniff, X-Frame-Options DENY, Referrer-Policy, Permissions-Policy, `Cache-Control: private,
-  no-store` on `/dashboard*` and `/api/*`, no `X-Powered-By`.
+- **Headers** (`next.config.ts`): two CSPs. Public pages: `script-src 'self' 'unsafe-inline'`. `/dashboard*`: the same plus
+  `'unsafe-eval' 'wasm-unsafe-eval' blob:`, because the typst.ts wasm glue evaluates a string on start-up (without it the preview
+  dies with "Refused to evaluate a string as JavaScript", and the loader's retry then shows "already prepare uses for instances").
+  Both: `frame-ancestors 'none'`, avatars from Google only, `connect-src 'self' blob: data:`. HSTS in production, nosniff,
+  X-Frame-Options DENY, Referrer-Policy, Permissions-Policy, `Cache-Control: private, no-store` on `/dashboard*` and `/api/*`, no
+  `X-Powered-By`. The preview never filters résumé text: a compile failure is an engine / template problem, and `ResumePreview`
+  shows an "engine could not load" panel with Retry (`TypstEngineError`) separately from Typst diagnostics.
 - **Firestore**: `firestore.rules` denies every client read/write on both databases (deploy with `firebase deploy --only firestore:rules`).
   `rate_limits` and `ai_usage` docs carry `expiresAt`; enable a TTL policy on that field for each collection group so they expire:
   `gcloud firestore fields ttls update expiresAt --collection-group=rate_limits --database=quikresume` (and `ai_usage`).
