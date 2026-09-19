@@ -181,9 +181,11 @@ h1 {
 .sheet-frame {
     border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
     background: var(--surface); box-shadow: var(--shadow);
-    max-height: 420px;
+    max-height: 430px;
 }
-.sheet-frame img { object-fit: cover; object-position: top center; }
+/* Show the top of each sheet at its natural width and clip the rest — object-fit
+   would rescale the image inside the box and crop the sides. */
+.sheet-frame img { width: 100%; height: auto; }
 .sheet-frame img { transition: transform .25s ease; }
 .badge-row { display: flex; gap: 6px; margin-top: 9px; flex-wrap: wrap; }
 
