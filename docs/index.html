@@ -1,0 +1,1442 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#fafafa" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121313" media="(prefers-color-scheme: dark)">
+<link rel="canonical" href="https://xuckless.github.io/quikresume/">
+<meta name="description" content="An interactive walkthrough of quikResume: one résumé library, many applications, typeset with Typst in the browser. Real screenshots and a live fit-score calculator.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Inside quikResume">
+<meta property="og:description" content="One résumé library, many applications. Typeset with Typst in the browser. Real screenshots and a live fit-score calculator.">
+<meta property="og:url" content="https://xuckless.github.io/quikresume/">
+<meta property="og:image" content="https://xuckless.github.io/quikresume/media/preview-pane.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%84%3C/text%3E%3C/svg%3E">
+<style>
+/* baseline reset (the artifact host provided this; on Pages we ship it) */
+html { -webkit-text-size-adjust: 100%; }
+[hidden] { display: none !important; }
+</style>
+<title>Inside quikResume</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* ─────────────────────────────────────────────────────────────
+   Tokens. The light palette is quikResume's own (src/app/globals.css);
+   the accent is Typst's teal. Dark redefines tokens only.
+   ───────────────────────────────────────────────────────────── */
+:root {
+    --bg: #fafafa;
+    --surface: #ffffff;
+    --surface-muted: #f5f5f5;
+    --surface-sunk: #f0f0f0;
+    --border: #e5e5e5;
+    --border-strong: #d4d4d4;
+    --ink: #171717;
+    --ink-muted: #525252;
+    --ink-subtle: #8a8a8a;
+    --accent: #1b7f8c;
+    --accent-soft: #e7f3f4;
+    --accent-ink: #12606b;
+    --danger: #dc2626;
+    --danger-bg: #fef2f2;
+    --warning: #b45309;
+    --warning-bg: #fffbeb;
+    --success: #15803d;
+    --success-bg: #f0fdf4;
+    /* tag kinds — src/lib/tags/types.ts, ordered by count so no weak pair is adjacent */
+    --k-tools: #2563eb;
+    --k-domain: #059669;
+    --k-tech: #5d5294;
+    --k-method: #db2777;
+    --k-cred: #0891b2;
+    --k-soft: #f59e0b;
+    --k-lang: #64748b;
+    /* the rainbow hairline the app draws on AI-produced surfaces (.ai-glow) */
+    --ai-1: #4285f4; --ai-2: #9b72cb; --ai-3: #d96570; --ai-4: #f2a60c; --ai-5: #34a853;
+    --shadow: 0 1px 2px rgba(23, 23, 23, .06);
+    --sans: "Montserrat", ui-sans-serif, system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --bg: #121313;
+        --surface: #1a1c1c;
+        --surface-muted: #202323;
+        --surface-sunk: #272a2a;
+        --border: #313434;
+        --border-strong: #454949;
+        --ink: #f2f4f4;
+        --ink-muted: #a9b0b0;
+        --ink-subtle: #7b8282;
+        --accent: #4fb9c6;
+        --accent-soft: #14312f;
+        --accent-ink: #7fd3dd;
+        --danger: #f87171;
+        --danger-bg: #2a1616;
+        --warning: #e3a44a;
+        --warning-bg: #2a2114;
+        --success: #52c17e;
+        --success-bg: #14291b;
+        --k-tools: #6098f7;
+        --k-domain: #34c48c;
+        --k-tech: #9b8ee0;
+        --k-method: #f26aa8;
+        --k-cred: #35b6d4;
+        --k-soft: #e0a23e;
+        --k-lang: #97a3b4;
+        --shadow: 0 1px 2px rgba(0, 0, 0, .4);
+    }
+}
+:root[data-theme="dark"] {
+    --bg: #121313;
+    --surface: #1a1c1c;
+    --surface-muted: #202323;
+    --surface-sunk: #272a2a;
+    --border: #313434;
+    --border-strong: #454949;
+    --ink: #f2f4f4;
+    --ink-muted: #a9b0b0;
+    --ink-subtle: #7b8282;
+    --accent: #4fb9c6;
+    --accent-soft: #14312f;
+    --accent-ink: #7fd3dd;
+    --danger: #f87171;
+    --danger-bg: #2a1616;
+    --warning: #e3a44a;
+    --warning-bg: #2a2114;
+    --success: #52c17e;
+    --success-bg: #14291b;
+    --k-tools: #6098f7;
+    --k-domain: #34c48c;
+    --k-tech: #9b8ee0;
+    --k-method: #f26aa8;
+    --k-cred: #35b6d4;
+    --k-soft: #e0a23e;
+    --k-lang: #97a3b4;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4);
+}
+
+* { box-sizing: border-box; }
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+}
+img { max-width: 100%; display: block; }
+a { color: var(--accent-ink); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+.wrap { max-width: 1060px; margin: 0 auto; padding-inline: 20px; }
+.rule { border: 0; border-top: 1px solid var(--border); margin: 0; }
+
+/* ── header ───────────────────────────────────────────── */
+.top {
+    position: sticky; top: 0; z-index: 40;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+}
+.top-in { display: flex; align-items: center; gap: 14px; height: 54px; }
+.mark { display: flex; align-items: center; gap: 9px; font-weight: 700; letter-spacing: -.01em; }
+.mark svg { width: 17px; height: 17px; }
+.top nav { margin-left: auto; display: flex; gap: 4px; flex-wrap: wrap; }
+.top nav a {
+    font-size: 12.5px; font-weight: 500; color: var(--ink-muted); text-decoration: none;
+    padding: 5px 9px; border-radius: 6px;
+}
+.top nav a:hover { background: var(--surface-muted); color: var(--ink); }
+.chip-license {
+    font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .04em;
+    text-transform: uppercase; color: var(--danger);
+    border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+    background: var(--danger-bg); padding: 3px 7px; border-radius: 4px; white-space: nowrap;
+}
+
+/* ── hero ─────────────────────────────────────────────── */
+.hero { padding-block: 56px 40px; }
+.eyebrow {
+    font-family: var(--mono); font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--accent-ink); margin: 0 0 18px;
+}
+h1 {
+    font-size: clamp(32px, 5.4vw, 52px); line-height: 1.08; letter-spacing: -.028em;
+    font-weight: 700; margin: 0 0 20px; text-wrap: balance; max-width: 20ch;
+}
+.lede { font-size: clamp(16px, 2vw, 18.5px); color: var(--ink-muted); max-width: 62ch; margin: 0; }
+.lede strong { color: var(--ink); font-weight: 600; }
+
+.sheets { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 38px; align-items: start; }
+.sheet { min-width: 0; }
+.sheet figcaption { display: flex; align-items: baseline; gap: 8px; margin-bottom: 9px; }
+.sheet-n { font-family: var(--mono); font-size: 11px; color: var(--ink-subtle); }
+.sheet-t { font-size: 13px; font-weight: 600; }
+.sheet-frame {
+    border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+    background: var(--surface); box-shadow: var(--shadow);
+    max-height: 420px;
+}
+.sheet-frame img { object-fit: cover; object-position: top center; }
+.sheet-frame img { transition: transform .25s ease; }
+.badge-row { display: flex; gap: 6px; margin-top: 9px; flex-wrap: wrap; }
+
+.pill {
+    font-family: var(--mono); font-size: 11px; font-weight: 500;
+    padding: 2px 7px; border-radius: 4px; border: 1px solid var(--border-strong);
+    color: var(--ink-muted); background: var(--surface); white-space: nowrap;
+}
+.pill.ok { color: var(--success); border-color: color-mix(in srgb, var(--success) 35%, transparent); background: var(--success-bg); }
+.pill.warn { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 35%, transparent); background: var(--warning-bg); }
+.pill.bad { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, transparent); background: var(--danger-bg); }
+
+/* ── sections ─────────────────────────────────────────── */
+section { padding-block: 46px; scroll-margin-top: 62px; }
+.sec-head { max-width: 64ch; margin-bottom: 26px; }
+.sec-label {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--ink-subtle); margin: 0 0 10px;
+}
+h2 { font-size: clamp(22px, 3vw, 29px); line-height: 1.18; letter-spacing: -.02em; font-weight: 700; margin: 0 0 12px; text-wrap: balance; }
+h3 { font-size: 17px; line-height: 1.3; font-weight: 600; margin: 0 0 8px; letter-spacing: -.01em; }
+p { margin: 0 0 14px; max-width: 68ch; }
+p:last-child { margin-bottom: 0; }
+.muted { color: var(--ink-muted); }
+.small { font-size: 13px; }
+
+/* ── the example-user card ────────────────────────────── */
+.persona {
+    display: grid; grid-template-columns: 1.15fr 1fr; gap: 0;
+    border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
+    overflow: hidden;
+}
+.persona-main { padding: 22px 24px; }
+.persona-stats { padding: 22px 24px; background: var(--surface-muted); border-left: 1px solid var(--border); }
+.persona h3 { font-size: 21px; margin-bottom: 4px; }
+.persona-role { font-size: 13px; color: var(--ink-muted); margin: 0 0 14px; }
+.dl { display: grid; grid-template-columns: 1fr auto; gap: 6px 14px; font-size: 13px; margin: 0; }
+.dl dt { color: var(--ink-muted); }
+.dl dd { margin: 0; font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; font-weight: 500; }
+.dl .tot { border-top: 1px solid var(--border-strong); padding-top: 6px; font-weight: 600; color: var(--ink); }
+
+/* ── feature tour tabs ────────────────────────────────── */
+.tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; margin-bottom: 20px; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab {
+    flex: 0 0 auto; font-family: var(--sans); font-size: 13px; font-weight: 500;
+    background: var(--surface); color: var(--ink-muted);
+    border: 1px solid var(--border); border-radius: 6px; padding: 7px 12px; cursor: pointer;
+    display: flex; align-items: center; gap: 7px; transition: background .15s, color .15s, border-color .15s;
+}
+.tab:hover { border-color: var(--border-strong); color: var(--ink); }
+.tab[aria-selected="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.tab .n { font-family: var(--mono); font-size: 10.5px; opacity: .65; }
+.panel { display: none; }
+.panel.on { display: block; }
+.panel-grid { display: grid; grid-template-columns: 340px 1fr; gap: 28px; align-items: start; }
+.panel-say { font-size: 16px; }
+.panel-say .claim { font-weight: 600; color: var(--ink); }
+.figure { border: 1px solid var(--border); border-radius: 7px; overflow: hidden; background: var(--surface); box-shadow: var(--shadow); }
+.figure.tall { max-height: 560px; overflow-y: auto; }
+.figcap { font-size: 12px; color: var(--ink-subtle); margin-top: 8px; font-family: var(--mono); }
+
+/* the "how it works" block: marked as mechanism, not prose */
+.how {
+    margin-top: 18px; border: 1px solid var(--border); border-radius: 7px;
+    background: var(--surface-muted); overflow: hidden;
+}
+.how > summary {
+    cursor: pointer; padding: 11px 14px; font-size: 13px; font-weight: 600;
+    display: flex; align-items: center; gap: 9px; list-style: none;
+}
+.how > summary::-webkit-details-marker { display: none; }
+.how > summary::before {
+    content: ""; width: 6px; height: 6px; border-right: 1.5px solid var(--ink-muted);
+    border-bottom: 1.5px solid var(--ink-muted); transform: rotate(-45deg); transition: transform .18s;
+    flex: 0 0 auto; margin-left: 2px;
+}
+.how[open] > summary::before { transform: rotate(45deg); }
+.how > summary .lbl { font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-subtle); font-weight: 500; }
+.how-body { padding: 0 14px 14px; font-size: 13.5px; border-top: 1px solid var(--border); padding-top: 13px; }
+.how-body p { max-width: none; margin-bottom: 10px; }
+.how-body code, code.i {
+    font-family: var(--mono); font-size: .88em; background: var(--surface-sunk);
+    padding: 1px 4px; border-radius: 3px; color: var(--ink);
+}
+pre {
+    font-family: var(--mono); font-size: 12px; line-height: 1.65; margin: 0 0 12px;
+    background: var(--surface-sunk); border: 1px solid var(--border); border-radius: 6px;
+    padding: 12px 13px; overflow-x: auto; color: var(--ink);
+}
+.how-body ul { margin: 0 0 10px; padding-left: 18px; }
+.how-body li { margin-bottom: 5px; }
+
+/* ── the score calculator ─────────────────────────────── */
+.calc { display: grid; grid-template-columns: 300px 1fr; gap: 28px; align-items: start; }
+.calc-side { position: sticky; top: 70px; }
+.ring-card {
+    border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
+    padding: 20px; box-shadow: var(--shadow);
+}
+.ring-top { display: flex; align-items: center; gap: 16px; }
+.ring-fig { flex: 0 0 auto; }
+.ring-read .n {
+    font-family: var(--mono); font-size: 34px; font-weight: 600; line-height: 1;
+    font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+}
+.ring-read .of { font-size: 12px; color: var(--ink-subtle); font-family: var(--mono); }
+.ring-read .delta { font-size: 12px; font-family: var(--mono); margin-top: 4px; }
+.calc-dl { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+.calc-math {
+    margin-top: 14px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-muted);
+    background: var(--surface-muted); border: 1px solid var(--border); border-radius: 6px; padding: 9px 10px;
+    font-variant-numeric: tabular-nums; line-height: 1.7;
+}
+.presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.btn {
+    font-family: var(--sans); font-size: 12.5px; font-weight: 500; cursor: pointer;
+    background: var(--surface); color: var(--ink); border: 1px solid var(--border-strong);
+    border-radius: 6px; padding: 6px 10px;
+}
+.btn:hover { background: var(--surface-muted); }
+.btn.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.btn.primary:hover { background: var(--ink-muted); }
+
+table.reqs { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.reqs th {
+    text-align: left; font-weight: 500; font-size: 11px; font-family: var(--mono);
+    letter-spacing: .06em; text-transform: uppercase; color: var(--ink-subtle);
+    padding: 0 8px 8px; border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+table.reqs th.num, table.reqs td.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.reqs td { padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+table.reqs tr:last-child td { border-bottom: 0; }
+table.reqs tbody tr.off { color: var(--ink-subtle); }
+table.reqs tbody tr.off .rname { text-decoration: line-through; text-decoration-color: var(--border-strong); }
+.rname { font-weight: 500; color: inherit; }
+table.reqs td.num { font-family: var(--mono); font-size: 12px; }
+.tier {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--ink-subtle); border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px;
+}
+.tier.hard { color: var(--ink-muted); border-color: var(--border-strong); }
+.sw {
+    appearance: none; -webkit-appearance: none; width: 34px; height: 19px; border-radius: 10px;
+    background: var(--border-strong); border: 0; cursor: pointer; position: relative; flex: 0 0 auto;
+    transition: background .15s;
+}
+.sw::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px;
+    border-radius: 50%; background: #fff; transition: transform .15s;
+}
+.sw:checked { background: var(--accent); }
+.sw:checked::after { transform: translateX(15px); }
+.contrib { display: block; height: 7px; border-radius: 4px; background: var(--surface-sunk); overflow: hidden; min-width: 46px; }
+.contrib i { display: block; height: 100%; border-radius: 4px; background: var(--accent); transition: width .2s ease; }
+.contrib i.zero { background: var(--danger); }
+
+/* ── tag chart ────────────────────────────────────────── */
+.chart { display: grid; gap: 9px; }
+.crow { display: grid; grid-template-columns: 132px 1fr 34px; align-items: center; gap: 12px; font-size: 13px; }
+.crow .cname { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.crow .dot { width: 9px; height: 9px; border-radius: 2px; flex: 0 0 auto; }
+.crow .track { position: relative; height: 22px; }
+.crow .bar {
+    height: 22px; border-radius: 0 4px 4px 0; position: relative; cursor: default;
+    transition: filter .15s;
+}
+.crow .bar:hover { filter: brightness(1.08) saturate(1.1); }
+.crow .cval { font-family: var(--mono); font-size: 12.5px; font-variant-numeric: tabular-nums; text-align: right; color: var(--ink-muted); }
+.chart-axis { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 10.5px; color: var(--ink-subtle); margin-left: 144px; margin-top: 6px; }
+.tip {
+    position: absolute; left: 100%; top: 50%; transform: translate(8px, -50%);
+    background: var(--ink); color: var(--bg); font-size: 11.5px; font-family: var(--mono);
+    padding: 3px 7px; border-radius: 4px; white-space: nowrap; pointer-events: none;
+    opacity: 0; transition: opacity .12s;
+}
+.crow:hover .tip { opacity: 1; }
+
+/* ── generic grids / cards ────────────────────────────── */
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.card { border: 1px solid var(--border); border-radius: 7px; background: var(--surface); padding: 16px 17px; }
+.card h3 { margin-bottom: 6px; font-size: 15px; }
+.card p { font-size: 13.5px; color: var(--ink-muted); margin: 0; }
+.card .tech {
+    font-family: var(--mono); font-size: 11.5px; color: var(--ink-subtle);
+    margin-top: 9px; padding-top: 9px; border-top: 1px dashed var(--border); display: block;
+}
+.ai-edge { position: relative; }
+.ai-edge::before {
+    content: ""; position: absolute; inset: -1px; border-radius: 8px; padding: 1px;
+    background: linear-gradient(100deg, var(--ai-1), var(--ai-2), var(--ai-3), var(--ai-4), var(--ai-5));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none;
+}
+
+/* ── flow strip ───────────────────────────────────────── */
+.flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.step {
+    border: 1px solid var(--border); border-radius: 7px; background: var(--surface);
+    padding: 14px 15px; position: relative;
+}
+.step .sn {
+    font-family: var(--mono); font-size: 11px; color: var(--accent-ink); font-weight: 600;
+    display: block; margin-bottom: 7px;
+}
+.step h3 { font-size: 14px; margin-bottom: 5px; }
+.step p { font-size: 12.5px; color: var(--ink-muted); margin: 0; }
+.step .out { font-family: var(--mono); font-size: 11px; color: var(--ink-subtle); margin-top: 8px; display: block; }
+
+/* ── security ─────────────────────────────────────────── */
+.leaves { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.leaves th { text-align: left; font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-subtle); font-weight: 500; padding: 0 10px 9px; border-bottom: 1px solid var(--border); }
+.leaves td { padding: 9px 10px; border-bottom: 1px solid var(--border); }
+.leaves tr:last-child td { border-bottom: 0; }
+.leaves td.dest { font-family: var(--mono); font-size: 12px; color: var(--ink-muted); }
+.leaves td.dest.never { color: var(--success); }
+
+/* ── license ──────────────────────────────────────────── */
+.license { border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--border)); border-radius: 8px; background: var(--danger-bg); padding: 22px 24px; }
+.license h2 { font-size: 20px; margin-bottom: 10px; }
+.license .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 16px; }
+.license h3 { font-size: 13px; font-family: var(--mono); letter-spacing: .05em; text-transform: uppercase; }
+.license ul { margin: 0; padding-left: 17px; font-size: 13px; color: var(--ink-muted); }
+.license li { margin-bottom: 5px; }
+
+footer { padding-block: 34px 44px; border-top: 1px solid var(--border); margin-top: 20px; }
+.foot { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: 12.5px; color: var(--ink-subtle); }
+.foot .sp { margin-left: auto; }
+
+/* ── lightbox ─────────────────────────────────────────── */
+.zoomable { cursor: zoom-in; }
+dialog.lb {
+    border: 0; padding: 0; background: transparent; max-width: 96vw; max-height: 94vh;
+    width: 96vw;
+}
+dialog.lb::backdrop { background: rgba(10, 12, 12, .82); }
+dialog.lb img { max-height: 92vh; width: auto; margin: 0 auto; border-radius: 6px; background: var(--surface); }
+.lb-close {
+    position: fixed; top: 14px; right: 16px; font-family: var(--mono); font-size: 12px;
+    background: var(--surface); color: var(--ink); border: 1px solid var(--border-strong);
+    border-radius: 6px; padding: 6px 10px; cursor: pointer;
+}
+
+@media (max-width: 900px) {
+    .panel-grid, .calc, .persona { grid-template-columns: 1fr; }
+    .persona-stats { border-left: 0; border-top: 1px solid var(--border); }
+    .calc-side { position: static; }
+    .flow, .grid3 { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 620px) {
+    .sheets, .grid2, .grid3, .flow, .license .cols { grid-template-columns: 1fr; }
+    .top nav { display: none; }
+    .crow { grid-template-columns: 96px 1fr 30px; }
+    .chart-axis { margin-left: 108px; }
+    table.reqs th.hide-s, table.reqs td.hide-s { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+}
+
+/* ── Pages-only chrome: theme toggle + source link ── */
+.top nav a.gh { color: var(--accent-ink); font-weight: 600; }
+.theme-btn {
+    flex: 0 0 auto; display: grid; place-items: center; width: 30px; height: 30px;
+    background: var(--surface); color: var(--ink-muted); border: 1px solid var(--border);
+    border-radius: 6px; cursor: pointer;
+}
+.theme-btn:hover { color: var(--ink); border-color: var(--border-strong); }
+.skip {
+    position: absolute; left: -9999px; top: 0; background: var(--ink); color: var(--bg);
+    padding: 8px 12px; border-radius: 0 0 6px 0; z-index: 100; font-size: 13px;
+}
+.skip:focus { left: 0; }
+@media (max-width: 620px) { .theme-btn { margin-left: auto; } }
+</style>
+</head>
+<body>
+<a class="skip" href="#tour">Skip to the tour</a>
+<header class="top">
+    <div class="wrap top-in">
+        <span class="mark">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M6 3h9l4 4v14H6z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+                <path d="M14 3v5h5" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+                <path d="M9.4 11.6h5.2M9.4 15.2h3.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+            </svg>
+            quikResume
+        </span>
+        <span class="chip-license">showcase only</span>
+        <nav aria-label="Sections">
+            <a href="https://github.com/xuckless/quikresume" class="gh">Source&nbsp;↗</a>
+            <a href="#tour">Tour</a>
+            <a href="#score">The score</a>
+            <a href="#tags">Insights</a>
+            <a href="#flow">Walkthrough</a>
+            <a href="#data">Your data</a>
+            <a href="#license">License</a>
+        </nav>
+        <button class="theme-btn" id="themeBtn" type="button" aria-label="Switch colour theme" title="Switch colour theme">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" aria-hidden="true">
+                <circle cx="12" cy="12" r="4.4" stroke="currentColor" stroke-width="1.8"></circle>
+                <path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6"
+                      stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+            </svg>
+        </button>
+    </div>
+</header>
+
+<main>
+    <!-- ══════════════════ HERO ══════════════════ -->
+    <div class="wrap hero">
+        <p class="eyebrow">One library · many résumés · Typst in the browser</p>
+        <h1>The same career, cut two ways.</h1>
+        <p class="lede">
+            quikResume keeps your <strong>whole professional history</strong> in one library and rebuilds the résumé
+            from whatever is switched on. Both sheets below came out of the same 22 items, minutes apart, typeset by
+            <strong>Typst compiled to WebAssembly inside the browser</strong> — the résumé text never reaches a
+            rendering server.
+        </p>
+
+        <div class="sheets">
+            <figure class="sheet" style="margin:0">
+                <figcaption>
+                    <span class="sheet-n">A</span>
+                    <span class="sheet-t">Everything switched on</span>
+                </figcaption>
+                <div class="sheet-frame">
+                    <img class="zoomable" src="media/hero-2page.png" alt="Alex Morgan's full résumé compiled by Typst, running to two pages" width="1282" height="2861">
+                </div>
+                <div class="badge-row">
+                    <span class="pill warn">2 pages</span>
+                    <span class="pill">20 of 22 items</span>
+                    <span class="pill">fit 84 / 100</span>
+                </div>
+            </figure>
+            <figure class="sheet" style="margin:0">
+                <figcaption>
+                    <span class="sheet-n">B</span>
+                    <span class="sheet-t">Tailored to one job, trimmed to one page</span>
+                </figcaption>
+                <div class="sheet-frame">
+                    <img class="zoomable" src="media/hero-1page.png" alt="The same résumé tailored and trimmed to a single page" width="1282" height="1462">
+                </div>
+                <div class="badge-row">
+                    <span class="pill ok">1 page</span>
+                    <span class="pill">11 of 22 items</span>
+                    <span class="pill">fit 79 / 100</span>
+                </div>
+            </figure>
+        </div>
+        <p class="figcap">Click either sheet to enlarge. Both are real compiler output, not mock-ups.</p>
+    </div>
+
+    <hr class="rule">
+
+    <!-- ══════════════════ PERSONA ══════════════════ -->
+    <section class="wrap" style="padding-block:40px">
+        <div class="sec-head">
+            <p class="sec-label">The example user</p>
+            <h2>Everything here belongs to a candidate who does not exist.</h2>
+            <p class="muted">
+                Alex Morgan is a fixture. The screenshots were taken against a throwaway account in a local
+                Firestore emulator, so no real person's history appears anywhere on this page — but every number the
+                app <em>computes</em> from that library is genuine.
+            </p>
+        </div>
+        <div class="persona">
+            <div class="persona-main">
+                <h3>Alex Morgan</h3>
+                <p class="persona-role">B.S. Computer Science, Class of 2026 · Seattle, WA · targeting new-grad backend and platform roles</p>
+                <p class="small muted" style="margin:0">
+                    Two production internships — Go tooling and a 40-service secrets migration at Northwind Cloud,
+                    five FastAPI microservices and Kubernetes CronJobs at Contoso Health — plus a systems-lab stint
+                    that produced a USENIX ATC paper, three projects, an AWS certificate, a hackathon win, a mentoring
+                    role, and a coffee-shop job from before university that is switched off for engineering applications.
+                </p>
+            </div>
+            <div class="persona-stats">
+                <dl class="dl">
+                    <dt>Experience</dt><dd>4</dd>
+                    <dt>Education</dt><dd>1</dd>
+                    <dt>Skill categories</dt><dd>6</dd>
+                    <dt>Projects</dt><dd>3</dd>
+                    <dt>Certifications</dt><dd>3</dd>
+                    <dt>Awards · volunteering</dt><dd>1 · 1</dd>
+                    <dt>Publications · languages</dt><dd>1 · 2</dd>
+                    <dt class="tot">Library items</dt><dd class="tot">22</dd>
+                    <dt class="tot">Extracted tags</dt><dd class="tot">80</dd>
+                    <dt class="tot">Saved variants</dt><dd class="tot">3</dd>
+                </dl>
+            </div>
+        </div>
+    </section>
+
+    <hr class="rule">
+
+    <!-- ══════════════════ FEATURE TOUR ══════════════════ -->
+    <section class="wrap" id="tour">
+        <div class="sec-head">
+            <p class="sec-label">The tour</p>
+            <h2>Nine features, each with the mechanism behind it.</h2>
+            <p class="muted">
+                Every panel states what you get in plain language, shows the real screen, and then opens up the
+                actual implementation — file paths included.
+            </p>
+        </div>
+
+        <div class="tabs" role="tablist" aria-label="Features">
+            <button class="tab" role="tab" id="t1" aria-controls="p1" aria-selected="true"><span class="n">01</span>Library</button>
+            <button class="tab" role="tab" id="t2" aria-controls="p2" aria-selected="false"><span class="n">02</span>Typst PDF</button>
+            <button class="tab" role="tab" id="t3" aria-controls="p3" aria-selected="false"><span class="n">03</span>Job Match</button>
+            <button class="tab" role="tab" id="t4" aria-controls="p4" aria-selected="false"><span class="n">04</span>Tailor</button>
+            <button class="tab" role="tab" id="t5" aria-controls="p5" aria-selected="false"><span class="n">05</span>Coach</button>
+            <button class="tab" role="tab" id="t6" aria-controls="p6" aria-selected="false"><span class="n">06</span>Import</button>
+            <button class="tab" role="tab" id="t7" aria-controls="p7" aria-selected="false"><span class="n">07</span>About you</button>
+            <button class="tab" role="tab" id="t8" aria-controls="p8" aria-selected="false"><span class="n">08</span>Layout</button>
+            <button class="tab" role="tab" id="t9" aria-controls="p9" aria-selected="false"><span class="n">09</span>Variants</button>
+        </div>
+
+        <!-- 01 library -->
+        <div class="panel on" id="p1" role="tabpanel" aria-labelledby="t1">
+            <div class="panel-grid">
+                <div>
+                    <p class="panel-say"><span class="claim">Nothing is ever retyped.</span> Flip switches per
+                        application: this internship on, the coffee-shop job off, these three bullets yes, the fourth no.</p>
+                    <p class="small muted">The dimmed <code class="i">Barista</code> row stays in the library for retail
+                        applications but will not print here. The yellow card at the top is the app pointing out that
+                        this one item is dragging the résumé down.</p>
+                    <details class="how">
+                        <summary><span class="lbl">How it works</span> Three levels of granularity</summary>
+                        <div class="how-body">
+                            <pre>item.isSelected   // whole item, the row switch
+item.hidden[]     // one bullet  → bulletKey(text)
+item.hidden[]     // one skill   → skillKey(text)</pre>
+                            <p><code>bulletKey</code> is the whitespace-squashed <em>text of the printed line</em>,
+                                never an index (<code>src/lib/sub-items.ts</code>). Reordering bullets therefore can
+                                never hide the wrong one, and rewording a hidden line brings it back on purpose.
+                                <code>saveResumeData</code> runs <code>pruneHidden(...)</code> so keys whose text is
+                                gone are dropped rather than left to rot.</p>
+                            <p>Toggling costs nothing: <code>hidden</code> and <code>isSelected</code> are excluded
+                                from the content hash, so switching items on and off never re-triggers the AI tagger.</p>
+                        </div>
+                    </details>
+                </div>
+                <div>
+                    <div class="figure tall"><img class="zoomable" src="media/library.png" alt="The library: sections with counts, coach score badges, date ranges and include switches" loading="lazy"></div>
+                    <p class="figcap">/dashboard · 22 items across 9 sections</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 02 typst -->
+        <div class="panel" id="p2" role="tabpanel" aria-labelledby="t2">
+            <div class="panel-grid">
+                <div>
+                    <p class="panel-say"><span class="claim">What you see is the PDF.</span> Not an HTML lookalike —
+                        the actual Typst document, recompiled about a third of a second after you stop typing, with a
+                        text-based download an applicant tracking system can parse.</p>
+                    <p class="small muted">The page count in the toolbar is measured from the compiled document, not
+                        estimated — and it is the number the Tailor window works against.</p>
+                    <details class="how">
+                        <summary><span class="lbl">How it works</span> One JSON contract, one wasm engine</summary>
+                        <div class="how-body">
+                            <pre>ResumeData
+  → toTypstDoc()        // the ONLY place data is shaped
+  → TypstResumeDoc      // plain JSON, every field a string
+  → sys.inputs.resume   // main.typ
+  → templates/ledger.typ  render(data)
+  → typst-ts-web-compiler (~27 MB wasm)
+  → compileSvg() preview | compilePdf() download</pre>
+                            <p>Templates are pure styling: no filtering, no date logic, and they never receive markup.
+                                Because every field arrives as a plain string, user text containing
+                                <code># * _ $ [ ] \</code> needs no escaping — it is printed literally.</p>
+                            <p>The engine initialises once, lazily, when the preview first mounts; the vendored Inter
+                                faces are preloaded and remote font assets disabled, so output is byte-stable across
+                                machines. The wasm is single-threaded, so compiles are serialised through one promise
+                                chain, and the last good SVG stays on screen at 60% opacity while a new one renders.</p>
+                            <p>If the engine fails to load, the app says so in its own panel — and states explicitly
+                                that nothing in your résumé was filtered or rejected.</p>
+                        </div>
+                    </details>
+                </div>
+                <div>
+                    <div class="figure tall"><img class="zoomable" src="media/preview-pane.png" alt="The library with the Typst preview docked as a resizable side pane" loading="lazy"></div>
+                    <p class="figcap">The preview docks beside the library at ≥ 1280 px · resizable splitter</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 03 job match -->
+        <div class="panel" id="p3" role="tabpanel" aria-labelledby="t3">
+            <div class="panel-grid">
+                <div>
+                    <p class="panel-say"><span class="claim">Paste the posting, get an honest number.</span> Which
+                        must-haves you cover, which single one disqualifies you, which keywords are missing — and
+                        separately, whether the words are <em>literally printed</em> on the page a scanner will read.</p>
+                    <p class="small muted">Alex scores 84. The blocker is C++, called out in red instead of averaged
+                        away. Four rows say <code class="i">Not literally</code>: Alex has the skill, but the exact
+                        string is not on the page.</p>
+                    <details class="how">
+                        <summary><span class="lbl">How it works</span> Coverage, inference, and the ATS check</summary>
+                        <div class="how-body">
+                            <p>An item <strong>covers</strong> a requirement when it carries the exact canonical tag
+                                key, a key the requirement's <code>satisfiedBy</code> list accepts, a key the built-in
+                                hierarchy accepts (<code>bachelor's degree</code> ← any <code>bachelor of …</code>),
+                                or is cited by item id in <code>evidence</code>.</p>
+                            <p>The last two come from the <strong>reconcile pass</strong>
+                                (<code>src/lib/match/reconcile.ts</code>): the text model receives all requirements
+                                plus the whole tag inventory at <em>max</em> reasoning effort, and its verdict is stored
+                                <em>on the requirement</em> — so the pure scorer honours it on every later recompute
+                                with no further model calls. It runs in the background; if it fails, requirements stay
+                                untouched and the built-in hierarchy still applies.</p>
+                            <p>That is how Alex's résumé matches <code>Microservices</code> without ever using the
+                                word: the pass read "five FastAPI microservices behind an API gateway" and recorded the
+                                evidence.</p>
+                            <p><code>literalHit</code> searches <code>renderedText(toTypstDoc(data))</code> — the exact
+                                strings Typst prints, with hidden bullets and excluded items removed. Hence the honest
+                                split between "in your tags" and "printed on résumé".</p>
+                        </div>
+                    </details>
+                </div>
+                <div>
+                    <div class="figure tall"><img class="zoomable" src="media/jobs.png" alt="Job Match: score 84, guidelines, and the ATS keyword check table" loading="lazy"></div>
+                    <p class="figcap">?view=jobs · 14 requirements extracted from the posting</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 04 tailor -->
+        <div class="panel" id="p4" role="tabpanel" aria-labelledby="t4">
+            <div class="panel-grid">
+                <div>
+                    <p class="panel-say"><span class="claim">It suggests; you decide.</span> Tailor asks about the gaps
+                        first, proposes a selection with a reason on every line, marks what it will not touch, and
+                        leaves each suggestion as an Accept or Dismiss you can overrule.</p>
+                    <p class="small muted">🔒 marks items that cover a hard requirement. One click on
+                        <code class="i">Fit to one page</code> took Alex from 20 items on two pages to 11 on one — and
+                        told him the price: 84 → 79, with no must-have lost.</p>
+                    <details class="how">
+                        <summary><span class="lbl">How it works</span> Locks, protected lines, and a filtered model reply</summary>
+                        <div class="how-body">
+                            <pre>lock items covering a hard requirement  (+ newest education)
+recommendSelection()   // greedy weighted set cover, soft reqs
+mark lines naming a hard requirement as protected
+  → AUTO_TAILOR_SYSTEM_PROMPT   (high effort, 180 s)
+  → mergeAiReview()   // DROPS anything touching a locked
+                      // include, a protected line, or an
+                      // id/index that does not exist
+  → fitToOnePage()
+  → diffSuggestions(plan, target, base)</pre>
+                            <p>The plan is a <strong>pure function</strong>; the model only ever adjusts it, and its
+                                reply is filtered rather than trusted. A total model failure degrades to the tag-based
+                                plan plus a warning — never a broken selection.</p>
+                            <p>The trim order is fixed and predictable: bullets of weak unlocked items → those items →
+                                unprotected bullets of locked items. <strong>The first bullet of a kept item is never
+                                    removed</strong>, so no entry is reduced to a bare job title.</p>
+                            <p>Overrides always win. Switch off a locked item and
+                                <code>overrideWarnings</code> explains the consequence in yellow instead of blocking
+                                you.</p>
+                        </div>
+                    </details>
+                </div>
+                <div>
+                    <div class="figure tall"><img class="zoomable" src="media/tailor-fit.png" alt="The tailor window after Fit to one page: 11 of 22 items, one page, score 79 versus 84" loading="lazy"></div>
+                    <p class="figcap">Step 2 of 2, after Fit to one page</p>
+                    <div class="figure" style="margin-top:14px"><img class="zoomable" src="media/tailor-questions.png" alt="Tailor step 1 asking about uncovered requirements and previously declined skills" loading="lazy"></div>
+                    <p class="figcap">Step 1 of 2 · a "no" is remembered, and warned about later</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 05 coach -->
+        <div class="panel" id="p5" role="tabpanel" aria-labelledby="t5">
+            <div class="panel-grid">
+                <div>
+                    <p class="panel-say"><span class="claim">Line-by-line feedback, not a grade.</span> Every item gets
+                        a score out of ten, named problems, and up to three rewrites where your original is quoted
+                        verbatim and the replacement sits right below it.</p>
+                    <p class="small muted">This is the coffee-shop bullet: 4/10, flagged
+                        <code class="i">Off target</code> · <code class="i">Passive voice</code> ·
+                        <code class="i">No numbers</code>, with a fix that leads with the verb — and the honest advice
+                        to leave the item switched off for backend applications.</p>
+                    <details class="how">
+                        <summary><span class="lbl">How it works</span> The rule that stops invented metrics</summary>
+                        <div class="how-body">
+                            <p>Reviews run fire-and-forget and are never awaited by a save. The route takes a per-user
+                                lock (<code>meta/review.runningUntil</code>), then reviews ≤ 24 items per request —
+                                selected first — in chunks of 6, two in parallel, at <code>high</code> effort inside a
+                                260 s budget.</p>
+                            <p>The parser (<code>src/lib/review/parse.ts</code>) is adversarial on purpose. A
+                                suggestion is discarded if it targets a field that does not exist for that section, if
+                                its <code>current</code> text is not found verbatim in the item, if the rewrite is
+                                empty, unchanged or bracketed — and, decisively:</p>
+                            <pre>// a rewrite may not introduce digits the original lacked
+if ([...digits(proposed)].some(d => !known.has(d))) return null;</pre>
+                            <p>That one rule is what stops a language model from inventing
+                                "improved performance by 40%" on your behalf.</p>
+                            <p>Staleness uses the same content hash as the tagger, so a review greys out and says so
+                                the moment you edit the text — rather than showing an old number as if it were current.</p>
+                        </div>
+                    </details>
+                </div>
+                <div>
+                    <div class="figure ai-edge"><img class="zoomable" src="media/coach-review.png" alt="A coach review scoring an item 4 out of 10 with a rewrite offering Accept or Dismiss" loading="lazy"></div>
+                    <p class="figcap">The rainbow hairline is the app's own marker for an AI-produced surface</p>
+                    <div class="figure" style="margin-top:14px"><img class="zoomable" src="media/action-items.png" alt="The Action items card listing the low-scoring item with Open in editor" loading="lazy"></div>
+                    <p class="figcap">Low scores surface where you cannot miss them</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 06 import -->
+        <div class="panel" id="p6" role="tabpanel" aria-labelledby="t6">
+            <div class="panel-grid">
+                <div>
+                    <p class="panel-say"><span class="claim">Start from what you already have.</span> Drop in your
+                        current PDF, a Word file, or a photo of a printout. It is read, split into sections, and matched
+                        against what is already in your library — merging detail instead of creating near-duplicates.</p>
+                    <p class="small muted">Nothing is saved until you have reviewed every row; each one is labelled
+                        <code class="i">New</code>, <code class="i">Adds detail</code> or
+                        <code class="i">Already in library</code>.</p>
+                    <details class="how">
+                        <summary><span class="lbl">How it works</span> Rasterise locally, match deterministically</summary>
+                        <div class="how-body">
+                            <p>PDFs are rendered to JPEG <em>in your browser</em> by pdf.js before upload, because the
+                                vision model accepts <code>text</code> and <code>image_url</code> parts but rejects
+                                <code>file</code> parts outright. It is a Route Handler rather than a server action for
+                                two concrete reasons: server actions cap bodies at 1 MB, and the route needs
+                                <code>maxDuration = 120</code>.</p>
+                            <p>Duplicate detection is <strong>not</strong> AI (<code>src/lib/import/match.ts</code>):
+                                <code>canon</code> lowercases, strips accents and punctuation, expands abbreviations
+                                (<code>Sr.</code>, <code>B.S.</code>, <code>Ph.D.</code>) and drops company suffixes;
+                                titles match on token Dice ≥ 0.8, and work experience additionally requires the same
+                                start <em>year</em>. Matches then merge — bullets and skill lists unioned, empty scalar
+                                fields filled.</p>
+                            <p>Parsing is lenient by design: the envelope never fails, each item is validated on its
+                                own, and rejects become warnings shown in the review step instead of failing the upload.</p>
+                        </div>
+                    </details>
+                </div>
+                <div>
+                    <div class="figure"><img class="zoomable" src="media/import.png" alt="The import view with a dropzone for PDF, DOCX, TXT and images" loading="lazy"></div>
+                    <p class="figcap">?view=import · up to 6 files per session, deduplicated across all of them</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 07 about -->
+        <div class="panel" id="p7" role="tabpanel" aria-labelledby="t7">
+            <div class="panel-grid">
+                <div>
+                    <p class="panel-say"><span class="claim">The same bullet deserves different advice depending on who
+                            wrote it.</span> A two-minute questionnaire is condensed into a short candidate brief that
+                        every coaching and tailoring prompt receives — and that is never printed on the résumé.</p>
+                    <p class="small muted">Look at the hint under <em>Years of professional experience</em>: "Your
+                        library dates add up to 1.5 (internships not counted)". The app computed that from stored dates
+                        before any model was involved.</p>
+                    <details class="how">
+                        <summary><span class="lbl">How it works</span> Computed facts first, model second</summary>
+                        <div class="how-body">
+                            <p>Date-derived facts are local and instant: <code>yearsOfExperience</code> merges
+                                overlapping roles and excludes internships; <code>employmentGaps</code> counts from the
+                                first non-internship job. Only then does the model suggest the subjective fields — and
+                                it is never allowed to guess your location or work authorization. Suggested values stay
+                                visibly marked until you touch them.</p>
+                            <p>The brief is regenerated only when the answers hash changes, and a failed generation
+                                keeps the old brief rather than leaving you with none.</p>
+                            <p>It is read server-side only — the client never sends it — and every prompt that receives
+                                it appends <code>CANDIDATE_CONTEXT_RULE</code>: context for relevance and level, never
+                                evidence, never printed. Tagging and import do not receive it at all.</p>
+                        </div>
+                    </details>
+                </div>
+                <div>
+                    <div class="figure"><img class="zoomable" src="media/about.png" alt="The About you questionnaire with computed hints" loading="lazy"></div>
+                    <p class="figcap">/dashboard/about · four steps, all skippable</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 08 layout -->
+        <div class="panel" id="p8" role="tabpanel" aria-labelledby="t8">
+            <div class="panel-grid">
+                <div>
+                    <p class="panel-say"><span class="claim">When one line of overflow is all that stands between you
+                            and one page.</span> Margins, font size, leading, space above and below each section, the gap
+                        between entries, per-item spacing, keep-together and page breaks.</p>
+                    <p class="small muted">Each control is Compact · Normal · Relaxed · Custom, where
+                        <strong>Normal is exactly the template's own values</strong> — so an untouched layout renders
+                        identically to one that was never opened.</p>
+                    <details class="how">
+                        <summary><span class="lbl">How it works</span> One ordering function, one working layout</summary>
+                        <div class="how-body">
+                            <pre>users/{uid}/meta/layout
+  sectionOrder[]   // header always first
+  itemOrder{}      // absent = order by date
+  page             // margin mm · font pt · leading em
+  sections{}       // above · below · itemGap · indent (pt)
+  items{}          // spaceAfter · breakBefore · keepTogether</pre>
+                            <p><code>orderedItems</code> (<code>src/lib/layout/order.ts</code>) is used by the editor,
+                                the library, the tailor window <em>and</em> <code>toTypstDoc</code> — so what you drag
+                                is what prints. The default is newest-first: current items, then latest end date, then
+                                latest start, undated last.</p>
+                            <p>Writes use a plain <code>set</code> rather than a merge, because a merge would
+                                resurrect the very keys a reset was supposed to remove.</p>
+                        </div>
+                    </details>
+                </div>
+                <div>
+                    <div class="figure tall"><img class="zoomable" src="media/editor-layout.png" alt="The Master Editor in advanced layout mode" loading="lazy"></div>
+                    <p class="figcap">?view=editor · advanced layout mode</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 09 variants -->
+        <div class="panel" id="p9" role="tabpanel" aria-labelledby="t9">
+            <div class="panel-grid">
+                <div>
+                    <p class="panel-say"><span class="claim">Save a selection, reload it in one click.</span> Alex keeps
+                        three: backend/platform, ML/research, and a one-page general version. Each remembers which items
+                        were on, which bullets were hidden, and the full layout.</p>
+                    <p class="small muted">Fixing a typo once fixes it in all three — a variant stores
+                        <strong>pointers</strong>, not copies. The editor knows, and asks before saving an edit that
+                        several variants share.</p>
+                    <details class="how">
+                        <summary><span class="lbl">How it works</span> Pointers, and one document read to load</summary>
+                        <div class="how-body">
+                            <pre>users/{uid}/variants/{id}
+{ name, labels[],
+  items:  { experience: ["exp-northwind", …], skills: […] },
+  hidden: { "exp-northwind": ["…bulletKey…"] },
+  layout: ResumeLayout | null,
+  templateId: "ledger" }</pre>
+                            <p>Loading one is a single document read; <code>applyVariantSelection</code> then reads the
+                                current <code>isSelected</code> and <code>hidden</code> values and writes back
+                                <em>only the documents that actually change</em>.</p>
+                            <p>Every id inside <code>items</code> must match <code>[A-Za-z0-9_-]{1,128}</code>, so a
+                                path can never be smuggled into a <code>doc()</code> call. Variants saved before layouts
+                                existed carry <code>layout: null</code> and leave your working layout alone.</p>
+                        </div>
+                    </details>
+                </div>
+                <div>
+                    <div class="figure"><img class="zoomable" src="media/variants.png" alt="The variants page with three saved selections" loading="lazy"></div>
+                    <p class="figcap">/dashboard/variants · labels, rename, duplicate, load</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <hr class="rule">
+
+    <!-- ══════════════════ SCORE CALCULATOR ══════════════════ -->
+    <section class="wrap" id="score">
+        <div class="sec-head">
+            <p class="sec-label">Interactive · the real formula</p>
+            <h2>Alex scores 84. Here is the arithmetic — change it yourself.</h2>
+            <p class="muted">
+                These are the 14 requirements the app extracted from the Globex posting, with the coverage it actually
+                found in Alex's library. Toggle any requirement's coverage and the score recomputes with
+                <code class="i">src/lib/match/score.ts</code> — the same pure function the app runs in the browser.
+            </p>
+        </div>
+
+        <div class="calc">
+            <div class="calc-side">
+                <div class="ring-card">
+                    <div class="ring-top">
+                        <svg class="ring-fig" width="84" height="84" viewBox="0 0 84 84" role="img" aria-labelledby="ringLbl">
+                            <title id="ringLbl">Fit score out of 100</title>
+                            <circle cx="42" cy="42" r="35" fill="none" stroke="var(--surface-sunk)" stroke-width="8"></circle>
+                            <circle id="ringArc" cx="42" cy="42" r="35" fill="none" stroke="var(--accent)" stroke-width="8"
+                                    stroke-linecap="round" stroke-dasharray="219.9" stroke-dashoffset="35.2"
+                                    transform="rotate(-90 42 42)"></circle>
+                        </svg>
+                        <div class="ring-read">
+                            <div class="n" id="scoreOut">84</div>
+                            <div class="of">/ 100 fit</div>
+                            <div class="delta muted" id="scoreDelta">as captured</div>
+                        </div>
+                    </div>
+                    <dl class="dl calc-dl">
+                        <dt>Must-haves covered</dt><dd id="mustOut">9 / 10</dd>
+                        <dt>Nice-to-haves covered</dt><dd id="niceOut">3 / 4</dd>
+                        <dt>Missing must-haves</dt><dd id="missOut" style="color:var(--danger)">C++</dd>
+                    </dl>
+                    <div class="calc-math" id="mathOut"></div>
+                    <div class="presets">
+                        <button class="btn primary" type="button" data-preset="captured">As captured</button>
+                        <button class="btn" type="button" data-preset="cpp">Alex learns C++</button>
+                        <button class="btn" type="button" data-preset="nogo">Alex loses Go</button>
+                        <button class="btn" type="button" data-preset="all">Cover everything</button>
+                    </div>
+                </div>
+                <p class="small muted" style="margin-top:14px">
+                    <strong>w = importance × tier.</strong> must = 1, nice = 0.4; hard = 1, soft = 0.3. A missing hard
+                    must-have costs about eleven points; a missing soft nice-to-have costs less than two. That is the
+                    whole point of the tier weight — a posting listing "attention to detail" as a technical requirement
+                    cannot sink your score, and ten soft-skill hits cannot hide a missing language.
+                </p>
+            </div>
+
+            <div style="overflow-x:auto">
+                <table class="reqs">
+                    <thead>
+                        <tr>
+                            <th style="width:36px">On</th>
+                            <th>Requirement</th>
+                            <th class="hide-s">Priority</th>
+                            <th class="hide-s">Tier</th>
+                            <th class="num">Carriers</th>
+                            <th class="num">Strength</th>
+                            <th class="num hide-s">w</th>
+                            <th class="num">w × s</th>
+                            <th style="width:78px" class="hide-s">Contribution</th>
+                        </tr>
+                    </thead>
+                    <tbody id="reqBody"></tbody>
+                </table>
+                <p class="figcap" style="margin-top:12px">
+                    Credentials and languages are binary — any carrier scores 1.0, because a degree is not
+                    "more true" when two items mention it. Everything else is
+                    <code class="i">min(1, 0.5 + 0.25 × carriers)</code>.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <hr class="rule">
+
+    <!-- ══════════════════ TAGS ══════════════════ -->
+    <section class="wrap" id="tags">
+        <div class="sec-head">
+            <p class="sec-label">All-in-one insights</p>
+            <h2>80 tags, and the shape they make.</h2>
+            <p class="muted">
+                Every item — and the profile headline and summary — is tagged by kind. A tag's weight is simply how
+                many <em>included</em> items carry it, computed on read so it can never go stale. The shape is the
+                story: Alex is heavy on tools and thin on soft skills, exactly as you would expect from a student with
+                two internships, and worth knowing before writing a cover letter.
+            </p>
+        </div>
+
+        <div class="grid2">
+            <div>
+                <h3 style="font-size:14px">Alex Morgan's library, by tag kind</h3>
+                <p class="small muted" style="margin-bottom:16px">Distinct tags per kind · 80 total</p>
+                <div class="chart" id="tagChart"></div>
+                <div class="chart-axis"><span>0</span><span>16</span><span>32</span></div>
+                <p class="figcap" style="margin-top:12px">Hover a bar for its share.</p>
+            </div>
+            <div>
+                <div class="figure"><img class="zoomable" src="media/insights.png" alt="The Insights view with the profile-shape radar and heaviest-tags bar chart" loading="lazy"></div>
+                <p class="figcap">?view=insights · the same data, in the app</p>
+            </div>
+        </div>
+
+        <details class="how" style="max-width:none">
+            <summary><span class="lbl">How it works</span> The hash rule that keeps AI cost near zero</summary>
+            <div class="how-body">
+                <pre>contentHash = stableHash(`${key}|${JSON.stringify(contentFields(key, item))}`)
+// contentFields excludes dates, ids, isSelected, timestamps and hidden[]
+stale = tagsHash !== contentHash        // only stale items are ever sent to a model</pre>
+                <p>Toggling an item, reordering sections, hiding a bullet, loading a variant — none of that changes the
+                    content hash, so none of it costs a single token. Editing the text does.</p>
+                <p>Extraction runs inside the save: stale items go out in chunks of 20, three chunks in parallel, 60-second
+                    budget, JSON mode, <code>low</code> reasoning effort (≈ 7 s per chunk). Each chunk carries a small
+                    context — headline, degrees, summary — so the model can file items under the candidate's actual
+                    field, and the prompt asks for <em>implied</em> concepts as well as named ones: a five-service
+                    architecture yields <em>Microservices</em>; a degree yields both the specific degree and the generic
+                    <em>Bachelor's Degree</em> that postings ask for. A tagging failure never blocks the save.</p>
+                <p>Normalisation is a lowercase canonical key plus a built-in alias table
+                    (<code>js → javascript</code>, <code>k8s → kubernetes</code>) and model-reported aliases stored per
+                    user — accepted only when the canonical form is itself a returned tag name, and never allowed to
+                    override a built-in.</p>
+            </div>
+        </details>
+    </section>
+
+    <hr class="rule">
+
+    <!-- ══════════════════ WALKTHROUGH ══════════════════ -->
+    <section class="wrap" id="flow">
+        <div class="sec-head">
+            <p class="sec-label">One application, end to end</p>
+            <h2>From an old PDF to a tailored one-page résumé.</h2>
+            <p class="muted">The order matters: each step's output is the next step's input, and the two expensive AI
+                passes run in the background so no click ever waits on them.</p>
+        </div>
+        <div class="flow">
+            <div class="step">
+                <span class="sn">STEP 1</span>
+                <h3>Import</h3>
+                <p>The old résumé is read, deduplicated and dropped into the editor draft. Nothing is saved yet.</p>
+                <span class="out">→ 22 reviewable items</span>
+            </div>
+            <div class="step">
+                <span class="sn">STEP 2</span>
+                <h3>Save &amp; Exit</h3>
+                <p>Stale items are tagged inline; coach reviews are kicked off fire-and-forget.</p>
+                <span class="out">→ 80 tags · scores per item</span>
+            </div>
+            <div class="step">
+                <span class="sn">STEP 3</span>
+                <h3>Job Match</h3>
+                <p>The posting becomes 14 structured requirements, scored against the working selection in the browser.</p>
+                <span class="out">→ 84 / 100 · C++ missing</span>
+            </div>
+            <div class="step">
+                <span class="sn">STEP 4</span>
+                <h3>Reconcile</h3>
+                <p>A background pass at max effort records what a human reader would have inferred.</p>
+                <span class="out">→ Microservices ← gRPC, FastAPI</span>
+            </div>
+            <div class="step">
+                <span class="sn">STEP 5</span>
+                <h3>Questions</h3>
+                <p>Tailor asks about requirements nothing in the library shows. Answers are kept for next time.</p>
+                <span class="out">→ "no" to C++, remembered</span>
+            </div>
+            <div class="step">
+                <span class="sn">STEP 6</span>
+                <h3>Plan</h3>
+                <p>A locked, reasoned selection: 20 of 22 items, each line explaining itself.</p>
+                <span class="out">→ 2 pages, nothing lost</span>
+            </div>
+            <div class="step">
+                <span class="sn">STEP 7</span>
+                <h3>Fit to one page</h3>
+                <p>The trim order runs until the compiled page count is 1, and reports the cost.</p>
+                <span class="out">→ 11 items · 1 page · 79</span>
+            </div>
+            <div class="step">
+                <span class="sn">STEP 8</span>
+                <h3>Save &amp; download</h3>
+                <p>The PDF is compiled in the browser, then the selection is stored as a reusable variant.</p>
+                <span class="out">→ a real text PDF</span>
+            </div>
+        </div>
+    </section>
+
+    <hr class="rule">
+
+    <!-- ══════════════════ DATA ══════════════════ -->
+    <section class="wrap" id="data">
+        <div class="sec-head">
+            <p class="sec-label">Data protection</p>
+            <h2>Your résumé is not a marketing asset.</h2>
+            <p class="muted">No public client access to the database, no telemetry on your content, no résumé text sent
+                to a rendering service, and an explicit rule in every prompt that your words are data — not
+                instructions.</p>
+        </div>
+
+        <div class="grid3" style="margin-bottom:22px">
+            <div class="card">
+                <h3>No client touches the database</h3>
+                <p>Every read and write goes through the Admin SDK on the server. There is no client Firebase config in
+                    the bundle at all.</p>
+                <span class="tech">firestore.rules → allow read, write: if false — on both databases</span>
+            </div>
+            <div class="card">
+                <h3>Typesetting never leaves your machine</h3>
+                <p>The PDF is produced in your browser from your data. No server receives the document, because there is
+                    nothing to send.</p>
+                <span class="tech">typst.ts wasm · only the engine itself is fetched, from your own origin</span>
+            </div>
+            <div class="card">
+                <h3>Two email addresses, on purpose</h3>
+                <p>Your Google sign-in address is never printed. The one on the résumé is a separate field, and the
+                    login page says so.</p>
+                <span class="tech">users/{uid}.professionalEmail ≠ .email</span>
+            </div>
+            <div class="card">
+                <h3>Uploads are treated as hostile</h3>
+                <p>Hidden, zero-width and bidi characters are stripped; free text is fenced; structured input is JSON,
+                    never concatenated into a prompt.</p>
+                <span class="tech">sanitizeForPrompt · fenceUserText · UNTRUSTED_INPUT_RULE</span>
+            </div>
+            <div class="card">
+                <h3>A hard ceiling on AI spend</h3>
+                <p>Per user, per UTC day, counted from real token usage — and a call made without an attributed user
+                    logs a warning in production.</p>
+                <span class="tech">2 M tokens · 400 calls · AsyncLocalStorage context</span>
+            </div>
+            <div class="card">
+                <h3>Link checks that cannot become a scanner</h3>
+                <p>A DNS guard refuses private, loopback, link-local and CGNAT addresses on every hop. LinkedIn is
+                    never fetched at all — format only.</p>
+                <span class="tech">ports 80/443 · ≤ 3 redirects · 5 s timeout · 24 h cache</span>
+            </div>
+        </div>
+
+        <h3 style="font-size:14px;margin-bottom:10px">What actually leaves your machine</h3>
+        <div style="overflow-x:auto;border:1px solid var(--border);border-radius:7px;background:var(--surface);padding:14px 4px">
+            <table class="leaves">
+                <thead><tr><th>Data</th><th>Destination</th><th>When</th></tr></thead>
+                <tbody>
+                    <tr><td>Library items, profile, variants, jobs</td><td class="dest">your own Firestore</td><td>on save</td></tr>
+                    <tr><td>Item text — <em>stale items only</em></td><td class="dest">Z.ai text model</td><td>during a save, a backfill, or a review</td></tr>
+                    <tr><td>Uploaded résumé or job posting</td><td class="dest">Z.ai vision or text model</td><td>when you press Analyse</td></tr>
+                    <tr><td>Candidate brief</td><td class="dest">Z.ai text model, server-side only</td><td>with coaching and tailoring prompts</td></tr>
+                    <tr><td>Résumé text for typesetting</td><td class="dest never">nowhere — compiled locally</td><td>—</td></tr>
+                    <tr><td>Anything at all</td><td class="dest never">no analytics, no telemetry</td><td>never</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="small muted" style="margin-top:14px">
+            Toggling, reordering, hiding a bullet and loading a variant send <strong>nothing</strong> to any model —
+            the content hash did not change. Tagging and import never receive the candidate brief.
+        </p>
+    </section>
+
+    <hr class="rule">
+
+    <!-- ══════════════════ LICENSE ══════════════════ -->
+    <section class="wrap" id="license">
+        <div class="license">
+            <h2>This is a showcase, not software you may use.</h2>
+            <p class="small" style="max-width:70ch">
+                quikResume is <strong>source-available, not open source</strong>. You are welcome to read every line,
+                learn from it and cite it. Copyright © 2026 xuckless. All rights reserved.
+            </p>
+            <div class="cols">
+                <div>
+                    <h3 style="color:var(--success)">Allowed</h3>
+                    <ul>
+                        <li>Reading and inspecting the source</li>
+                        <li>Personal study, evaluation, security research, reference</li>
+                        <li>The temporary local copies that browsing or cloning to read unavoidably creates</li>
+                    </ul>
+                </div>
+                <div>
+                    <h3 style="color:var(--danger)">Not allowed without written permission</h3>
+                    <ul>
+                        <li>Copying, republishing, mirroring or redistributing it</li>
+                        <li>Running, hosting or deploying it — publicly or privately, commercially <em>or</em> non-commercially</li>
+                        <li>Modifying it or making derivative works</li>
+                        <li>Folding any file, function or design asset into another project</li>
+                        <li>Using it as training data, fine-tuning data or a retrieval corpus</li>
+                    </ul>
+                </div>
+            </div>
+            <p class="small muted" style="margin-top:14px;margin-bottom:0">
+                These restrictions apply equally to every copy, fork, mirror, port and derivative, however obtained.
+                Vendored third-party components keep their own licences. For anything beyond reading, ask first.
+            </p>
+        </div>
+    </section>
+</main>
+
+<footer>
+    <div class="wrap foot">
+        <span>Built by <a href="https://github.com/xuckless">@xuckless</a></span>
+        <span>·</span>
+        <span>Next.js 16 · React 19 · Typst 0.13 in WebAssembly · Firestore · GLM</span>
+        <span class="sp">Alex Morgan is fictional. No real user data appears on this page.</span>
+    </div>
+</footer>
+
+<dialog class="lb" id="lightbox" aria-label="Enlarged screenshot">
+    <form method="dialog"><button class="lb-close" id="lbClose">Close ✕</button></form>
+    <img id="lbImg" alt="">
+</dialog>
+
+<script>
+"use strict";
+
+/* ───── feature tabs ───── */
+(function tabs() {
+    const list = document.querySelectorAll(".tab");
+    list.forEach(tab => {
+        tab.addEventListener("click", () => select(tab));
+        tab.addEventListener("keydown", e => {
+            const arr = [...list];
+            const i = arr.indexOf(tab);
+            if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+                e.preventDefault();
+                const n = arr[(i + (e.key === "ArrowRight" ? 1 : arr.length - 1)) % arr.length];
+                n.focus(); select(n);
+            }
+        });
+    });
+    function select(tab) {
+        list.forEach(t => {
+            const on = t === tab;
+            t.setAttribute("aria-selected", on ? "true" : "false");
+            document.getElementById(t.getAttribute("aria-controls")).classList.toggle("on", on);
+        });
+    }
+})();
+
+/* ───── the score calculator: a faithful port of src/lib/match/score.ts ───── */
+const IMPORTANCE = { must: 1, nice: 0.4 };
+const TIER = { hard: 1, soft: 0.3 };
+const BINARY = new Set(["credential", "language"]);
+
+/* The 14 requirements the app extracted from the Globex posting, with the coverage
+   it found in Alex Morgan's library (carriers = items covering the requirement). */
+const REQS = [
+    { d: "Go",                    kind: "technical-skill", imp: "must", tier: "hard", carriers: 3, note: "Languages · Northwind · Transit Delay Predictor" },
+    { d: "Kubernetes",            kind: "tool-platform",   imp: "must", tier: "hard", carriers: 2, note: "Contoso Health · Cloud & DevOps" },
+    { d: "gRPC",                  kind: "technical-skill", imp: "must", tier: "hard", carriers: 2, note: "Northwind · Transit Delay Predictor" },
+    { d: "C++",                   kind: "technical-skill", imp: "must", tier: "hard", carriers: 0, note: "nothing in the library shows it" },
+    { d: "PostgreSQL",            kind: "tool-platform",   imp: "must", tier: "hard", carriers: 3, note: "Data & Analytics · 2 projects" },
+    { d: "SQL",                   kind: "technical-skill", imp: "must", tier: "hard", carriers: 1, note: "Languages only — one carrier scores 0.75" },
+    { d: "Bachelor's Degree",     kind: "credential",      imp: "must", tier: "hard", carriers: 2, note: "inferred: ← Bachelor of Science" },
+    { d: "Microservices",         kind: "domain",          imp: "must", tier: "soft", carriers: 5, note: "inferred: ← gRPC, FastAPI" },
+    { d: "CI/CD",                 kind: "methodology",     imp: "must", tier: "soft", carriers: 3, note: "Northwind · Cloud & DevOps · Classifier" },
+    { d: "Written Communication", kind: "soft-skill",      imp: "must", tier: "soft", carriers: 2, note: "evidence: USENIX paper · mentoring" },
+    { d: "Terraform",             kind: "tool-platform",   imp: "nice", tier: "hard", carriers: 2, note: "Cloud & DevOps · Cloud Cost Dashboard" },
+    { d: "Observability",         kind: "domain",          imp: "nice", tier: "soft", carriers: 2, note: "evidence: tracing work · ATC paper" },
+    { d: "Containerisation",      kind: "domain",          imp: "nice", tier: "soft", carriers: 4, note: "inferred: ← Docker, Kubernetes" },
+    { d: "Code Review",           kind: "methodology",     imp: "nice", tier: "soft", carriers: 0, note: "missing as a keyword, not as a skill" },
+];
+const BASE_SCORE = 84;
+const state = REQS.map(r => ({ on: r.carriers > 0 }));
+
+const strengthOf = (r, on) => {
+    const carriers = on ? (r.carriers || 1) : 0;
+    if (carriers === 0) return 0;                       // no literal hit for either uncovered row
+    return BINARY.has(r.kind) ? 1 : Math.min(1, 0.5 + 0.25 * carriers);
+};
+const weightOf = r => IMPORTANCE[r.imp] * TIER[r.tier];
+const f2 = n => n.toFixed(2);
+
+function render() {
+    let sumW = 0, sumWS = 0, mustTot = 0, mustCov = 0, niceTot = 0, niceCov = 0;
+    const missing = [];
+    const rows = REQS.map((r, i) => {
+        const on = state[i].on;
+        const s = strengthOf(r, on);
+        const w = weightOf(r);
+        sumW += w; sumWS += w * s;
+        if (r.imp === "must") { mustTot++; if (on) mustCov++; else if (r.tier === "hard") missing.push(r.d); }
+        else { niceTot++; if (on) niceCov++; }
+        return { r, i, on, s, w, ws: w * s, carriers: on ? (r.carriers || 1) : 0 };
+    });
+    const max = Math.max(...rows.map(x => x.ws), 1);
+    const score = Math.round(100 * sumWS / sumW);
+
+    document.getElementById("reqBody").innerHTML = rows.map(x => `
+        <tr class="${x.on ? "" : "off"}">
+            <td><input class="sw" type="checkbox" id="req${x.i}" ${x.on ? "checked" : ""}
+                       data-i="${x.i}" aria-label="Coverage for ${x.r.d}"></td>
+            <td>
+                <label class="rname" for="req${x.i}">${x.r.d}</label>
+                <div style="font-size:11.5px;color:var(--ink-subtle);font-family:var(--mono)">${x.on ? x.r.note : "switched off here"}</div>
+            </td>
+            <td class="hide-s">${x.r.imp === "must" ? "<strong>must</strong>" : "nice"}</td>
+            <td class="hide-s"><span class="tier ${x.r.tier}">${x.r.tier}</span></td>
+            <td class="num">${x.carriers}</td>
+            <td class="num">${f2(x.s)}</td>
+            <td class="num hide-s">${f2(x.w)}</td>
+            <td class="num">${f2(x.ws)}</td>
+            <td class="hide-s"><span class="contrib"><i class="${x.ws === 0 ? "zero" : ""}"
+                  style="width:${x.ws === 0 ? 100 : Math.round(100 * x.ws / max)}%"></span></span></td>
+        </tr>`).join("");
+
+    document.getElementById("scoreOut").textContent = String(score);
+    const arc = document.getElementById("ringArc");
+    const C = 2 * Math.PI * 35;
+    arc.setAttribute("stroke-dasharray", C.toFixed(1));
+    arc.setAttribute("stroke-dashoffset", (C * (1 - score / 100)).toFixed(1));
+    arc.setAttribute("stroke", score >= 80 ? "var(--success)" : score >= 60 ? "var(--accent)" : "var(--warning)");
+
+    const d = score - BASE_SCORE;
+    document.getElementById("scoreDelta").textContent =
+        d === 0 ? "as captured" : (d > 0 ? "+" : "−") + Math.abs(d) + " vs the 84 captured";
+    document.getElementById("mustOut").textContent = mustCov + " / " + mustTot;
+    document.getElementById("niceOut").textContent = niceCov + " / " + niceTot;
+    const miss = document.getElementById("missOut");
+    miss.textContent = missing.length ? missing.join(", ") : "none";
+    miss.style.color = missing.length ? "var(--danger)" : "var(--success)";
+    document.getElementById("mathOut").innerHTML =
+        "Σ w · s = " + f2(sumWS) + "<br>Σ w &nbsp;&nbsp;&nbsp;&nbsp;= " + f2(sumW) +
+        "<br>100 × " + f2(sumWS) + " / " + f2(sumW) + " = <strong>" + (100 * sumWS / sumW).toFixed(1) + "</strong>";
+
+    document.querySelectorAll(".sw").forEach(sw => sw.addEventListener("change", e => {
+        state[+e.target.dataset.i].on = e.target.checked;
+        render();
+    }));
+}
+
+document.querySelectorAll("[data-preset]").forEach(btn => btn.addEventListener("click", () => {
+    const p = btn.dataset.preset;
+    REQS.forEach((r, i) => {
+        if (p === "captured") state[i].on = r.carriers > 0;
+        else if (p === "cpp") state[i].on = r.carriers > 0 || r.d === "C++";
+        else if (p === "nogo") state[i].on = r.carriers > 0 && r.d !== "Go";
+        else state[i].on = true;
+    });
+    document.querySelectorAll("[data-preset]").forEach(b => b.classList.toggle("primary", b === btn));
+    render();
+}));
+render();
+
+/* ───── tag-kind chart ───── */
+const KINDS = [
+    { label: "Tools & platforms", n: 31, v: "--k-tools" },
+    { label: "Domains",           n: 21, v: "--k-domain" },
+    { label: "Technical skills",  n: 8,  v: "--k-tech" },
+    { label: "Methodologies",     n: 8,  v: "--k-method" },
+    { label: "Credentials",       n: 6,  v: "--k-cred" },
+    { label: "Soft skills",       n: 4,  v: "--k-soft" },
+    { label: "Languages",         n: 2,  v: "--k-lang" },
+];
+const TOTAL = KINDS.reduce((a, k) => a + k.n, 0);
+document.getElementById("tagChart").innerHTML = KINDS.map(k => `
+    <div class="crow">
+        <span class="cname">
+            <span class="dot" style="background:var(${k.v})"></span>
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${k.label}</span>
+        </span>
+        <span class="track">
+            <span class="bar" style="width:${(100 * k.n / 32).toFixed(1)}%;background:var(${k.v})">
+                <span class="tip">${k.n} tags · ${Math.round(100 * k.n / TOTAL)}% of ${TOTAL}</span>
+            </span>
+        </span>
+        <span class="cval">${k.n}</span>
+    </div>`).join("");
+
+/* ───── lightbox ───── */
+(function lightbox() {
+    const dlg = document.getElementById("lightbox");
+    const img = document.getElementById("lbImg");
+    document.querySelectorAll("img.zoomable").forEach(el => {
+        el.addEventListener("click", () => {
+            img.src = el.currentSrc || el.src;
+            img.alt = el.alt;
+            if (typeof dlg.showModal === "function") dlg.showModal();
+        });
+    });
+    dlg.addEventListener("click", e => { if (e.target === dlg) dlg.close(); });
+})();
+
+/* ───── theme toggle (Pages build: no host stamps data-theme for us) ───── */
+(function theme() {
+    const root = document.documentElement;
+    const btn = document.getElementById("themeBtn");
+    let stored = null;
+    try { stored = localStorage.getItem("qr-theme"); } catch (e) { /* private mode */ }
+    if (stored === "dark" || stored === "light") root.setAttribute("data-theme", stored);
+    btn.addEventListener("click", () => {
+        const dark = root.getAttribute("data-theme") === "dark"
+            || (!root.hasAttribute("data-theme") && matchMedia("(prefers-color-scheme: dark)").matches);
+        const next = dark ? "light" : "dark";
+        root.setAttribute("data-theme", next);
+        try { localStorage.setItem("qr-theme", next); } catch (e) { /* ignore */ }
+    });
+})();
+</script>
+</body>
+</html>

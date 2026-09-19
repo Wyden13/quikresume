@@ -15,7 +15,7 @@
 
 **[Feature tour](#-the-tour) · [Live walkthrough](#-a-real-application-start-to-finish) · [Setup tutorial](#-tutorial-from-git-clone-to-your-first-pdf) · [Data protection](#-your-data-and-what-happens-to-it) · [Architecture](#-architecture) · [License](#-license--showcase-only)**
 
-### ▶ [Open the interactive tour](https://claude.ai/artifact/36yZ36iUaQmtoYE8RpHABP)
+### ▶ [Open the interactive tour](https://xuckless.github.io/quikresume/)
 
 <sub>A companion page where the feature tabs, the screenshots and the **fit-score calculator** are live — toggle a requirement and watch the 84 recompute with the app's own formula.</sub>
 
