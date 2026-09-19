@@ -1,8 +1,15 @@
-quikResume Source-Available License
+quikResume Source-Available License — SHOWCASE ONLY
 Copyright (c) 2026 xuckless. All rights reserved.
 
-This software and its source code (the "Software") are made public for reading only.
-They are NOT open source. No right to use the Software is granted except as stated below.
+This software and its source code (the "Software") are published as a SHOWCASE: a
+portfolio demonstration of the author's work, made public so that it can be read and
+evaluated. They are made public for reading only. They are NOT open source. No right to
+use the Software is granted except as stated below.
+
+In particular, neither the Software nor any copy, fork, mirror, port, or derivative of it
+may be used commercially, sold, or operated as or as part of a product or service, and it
+may not be run or deployed even privately or non-commercially. Copying the Software does
+not create a copy you are permitted to use.
 
 1. Permission granted
 
@@ -30,7 +37,12 @@ They are NOT open source. No right to use the Software is granted except as stat
       corpus, or other input for machine learning or generative artificial intelligence
       systems, or to generate datasets or embeddings derived from it;
    g. remove, obscure, or alter this license, any copyright notice, or any attribution
-      contained in the Software.
+      contained in the Software;
+   h. commercially exploit the Software or any copy or derivative of it in any way,
+      including using it to provide a service to others, whether or not a fee is charged.
+
+   These restrictions apply equally to the Software and to every copy, fork, mirror, port,
+   translation, and derivative of it, however obtained.
 
 3. Reserved rights
 
